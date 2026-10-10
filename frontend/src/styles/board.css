@@ -133,3 +133,44 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
   .detail-head h1 { font-size: 25px; }
   .comment-form { align-items: stretch; flex-direction: column; }
 }
+/* 게시판 생성 창 중앙 배치 */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.board-create-modal {
+  position: relative;
+  width: min(480px, 100%);
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  border-radius: 24px;
+  padding: 28px;
+}
+
+/* 정렬 선택창 */
+select {
+  font: inherit;
+}
+
+select.sort-pill {
+  width: 116px;
+  min-height: 46px;
+  padding: 0 14px;
+  background: #fff;
+  border: 1px solid #ecebf0;
+  border-radius: 999px;
+  font-weight: 700;
+  color: #40385f;
+  cursor: pointer;
+}
+
+select:focus-visible {
+  outline: 3px solid #5fcdbb77;
+  outline-offset: 2px;
+}

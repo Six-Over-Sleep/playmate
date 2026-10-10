@@ -1,0 +1,16 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.testdeps*/
+node_modules/
+dist/
+uploads/
+.alltestdeps/
+.mysqltestdeps/
+.pgtestdeps/
+.vite/
+coverage/
+*.log

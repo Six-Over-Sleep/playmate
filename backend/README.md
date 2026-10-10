@@ -1,105 +1,46 @@
 # Backend
 
-커뮤니티 서비스의 FastAPI 백엔드 서버를 개발하는 폴더임.
+## 역할
+FastAPI가 React의 HTTP 요청을 받고, SQLAlchemy로 PostgreSQL 데이터를 읽고 저장하는 서버임.
 
-회원 인증, 게시글, 댓글, 좋아요, 모임, 정보공유, 분실물, 자격증, 취업정보 등의 API와 서비스 로직을 담당함.
+## 구조
+```text
+backend/app/
+├── main.py                 # FastAPI 앱 실행 및 라우터 연결
+├── core/database.py        # Aiven 연결, SQLAlchemy 세션
+├── models/                 # DB 테이블 ↔ Python 클래스
+├── schemas/                # 요청 데이터 형식·검증
+├── routers/                # API 주소/HTTP 메서드
+└── services/               # 실제 DB 저장 등 처리
+```
 
-## 폴더 구조
+## 실행
+```powershell
+uv sync
+uv run uvicorn backend.app.main:app --reload
+```
+- 문서 확인: `http://127.0.0.1:8000/docs`
+- 목록 API: `GET /api/recruits`
 
-| 세컨 폴더 | 써드 폴더 | 설명 |
+## 작업 흐름
+React → `routers/recruit.py` → `services/recruit.py` 또는 ORM 조회 → `core/database.py` → PostgreSQL 순서로 처리함.
+
+## 모임 API
+| HTTP | URL | 역할 |
 |---|---|---|
-| `app/` | `routers/` | API URL 및 엔드포인트 관리 영역임 |
-| `app/` | `models/` | 데이터베이스 ORM 모델 관리 영역임 |
-| `app/` | `schemas/` | Request / Response 데이터 구조 정의 영역임 |
-| `app/` | `services/` | 실제 서비스 기능 및 비즈니스 로직 처리 영역임 |
-| `app/` | `core/` | DB 연결, 환경설정, 인증 등 공통 설정 영역임 |
+| GET | `/api/recruits` | 삭제되지 않은 모임 목록 |
+| GET | `/api/recruits/{recruit_id}` | 모임 상세 + `detail` |
+| POST | `/api/recruits` | 모임 생성 |
+| PATCH | `/api/recruits/{recruit_id}` | 공통 정보 수정 |
+| DELETE | `/api/recruits/{recruit_id}` | 논리 삭제 |
+| POST | `/api/recruits/{recruit_id}/join` | 테스트 사용자 참여 |
+| DELETE | `/api/recruits/{recruit_id}/join` | 참여 취소 |
+| GET | `/api/recruits/{recruit_id}/members` | JOINED 참여자 목록 |
+| GET | `/api/recruits/{recruit_id}/count` | 현재 인원/정원/잔여석 |
 
-```text
-backend/
-├─ app/
-│  ├─ routers/
-│  ├─ models/
-│  ├─ schemas/
-│  ├─ services/
-│  └─ core/
-└─ README.md
-```
-
-## 폴더 설명
-
-### `app/routers/`
-
-FastAPI API 엔드포인트를 작성함.
-
-예시는 다음과 같음.
-
-```text
-auth.py
-posts.py
-comments.py
-restaurants.py
-lost_items.py
-certificates.py
-```
-
-### `app/models/`
-
-데이터베이스 테이블과 연결되는 ORM 모델을 작성함.
-
-예시는 다음과 같음.
-
-```text
-member.py
-post.py
-comment.py
-category.py
-restaurant.py
-```
-
-### `app/schemas/`
-
-Pydantic을 이용하여 API의 Request / Response 데이터 구조를 정의함.
-
-예시는 다음과 같음.
-
-```text
-PostCreate
-PostResponse
-CommentCreate
-MemberResponse
-```
-
-### `app/services/`
-
-실제 서비스 기능을 처리함.
-
-주요 작업은 다음과 같음.
-
-- 게시글 등록
-- 게시글 수정
-- 좋아요 처리
-- 댓글 작성
-- 분실물 등록
-- 사용자 권한 처리
-
-### `app/core/`
-
-프로젝트 전체에서 사용하는 공통 설정을 관리함.
-
-예시는 다음과 같음.
-
-```text
-database.py
-config.py
-security.py
-```
-
-DB 연결, 환경변수, Discord OAuth 등의 설정을 관리함.
-
-## 관리 규칙
-
-API 경로 정의와 실제 처리 로직을 하나의 파일에 모두 작성하지 않음.
-
-비밀번호, API Key, OAuth Secret 등의 민감정보는 `.env` 파일로 관리함.
-
-`.env` 파일은 GitHub에 업로드하지 않음.
+## 제약사항
+- 개발용 회원 ID `-1`을 사용 중임. 실제 로그인과 권한 검사는 아직 없음.
+- 모임 생성에서는 카테고리 상세를 저장하지만 PATCH는 상세 항목 변경을 지원하지 않음.
+- 동시 참여 시 정원 초과 방지용 잠금은 아직 없음.
+- 응답 스키마 통일/오류 규격/CORS/자동 테스트는 후속 작업임.
+- 공통 `members`, `posts` 테이블 변경 시 다른 팀과 협의해야 함.

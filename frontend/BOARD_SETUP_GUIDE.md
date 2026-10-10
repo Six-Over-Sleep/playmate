@@ -1,96 +1,77 @@
-# PlayMate 게시판 설치 및 실행 가이드
+# PlayMate 게시판 설치 · 실행 · Swagger API 실습 통합 가이드
 
-GitHub 저장소: [Six-Over-Sleep/playmate](https://github.com/Six-Over-Sleep/playmate/tree/feature/board)
-작업 브랜치: **`feature/board`**
+> **Windows · VS Code · PowerShell 기준**  
+> 저장소: https://github.com/Six-Over-Sleep/playmate/tree/feature/board  
+> 브랜치: `feature/board` · 프론트엔드: React + Vite · 백엔드: FastAPI · DB: Aiven PostgreSQL
 
-| 구분      | 기술                           |
-| --------- | ------------------------------ |
-| Frontend  | React + Vite                   |
-| Backend   | Python + FastAPI               |
-| Database  | Aiven PostgreSQL               |
-| 버전 관리 | Git + GitHub                   |
-| 안내 환경 | Windows / VS Code / PowerShell |
+이 문서 하나로 **처음 Clone하는 팀원**, **기존 코드를 Pull하는 팀원**, **화면을 실행하는 팀원**, **Swagger에서 게시판 API를 검증하는 팀원** 모두 따라 할 수 있습니다.
 
-이 문서는 **GitHub에서 프로젝트를 처음 받는 팀원**과 **이미 프로젝트를 받은 뒤 최신 코드를 가져와야 하는 팀원**을 모두 위한 안내입니다.
+**중요:** `localhost`는 자기 컴퓨터를 가리킵니다. 한 명이 서버를 실행했다고 다른 팀원의 PC에서 같은 주소로 접속되는 것은 아닙니다. 공용 Aiven DB를 사용하면 한 명이 작성·수정·삭제한 테스트 데이터가 다른 팀원에게도 영향을 줍니다.
 
-> **처음 받는 사람 → `git clone` / 이미 받은 사람 → `git pull`**
-> `feature/board`는 게시판 개발 브랜치이며, 해당 브랜치에 Push해도 `main`에 자동 반영되지는 않습니다.
+## 1. 전체 실행 순서
 
-## 전체 실행 순서
+| 단계 | 수행할 일 | 확인 방법 |
+|---|---|---|
+| 1 | Git, Python, Node.js, VS Code 설치 | 버전 출력 |
+| 2 | 처음이면 Clone, 이미 받았다면 Pull | `feature/board` 브랜치 확인 |
+| 3 | Python 가상환경과 패키지 설치 | 설치 오류 없음 |
+| 4 | `.env` 설정 및 Aiven 연결 | DB 점검 스크립트 실행 |
+| 5 | FastAPI 백엔드 실행 | `/health`, `/health/db` 응답 |
+| 6 | React 프론트엔드 실행 | `http://localhost:5173` 접속 |
+| 7 | Swagger API 실습 | 13개 엔드포인트 기능 확인 |
+| 8 | UI·데이터 확인 및 Git 작업 | 체크리스트와 `git status` 확인 |
 
-1. Git, Python, Node.js, VS Code 설치
-2. 코드 가져오기: 처음이면 **Clone**, 이미 받았다면 **Pull**
-3. Python 가상환경 및 백엔드 패키지 설치
-4. `.env` 작성 및 PostgreSQL DB 연결 확인
-5. FastAPI 백엔드 실행
-6. React 프론트엔드 실행
-7. 브라우저에서 게시판 기능 테스트
-8. 이후 최신 코드 갱신 및 GitHub Push
-
----
-
-## 프로젝트 폴더 구조와 역할
-
-처음 코드를 받은 팀원은 먼저 전체 폴더의 역할을 확인하세요. **각 폴더는 담당하는 기능이 다르므로, 수정할 기능에 맞는 위치에서 작업**하면 됩니다.
+## 2. 프로젝트 폴더 구조와 역할
 
 ```text
 playmate/
-├─ ai/                       # AI 관련 기능 및 실험 코드
-├─ backend/                  # FastAPI 서버와 게시판 API
-│  ├─ app/
-│  │  ├─ core/               # DB 연결, 인증 등 공통 설정
-│  │  ├─ routers/            # API 주소와 요청 처리
-│  │  └─ services/           # 게시판 데이터 처리 및 비즈니스 로직
-│  ├─ tests/                 # 백엔드 테스트
-│  ├─ requirements.txt       # 백엔드 의존성
-│  └─ requirements-dev.txt   # 개발·테스트용 추가 의존성
-├─ crawler/                  # 외부 데이터 수집 관련 코드
-├─ database/                 # PostgreSQL SQL 및 DB 점검 스크립트
-│  ├─ sql/                   # 테이블/관계 등 SQL 관리
-│  └─ scripts/               # DB 연결 확인·스키마 검사 등
-├─ docs/                     # 프로젝트 설명 및 개발·검증 문서
-│  ├─ BOARD_MVP_GUIDE.md     # 게시판 MVP 실행·테스트 상세 가이드
-│  └─ BOARD_SETUP_GUIDE.md   # 지금 보고 있는 게시판 설치 가이드
-├─ frontend/                 # React + Vite 화면
-│  ├─ src/                   # 게시판 화면·컴포넌트·API 호출 코드
-│  ├─ package.json           # 프론트엔드 패키지 및 실행 스크립트
-│  └─ vite.config.js         # Vite 개발 서버 설정
-├─ .env.example              # 환경변수 양식 (비밀번호 없음)
-├─ .gitignore                # Git에 올리지 않을 파일/폴더 지정
-└─ README.md                 # 프로젝트 전체 소개 및 문서 링크
+├── README.md                    # 프로젝트 전체 소개
+├── .env.example                 # 개인별 .env 생성 양식
+├── backend/
+│   ├── app/
+│   │   ├── main.py              # FastAPI 앱, 라우터 등록, 상태 확인
+│   │   ├── routers/board.py     # 게시판·게시글·댓글 API 주소
+│   │   ├── schemas/board.py     # 요청 및 응답 필드 검증
+│   │   ├── services/board_service.py  # 게시판 DB 처리 로직
+│   │   └── core/                # DB 연결, 개발 인증, 업로드
+│   ├── requirements.txt
+│   ├── requirements-dev.txt
+│   └── tests/                  # 백엔드 테스트
+├── frontend/
+│   ├── README.md                # 프론트엔드 폴더 설명
+│   ├── BOARD_SETUP_GUIDE.md     # 현재 문서
+│   ├── package.json             # npm 명령과 의존성
+│   └── src/                     # React 화면, 서비스, 스타일
+├── database/
+│   ├── sql/                     # 스키마·마이그레이션 SQL
+│   └── scripts/                 # DB 연결·스키마 점검
+├── docs/                        # 프로젝트 문서 및 기존 검증 자료
+├── ai/                          # AI 관련 기능
+└── crawler/                     # 크롤링 관련 기능
 ```
 
-> 위 트리는 **주요 폴더와 파일만 표시한 간략 구조**입니다. 세부 파일은 작업에 따라 추가되거나 변경될 수 있습니다.
+| 작업 | 주로 확인할 위치 |
+|---|---|
+| 게시판 모달, 버튼, 레이아웃, 색상 | `frontend/src/components/board/`, `frontend/src/styles/` |
+| 게시판 페이지와 정렬 UI | `frontend/src/pages/board/`, `frontend/src/services/boardApi.js` |
+| API 주소·요청 방식 | `backend/app/routers/board.py` |
+| 데이터 입력·권한·삭제 처리 | `backend/app/services/board_service.py` |
+| API 입력 형식 | `backend/app/schemas/board.py` |
+| DB 접속·개발 회원 인증 | `backend/app/core/`, 루트 `.env` |
+| DB 테이블·컬럼 | `database/sql/`, `database/scripts/` |
 
-### 어떤 작업을 할 때 어디를 수정하나요?
+> `.venv/`, `frontend/node_modules/`, 개인 `.env`는 일반적으로 로컬에만 두며 GitHub에 업로드하지 않습니다. **이 문서는 설치·실행 및 현재 API 실습을 다루며, 모든 기능의 테스트 통과를 보장한다는 뜻은 아닙니다.**
 
-| 작업 내용                            | 주로 확인할 위치                                            | 설명                                                 |
-| ------------------------------------ | ----------------------------------------------------------- | ---------------------------------------------------- |
-| 게시판 생성 창의 위치·디자인 수정   | `frontend/src/`                                           | 화면 구성, 버튼, 모달, CSS 등 사용자에게 보이는 부분 |
-| 정렬 버튼·목록 표시 동작 수정       | `frontend/src/`                                           | 화면 상태와 API 호출·정렬 관련 코드 확인            |
-| 게시글·댓글 등록/수정/삭제 API 수정 | `backend/app/routers/`, `backend/app/services/`         | 요청 처리와 실제 데이터 처리 로직                    |
-| DB 연결 문제 확인                    | `backend/app/core/`, `.env`                             | 접속 정보 및 인증·연결 설정                         |
-| 테이블·컬럼 구조 확인               | `database/sql/`, `database/scripts/`                    | SQL 및 DB 점검 코드. 공용 DB 수정은 담당자 협의 필요 |
-| 패키지 설치·서버 실행 설정          | `backend/requirements-dev.txt`, `frontend/package.json` | Python/Node 의존성과 실행 스크립트                   |
-| 사용 방법·테스트 방법 업데이트      | `docs/BOARD_SETUP_GUIDE.md`, `docs/`                    | 새 팀원이 따라 할 수 있는 프로젝트 문서              |
-| AI·크롤링 관련 개발                 | `ai/`, `crawler/`                                       | 게시판 이외 기능별 코드                              |
+## 3. 개발 환경 설치
 
-**자주 헷갈리는 점:** `frontend`는 화면을, `backend`는 API·서버를, `database`는 DB 스키마·점검 코드를 담당합니다. 실제 게시글 데이터는 소스 폴더가 아니라 **연결된 PostgreSQL DB에 저장**됩니다.
+| 프로그램 | 용도 | 공식 다운로드 |
+|---|---|---|
+| Git | Clone, Pull, Push | https://git-scm.com/downloads/win |
+| VS Code | 코드 편집·터미널 | https://code.visualstudio.com/ |
+| Python (권장 3.12) | FastAPI 실행 | https://www.python.org/downloads/ |
+| Node.js (LTS 권장) | React + Vite 실행 | https://nodejs.org/ |
 
-`.venv/`(Python 가상환경), `frontend/node_modules/`(설치된 Node 패키지), `.env`(개인 접속 정보)는 설치 후 로컬 PC에 생성되는 파일·폴더이며, 보통 GitHub에 올리지 않습니다.
-
----
-
-## STEP 1. 개발 환경 설치
-
-| 프로그램 | 용도                                           | 설치 주소                                    |
-| -------- | ---------------------------------------------- | -------------------------------------------- |
-| Git      | GitHub 코드 다운로드 및 버전 관리              | [다운로드](https://git-scm.com/downloads/win) |
-| VS Code  | 코드 편집 및 터미널                            | [다운로드](https://code.visualstudio.com/)    |
-| Python   | FastAPI 백엔드 실행 (권장: 3.12)               | [다운로드](https://www.python.org/downloads/) |
-| Node.js  | React 프론트엔드 실행 (지원되는 LTS 버전 권장) | [다운로드](https://nodejs.org/)               |
-
-VS Code에서 **Terminal → New Terminal**을 열고 PowerShell에서 아래 명령어를 실행합니다.
+VS Code → **Terminal → New Terminal**에서 확인합니다.
 
 ```powershell
 git --version
@@ -99,220 +80,127 @@ node --version
 npm.cmd --version
 ```
 
-각 프로그램의 버전이 나오면 정상입니다. 명령어를 찾을 수 없다고 나오면 해당 프로그램을 설치하고 VS Code를 다시 실행합니다.
+`node` 또는 `npm.cmd`가 인식되지 않지만 Node.js가 이미 설치되어 있다면:
 
----
+```powershell
+Test-Path "C:\Program Files\nodejs\node.exe"
+& "C:\Program Files\nodejs\node.exe" --version
+$env:Path += ";C:\Program Files\nodejs"
+node --version
+npm.cmd --version
+```
 
-## STEP 2. GitHub에서 코드 가져오기
+이 PATH 변경은 **현재 터미널에만** 적용됩니다. 설치 자체가 없다면 Node.js를 설치하고 VS Code를 완전히 재시작하세요.
 
-**본인 상황에 맞는 A 또는 B 중 하나만 진행하세요.**
+## 4. GitHub 코드 받기: Clone과 Pull 구분
 
-### A. 처음 프로젝트를 받는 팀원 — `git clone`
+### A. 처음 받는 팀원 — Clone
 
-아직 본인 PC에 `playmate` 프로젝트가 없는 경우입니다.
-
-**① 프로젝트를 저장할 위치로 이동**
+프로젝트가 아직 로컬에 없는 경우:
 
 ```powershell
 cd "$HOME\Desktop"
-```
-
-**② `feature/board` 브랜치를 지정하여 Clone**
-
-```powershell
 git clone -b feature/board https://github.com/Six-Over-Sleep/playmate.git
-```
-
-**③ 생성된 프로젝트 폴더로 이동**
-
-```powershell
 cd playmate
-```
-
-**④ 현재 브랜치와 Git 상태 확인**
-
-```powershell
 git branch --show-current
 git status
 ```
 
-브랜치가 `feature/board`이고 수정된 파일이 없다면 아래와 유사하게 표시됩니다.
+`feature/board` 브랜치와 깨끗한 작업 트리가 확인되면 다음 단계로 이동합니다.
 
-```text
-On branch feature/board
-Your branch is up to date with 'origin/feature/board'.
+### B. 이미 Clone한 팀원 — Pull
 
-nothing to commit, working tree clean
-```
-
-완료되었다면 **STEP 3**으로 이동합니다.
-
-### B. 이미 프로젝트를 받은 팀원 — `git pull`
-
-이미 프로젝트를 Git으로 Clone한 경우 **다시 Clone할 필요가 없습니다.** 기존 프로젝트 폴더에서 최신 코드를 가져오면 됩니다.
-
-**① VS Code에서 기존 `playmate` 프로젝트 열기**
-
-VS Code에서 **File → Open Folder**로 기존 폴더를 열고 새 터미널을 실행합니다. 또는 해당 프로젝트가 설치된 경로로 이동합니다.
+프로젝트를 받은 적이 있다면 다시 Clone할 필요가 없습니다. 아래 경로는 예시이므로 본인 프로젝트 위치로 바꾸세요.
 
 ```powershell
-# 예시: C:\dev\project\playmate에 설치된 경우
 cd C:\dev\project\playmate
-```
-
-> 폴더 위치는 컴퓨터마다 다를 수 있습니다. 바탕화면에 Clone했다면 `cd "$HOME\Desktop\playmate"`를 사용합니다.
-
-**② 수정 중인 코드가 있는지 확인**
-
-```powershell
+git status
+git switch feature/board
+git pull origin feature/board
 git status
 ```
 
-`nothing to commit, working tree clean`이라면 다음 단계로 진행하면 됩니다. 수정 파일이 있다면 먼저 Commit하거나 안전하게 백업/스태시하여 작업을 보관하세요. `pull` 도중 로컬 변경과 충돌할 수 있습니다.
-
-**③ 게시판 브랜치로 이동**
-
-```powershell
-git switch feature/board
-```
-
-로컬에 해당 브랜치가 없다면 아래 명령어로 원격 브랜치를 가져와 연결합니다.
+`git status`에 변경 파일이 있다면 **먼저 백업하거나 커밋/스태시**한 뒤 Pull하세요. 로컬에 브랜치가 없다면 다음을 실행합니다.
 
 ```powershell
 git fetch origin
 git switch --track origin/feature/board
 ```
 
-**④ 최신 코드 가져오기**
+`Already up to date.`는 이미 최신이라는 의미입니다. **기존 `.env`는 Pull을 이유로 삭제하거나 덮어쓰지 마세요.** 다른 사람의 Push와 이력이 갈라졌다면 강제 Push·`reset --hard`로 해결하려 하지 말고 변경 내역을 확인합니다.
 
-```powershell
-git pull origin feature/board
-```
+## 5. Python 가상환경과 패키지 설치
 
-**⑤ 상태 다시 확인**
-
-```powershell
-git status
-```
-
-`Already up to date.`가 나오면 이미 최신입니다. 새 코드가 내려받아졌다면 변경된 파일들이 출력될 수 있습니다.
-
-**주의사항**
-
-- **기존 `.env`는 삭제하거나 덮어쓰지 않습니다.** 로컬 접속 정보는 계속 사용합니다.
-- `git pull`은 소스코드를 갱신할 뿐, 라이브러리 설치나 서버 실행까지 자동으로 해주지는 않습니다.
-- 원격과 로컬 이력이 갈라졌거나 충돌이 발생하면 임의로 `reset --hard` 또는 강제 Push하지 말고 변경 내용을 확인합니다.
-- 이미 개발 환경을 설치했다면 STEP 3~4를 확인한 후 **STEP 5부터 서버를 재실행**하면 됩니다.
-
-### Clone과 Pull의 차이
-
-| 상황                    | 사용할 명령어                                 | 설명                               |
-| ----------------------- | --------------------------------------------- | ---------------------------------- |
-| 최초 1회 다운로드       | `git clone -b feature/board <저장소 주소>`  | 새 프로젝트 폴더 생성              |
-| 이미 받은 프로젝트 갱신 | `git pull origin feature/board`             | 기존 폴더에 최신 코드 반영         |
-| 내 작업 GitHub 업로드   | `git add` → `git commit` → `git push` | 내 변경사항을 원격 브랜치에 업로드 |
-
----
-
-## STEP 3. Python 가상환경 및 백엔드 라이브러리 설치
-
-**프로젝트 최상위 폴더(`playmate`)에서 실행합니다.**
-
-### ① 가상환경 생성 (최초 1회)
+**프로젝트 최상위 `playmate/` 폴더에서 실행합니다.**
 
 ```powershell
 python -m venv .venv
-```
-
-### ② PowerShell 가상환경 실행 허용
-
-```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-```
-
-현재 터미널 세션에만 적용되는 설정입니다.
-
-### ③ 가상환경 활성화
-
-```powershell
 .\.venv\Scripts\Activate.ps1
-```
-
-정상적으로 실행되면 터미널 앞에 `(.venv)`가 표시됩니다.
-
-### ④ 백엔드 패키지 설치
-
-```powershell
 python -m pip install --upgrade pip
 python -m pip install -r backend\requirements-dev.txt
 ```
 
-FastAPI, Uvicorn, PostgreSQL 연결 라이브러리 등 필요한 패키지를 설치합니다.
+가상환경을 이미 만든 팀원은 **다시 생성하지 말고** 새 터미널에서 활성화한 후 필요한 경우 패키지만 갱신합니다.
 
-> **이미 설치한 팀원:** `.venv`를 매번 다시 생성할 필요는 없습니다. 터미널을 새로 열 때 가상환경만 활성화하면 됩니다. `requirements-dev.txt`에 변경이 생겼다면 패키지 설치 명령어를 다시 실행하세요.
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r backend\requirements-dev.txt
+```
 
----
+프론트엔드 의존성 설치(처음 1회 또는 패키지 변경 시):
 
-## STEP 4. PostgreSQL DB 연결 설정
+```powershell
+cd frontend
+npm.cmd install
+cd ..
+```
 
-각 팀원은 로컬에 `.env` 파일이 필요합니다. **실제 DB 호스트, 계정, 비밀번호는 DB 담당자로부터 안전하게 전달받아야 합니다.**
+## 6. Aiven PostgreSQL과 `.env` 설정
 
-### ① `.env` 파일 생성 (최초 1회)
-
-프로젝트 루트에서 실행합니다.
+루트에 `.env`가 없는 팀원만 아래 명령을 실행합니다.
 
 ```powershell
 Copy-Item .env.example .env
 notepad .env
 ```
 
-> **기존 `.env`가 있으면 위 복사 명령어를 다시 실행하지 않습니다.** `git pull` 후 `.env.example`의 변수 구성이 달라졌다면 필요한 항목만 기존 `.env`에 추가하세요.
-
-### ② 환경변수 입력
-
-아래는 입력 형식입니다. DB 접속 정보는 실제 발급된 값으로 바꾸세요.
+실제 접속값은 DB 담당자에게 별도 전달받습니다. 아래는 **입력 양식**이지 실제 계정 정보가 아닙니다.
 
 ```dotenv
-# Aiven PostgreSQL
-DB_HOST=실제_PostgreSQL_호스트
-DB_PORT=5432
-DB_USER=실제_DB_계정
-DB_PASSWORD=실제_DB_비밀번호
-DB_NAME=실제_DB_이름
+DB_HOST=실제_Aiven_Host
+DB_PORT=실제_Aiven_Port
+DB_USER=실제_DB_User
+DB_PASSWORD=실제_DB_Password
+DB_NAME=실제_DB_Name
 DB_SSLMODE=require
 
-# Backend
 APP_ENV=development
 FRONTEND_ORIGINS=http://localhost:5173
 
-# Frontend
 VITE_API_BASE_URL=http://localhost:8000/api
-VITE_DEV_MEMBER_ID=1
+VITE_DEV_MEMBER_ID=실제로_존재하는_member_id
 ```
 
-- `DB_PORT=5432`는 예시입니다. **실제 Aiven 접속 포트**를 확인하세요.
-- `DB_SSLMODE=require`로 SSL 연결을 사용합니다.
-- `VITE_DEV_MEMBER_ID=1`도 예시입니다. 실제 DB의 `members.member_id`에 존재하는 값을 사용해야 합니다.
-- `.env`에는 비밀번호가 있으므로 **GitHub Push, 공개 채팅, 스크린샷 공유를 금지**합니다.
+- DB 포트가 반드시 `5432`인 것은 아닙니다. Aiven 접속 화면을 확인하세요.
+- `VITE_DEV_MEMBER_ID`는 프론트엔드의 **개발 전용** 설정이며 DB `members.member_id`에 존재하는 정수 ID로 바꿔야 합니다.
+- `.env`에는 비밀번호가 들어 있으므로 **GitHub에 커밋하거나 Discord에 공유하면 안 됩니다.**
+- 이미 `.env`를 갖고 있다면 그대로 사용하고, `.env.example`에서 변수 구성이 바뀌었는지만 확인합니다.
 
-### ③ DB 연결 확인
-
-가상환경이 활성화된 상태에서 **프로젝트 루트**에서 실행합니다.
+프로젝트 루트에서 읽기 위주의 DB 연결·스키마 확인:
 
 ```powershell
 python database\scripts\check_connection.py
 python database\scripts\inspect_schema.py
 ```
 
-DB에 정상 연결되면 데이터베이스 정보, 테이블 및 스키마를 확인할 수 있습니다.
+**주의:** `python database\scripts\apply_board_migration.py`는 공용 DB 구조를 변경합니다. 팀원들이 임의로 반복 실행하지 말고 DB 담당자와 적용 여부를 확인하세요.
 
-> **중요:** `python database\scripts\apply_board_migration.py`는 DB 구조를 변경합니다. 공용 DB에 이미 적용됐을 수 있으므로 **모든 팀원이 임의로 실행하면 안 됩니다.** DB 담당자가 적용 여부를 먼저 확인하세요.
+## 7. FastAPI 및 React 실행
 
----
+### 터미널 1: 백엔드
 
-## STEP 5. FastAPI 백엔드 실행
-
-첫 번째 터미널을 사용합니다. **프로젝트 루트에서** 다음 명령어를 실행합니다.
+프로젝트 루트에서:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -320,166 +208,230 @@ cd backend
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-정상 실행 시 다음과 비슷하게 표시됩니다.
+`Uvicorn running on http://127.0.0.1:8000` 및 `Application startup complete`를 확인하고 **터미널을 닫지 마세요.**
 
-```text
-Uvicorn running on http://127.0.0.1:8000
-Application startup complete.
-```
+| 확인 항목 | 주소 |
+|---|---|
+| 백엔드 실행 상태 | http://localhost:8000/health |
+| 실제 DB 연결 상태 | http://localhost:8000/health/db |
+| Swagger 문서 | http://localhost:8000/docs |
 
-**실행 중인 터미널을 닫지 마세요.** 브라우저에서 아래 주소들을 확인합니다.
+`/health`가 정상이어도 DB 연결이 실패할 수 있으니 `/health/db`까지 확인합니다.
 
-| 확인 항목        | 주소                            |
-| ---------------- | ------------------------------- |
-| FastAPI 상태     | http://localhost:8000/health    |
-| PostgreSQL 상태  | http://localhost:8000/health/db |
-| Swagger API 문서 | http://localhost:8000/docs      |
+### 터미널 2: 프론트엔드
 
-`/health`뿐 아니라 `/health/db`도 정상인지 확인해야 게시판 데이터를 사용할 수 있습니다.
-
----
-
-## STEP 6. React 프론트엔드 실행
-
-백엔드 터미널은 그대로 두고 VS Code에서 **새 터미널을 하나 더 엽니다.** 새 터미널에서 **프로젝트 루트 기준**으로 다음 명령어를 실행합니다.
+새 VS Code 터미널을 열고 프로젝트 루트에서:
 
 ```powershell
 cd frontend
-npm.cmd install
 npm.cmd run dev
 ```
 
-패키지는 처음 한 번 설치해야 합니다. 기존에 설치했고 의존성 변경이 없다면 `npm.cmd run dev`만 실행해도 됩니다.
+패키지 오류가 나면 `npm.cmd install` 실행 후 다시 시도합니다. 정상 실행 시 표시되는 주소, 일반적으로 **http://localhost:5173**, 로 접속합니다. Vite가 다른 포트를 안내하면 실제 출력된 포트를 사용합니다.
 
-정상 실행되면 아래와 유사한 주소가 표시됩니다.
+## 8. Swagger 실습 전에 꼭 알아둘 것
 
-```text
-VITE ready
-Local: http://localhost:5173/
+1. Swagger는 **http://localhost:8000/docs**에서 확인합니다. 본인 컴퓨터에서 백엔드를 실행해야 열립니다.
+2. 현재 게시판 백엔드는 **개발 전용 회원 ID 헤더**를 요구합니다. 일반 로그인이나 Discord OAuth가 연결된 상태라고 가정하면 안 됩니다.
+3. 모든 게시판 API 요청에 `X-Dev-Member-ID` 헤더와 **DB에 실제 존재하는 정수 회원 ID**가 필요합니다. 서버의 `APP_ENV`는 `development` 또는 `test`여야 합니다.
+4. Swagger의 `Try it out` → 입력 → `Execute`로 요청합니다. Swagger에서 해당 헤더 입력란이 보이면 값을 넣으세요. 일반적으로 이 프로젝트에서는 의존성에 의해 헤더 파라미터로 표시됩니다.
+5. GET은 조회, POST는 생성, PATCH는 수정, DELETE는 삭제입니다. **공용 Aiven DB에 연결했다면 POST/PATCH/DELETE는 다른 팀원 데이터에도 영향을 줍니다.**
+6. 직접 만든 **테스트 게시판·테스트 게시글·테스트 댓글**만 수정/삭제하세요. 삭제는 논리 삭제라 DB에 이력이 남을 수 있습니다.
+7. `board_id`, `post_id`, `comment_id`는 예시 숫자를 입력하지 말고, **실제 POST 응답에 나온 ID**를 적어 두세요.
+
+### 응답 코드 빠르게 읽기
+
+| 코드 | 의미 | 대표 상황 |
+|---|---|---|
+| 200 OK | 조회 또는 수정 성공 | GET, PATCH |
+| 201 Created | 생성 성공 | POST |
+| 204 No Content | 삭제 성공, 응답 본문 없음 | DELETE |
+| 401 Unauthorized | 개발용 회원 헤더 누락·유효하지 않은 ID | 인증 확인 |
+| 403 Forbidden | 본인 소유가 아닌 데이터 수정·삭제 | 작성자 권한 검사 |
+| 404 Not Found | 없는/삭제된 게시판·게시글·댓글 | ID 및 삭제 상태 확인 |
+| 409 Conflict | 중복 등 상태 충돌 가능 | 응답 `detail` 확인 |
+| 422 Unprocessable Entity | 필수 필드 누락·검증 오류 | 스키마 및 입력값 확인 |
+| 503 Service Unavailable | DB 접속 장애 등 | `/health/db` 및 서버 로그 확인 |
+
+실제 코드와 DB 상태에 따라 구체적인 오류 메시지는 달라질 수 있습니다. **Swagger Response body의 `detail`과 백엔드 터미널 로그를 함께 확인**하세요.
+
+## 9. 게시판 API 전체 목록 (현재 코드 기준 12개)
+
+| 번호 | HTTP | 엔드포인트 | 기능 |
+|---:|---|---|---|
+| 1 | GET | `/api/boards` | 게시판 목록 조회 |
+| 2 | POST | `/api/boards` | 게시판 생성 |
+| 3 | GET | `/api/boards/{board_id}` | 게시판 상세 조회 |
+| 4 | GET | `/api/boards/{board_id}/posts` | 게시글 목록·검색·정렬 |
+| 5 | POST | `/api/boards/{board_id}/posts` | 게시글 생성 및 이미지 업로드 |
+| 6 | GET | `/api/boards/{board_id}/posts/{post_id}` | 게시글 상세 조회 |
+| 7 | PATCH | `/api/boards/{board_id}/posts/{post_id}` | 게시글 수정 |
+| 8 | DELETE | `/api/boards/{board_id}/posts/{post_id}` | 게시글 삭제 |
+| 9 | GET | `/api/boards/{board_id}/posts/{post_id}/comments` | 댓글 목록 조회 |
+| 10 | POST | `/api/boards/{board_id}/posts/{post_id}/comments` | 댓글 생성 |
+| 11 | PATCH | `/api/comments/{comment_id}` | 댓글 수정 |
+| 12 | DELETE | `/api/comments/{comment_id}` | 댓글 삭제 |
+
+> 게시판 3개 + 게시글 5개 + 댓글 4개 = **총 12개**입니다. `/health`, `/health/db`는 별도의 서버 상태 확인 API 2개로, 위 목록에 포함하지 않았습니다.
+
+## 10. Swagger에서 순서대로 실습하기
+
+**실습 규칙:** 자신의 테스트 데이터만 사용하고 매 단계에서 생성된 ID를 기록하세요. 브라우저에서 `http://localhost:8000/docs` 접속 → 해당 API 펼치기 → `Try it out` → 헤더/경로/요청 본문 입력 → `Execute` → `Response code`와 `Response body` 확인 순서입니다.
+
+### 실습 A. 게시판 목록 조회 (GET `/api/boards`)
+
+1. `GET /api/boards` 선택
+2. `X-Dev-Member-ID`에 유효한 회원 ID 입력
+3. Execute → 목록 JSON 및 기본 자유게시판 확인
+
+정상 응답은 일반적으로 `200`입니다.
+
+### 실습 B. 테스트 게시판 생성 (POST `/api/boards`)
+
+현재 백엔드 `BoardCreate` 스키마에는 **`category`가 필수값**입니다. **프론트엔드 생성 모달에서 카테고리 선택 UI를 없앤 것과는 별개의 문제**입니다. Swagger 테스트에서는 반드시 `category`를 보내야 합니다.
+
+```json
+{
+  "name": "Swagger 게시판 실습",
+  "category": "자유",
+  "description": "API 연습용 게시판",
+  "creation_reason": "팀 내부 테스트"
+}
 ```
 
-**게시판 접속: http://localhost:5173**
+`X-Dev-Member-ID` 헤더도 입력하세요. 성공하면 `201`과 응답의 **`id`(board_id)**를 기록합니다. `category`는 현재 스키마에서 `자유`, `정보공유`, `분실물`, `취업`만 허용합니다. 서비스 최종 요구사항과 백엔드 스키마의 차이는 추후 통일이 필요합니다.
 
-두 서버를 동시에 실행한 상태여야 합니다.
+### 실습 C. 게시판 상세 조회 (GET `/api/boards/{board_id}`)
 
-| 터미널   | 서버             | 포트 |
-| -------- | ---------------- | ---- |
-| 터미널 1 | FastAPI 백엔드   | 8000 |
-| 터미널 2 | React 프론트엔드 | 5173 |
+방금 생성한 게시판 응답의 **`id`**를 `board_id`에 넣고 실행합니다. 제목·설명이 일치하는지 확인하세요.
 
----
+### 실습 D. 게시글 생성 (POST `/api/boards/{board_id}/posts`)
 
-## STEP 7. 게시판 기능 테스트
+이 API는 JSON 입력이 아니라 **Form / multipart 업로드** 방식입니다.
 
-브라우저에서 아래 항목을 순서대로 확인합니다.
+- `board_id`: 위 실습에서 만든 게시판 ID
+- `title`: `Swagger 게시글 테스트`
+- `body`: `게시판 API 작동 확인용 글입니다.`
+- `images`: 선택 사항. 이미지를 넣을 경우 Swagger의 파일 선택기를 사용
+- `X-Dev-Member-ID`: 본인 테스트 회원 ID
 
-- [ ] 자유게시판 목록 조회
-- [ ] 게시판 만들기 버튼 및 화면 중앙 생성 창 동작
-- [ ] 게시판 생성 시 불필요한 카테고리 입력 없이 생성 가능 여부
-- [ ] 게시판 정렬 버튼 정상 동작
-- [ ] 게시글 작성 및 상세 조회
-- [ ] 댓글 작성 및 조회
-- [ ] 게시글 수정 및 삭제
-- [ ] 새로고침 후 DB에 저장된 내용 유지
+정상 응답은 `201`이며 **`id`(post_id)**를 기록하세요. 이미지는 최대 3장까지 지원하는 구현입니다. 업로드 파일 제약 사항은 `backend/app/core/uploads.py`에서 확인합니다.
 
-기능별 추가 설명: [BOARD_MVP_GUIDE.md](BOARD_MVP_GUIDE.md). 기존 문서에 남아 있는 이전 UI 설명은 최신 구현과 다를 수 있습니다.
+### 실습 E. 게시글 목록·검색·정렬 (GET `/api/boards/{board_id}/posts`)
 
----
+`board_id`에 테스트 게시판 ID를 넣고 실행합니다. 선택적인 쿼리 파라미터:
 
-## STEP 8. 이후 GitHub 최신 코드 받기 및 Push
+- `q`: 제목·본문 검색을 위한 검색어. 예: `Swagger`
+- `sort`: 기본값 `latest` (최신순). 다른 정렬값은 현재 서비스 구현을 확인해 사용
 
-### ① 팀원이 Push한 최신 코드 받기
+게시글을 만들기 전 빈 배열 `[]`이 나올 수 있으며, 데이터가 없다는 의미이지 반드시 오류는 아닙니다.
 
-기존 `playmate` 폴더에서 실행합니다.
+### 실습 F. 게시글 상세 조회 (GET `/api/boards/{board_id}/posts/{post_id}`)
+
+기록한 `board_id`와 `post_id`를 입력합니다. 제목, 본문, 작성자 익명 표시, 이미지 URL 등을 확인합니다.
+
+### 실습 G. 게시글 수정 (PATCH `/api/boards/{board_id}/posts/{post_id}`)
+
+기존 **작성자와 같은 회원 ID**로 실행합니다.
+
+```json
+{
+  "title": "Swagger 게시글 테스트 (수정)",
+  "body": "내용 수정이 정상 반영되는지 확인합니다."
+}
+```
+
+현재 `PostWrite` 스키마에서는 **`title`, `body` 둘 다 입력**해야 합니다. 성공하면 `200`, 다시 상세 조회하여 반영 여부를 확인합니다. 다른 회원 ID로 요청하면 권한 검사로 거절되어야 합니다.
+
+### 실습 H. 댓글 생성 (POST `/api/boards/{board_id}/posts/{post_id}/comments`)
+
+```json
+{
+  "body": "Swagger 댓글 작성 테스트"
+}
+```
+
+`board_id`, `post_id`, 회원 헤더 입력 후 실행합니다. 성공 `201`의 응답에서 **`id`(comment_id)**를 기록합니다.
+
+### 실습 I. 댓글 목록 조회 (GET `/api/boards/{board_id}/posts/{post_id}/comments`)
+
+방금 작성한 댓글 내용과 `comment_id`가 목록에 표시되는지 확인합니다.
+
+### 실습 J. 댓글 수정 (PATCH `/api/comments/{comment_id}`)
+
+```json
+{
+  "body": "Swagger 댓글 수정 테스트"
+}
+```
+
+본인이 쓴 댓글만 수정할 수 있습니다. 성공 후 댓글 목록에서 내용이 바뀌었는지 확인합니다.
+
+### 실습 K. 댓글 삭제 (DELETE `/api/comments/{comment_id}`)
+
+**본인 테스트 댓글**을 삭제합니다. 정상 응답은 `204`로 응답 본문이 없을 수 있습니다. 다시 댓글 조회해 삭제 처리 결과를 확인합니다.
+
+### 실습 L. 게시글 삭제 (DELETE `/api/boards/{board_id}/posts/{post_id}`)
+
+마지막에 **본인이 만든 테스트 게시글**만 삭제합니다. 정상 응답은 `204`입니다. 이후 상세 조회·목록에서 삭제 반영 여부를 확인합니다. Soft Delete 처리라 DB의 물리적 행 삭제와는 다를 수 있습니다.
+
+> 현재 Swagger API 목록에는 **게시판 삭제 API가 없습니다.** 공용 DB에 테스트 게시판이 생성되면 남을 수 있으므로 테스트 게시판을 무분별하게 만들지 말고 DB 담당자와 정리하세요.
+
+## 11. 권한·예외 상황 점검
+
+| 시험 | 기대 결과 |
+|---|---|
+| 헤더 없이 게시판 조회 | `401` |
+| 존재하지 않는 회원 ID | `401` |
+| 다른 회원 ID로 내 게시글·댓글 PATCH / DELETE | `403` 등 권한 거절 |
+| 존재하지 않는 게시글 ID | `404` |
+| 공백 제목·본문 | `422` |
+| 이미지 최대 수량 초과 | 유효성 검사로 거절 |
+| 백엔드 종료 후 프론트 조회 | API 연결 오류 표시 |
+
+다른 실제 회원의 ID를 무단으로 사용하지 말고 **팀에서 허가된 테스트 회원 계정**으로만 권한 테스트를 진행하세요. 공용 DB라면 테스트 후 기록을 남기세요.
+
+## 12. 자주 발생하는 오류 해결
+
+| 현상 | 먼저 확인할 내용 |
+|---|---|
+| `git` 명령어 없음 | Git 설치, VS Code 재시작 |
+| `npm.cmd`·`node` 인식 안 됨 | Node.js 설치와 PATH, 필요 시 터미널 재시작 |
+| `Activate.ps1` 실행 제한 | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
+| `ModuleNotFoundError` | `.venv` 활성화 및 requirements 설치 |
+| `/docs` 접속 불가 | Uvicorn 실행 상태·포트 8000 확인 |
+| `/health` 성공, `/health/db` 실패 | DB Host·Port·SSL·비밀번호·네트워크 확인 |
+| API `401` | `APP_ENV=development`, `X-Dev-Member-ID`, 실제 회원 ID |
+| API `403` | 본인이 작성한 글·댓글인지 확인 |
+| API `422` | 필수 필드, JSON/Form 차이, 문자열 길이·이미지 제약 확인 |
+| API `404` | `board_id`, `post_id`, `comment_id` 실값 확인 |
+| 프론트 `Failed to fetch` | 백엔드 주소, CORS, 포트 확인 |
+| `git pull` 실패 | `git status` 및 로컬 수정 사항 보관 |
+| `git push` 거절 | 팀원 변경사항 먼저 반영, 강제 Push 금지 |
+
+## 13. 실습 완료 체크리스트
+
+- [ ] `feature/board`에서 Clone 또는 Pull 완료
+- [ ] Python 가상환경 활성화 및 패키지 설치
+- [ ] `.env` 설정, `/health/db` 확인
+- [ ] FastAPI 실행, Swagger 접속
+- [ ] React 실행, 게시판 웹사이트 접속
+- [ ] 개발용 테스트 회원 ID 준비 및 인증 헤더 입력
+- [ ] 게시판 목록·생성·상세 테스트
+- [ ] 게시글 생성·목록·상세·수정·삭제 테스트
+- [ ] 댓글 생성·목록·수정·삭제 테스트
+- [ ] 이미지 첨부, 검색·정렬 UI 점검
+- [ ] 공용 DB에 남긴 테스트 데이터 기록
+
+## 14. 이후 GitHub에 변경 내용 올리기
+
+프로젝트 루트에서 작업 파일을 확인한 후 해당 파일만 커밋하는 것이 안전합니다.
 
 ```powershell
 git status
-git switch feature/board
-git pull origin feature/board
-```
-
-**수정 중인 파일이 있으면 먼저 안전하게 보관하세요.** Pull은 여러 번 실행해도 괜찮고, 새 변경사항이 없다면 `Already up to date.`가 나옵니다.
-
-### ② 내가 수정한 코드 올리기
-
-```powershell
-git status
-git add .
-git commit -m "fix: 게시판 UI 및 기능 수정"
+git add frontend/BOARD_SETUP_GUIDE.md
+git commit -m "docs: 게시판 통합 설치 및 API 실습 가이드 보완"
 git push origin feature/board
 ```
 
-커밋 전 `.env` 등 비밀정보가 포함되지 않았는지 확인해야 합니다. 여러 명이 같은 브랜치를 사용한다면, 다른 팀원이 먼저 Push한 경우 최신 내용을 반영한 뒤 Push해야 합니다. **강제 Push(`--force`)는 팀원 변경사항을 덮어쓸 수 있으므로 사용하지 마세요.**
-
----
-
-## 자주 발생하는 오류
-
-| 오류                              | 확인 및 해결 방법                                                     |
-| --------------------------------- | --------------------------------------------------------------------- |
-| `git` 명령어를 찾을 수 없음     | Git 설치 후 VS Code 재시작                                            |
-| `npm.cmd` 명령어를 찾을 수 없음 | Node.js LTS 설치 후 터미널 재시작                                     |
-| `Activate.ps1` 실행 제한        | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` 실행   |
-| `ModuleNotFoundError`           | 가상환경 활성화 후`requirements-dev.txt` 재설치                     |
-| PostgreSQL 연결 실패              | `.env` 호스트/계정/포트/SSL/네트워크 확인                           |
-| 게시판 요청에서`401`            | `VITE_DEV_MEMBER_ID`가 실제 회원 ID인지 확인                        |
-| `Failed to fetch`               | 백엔드 8000 포트, API 주소, CORS 설정 확인                            |
-| `/health/db`에서 `503`        | PostgreSQL 연결 또는 인증 확인                                        |
-| `localhost:5173` 접속 불가      | 프론트엔드 실행 여부와 Vite에 표시된 실제 포트 확인                   |
-| Pull 중 로컬 변경사항 경고        | `git status`로 확인하고 수정 파일을 커밋/백업/스태시한 뒤 다시 시도 |
-| Push 거절 (`non-fast-forward`)  | 원격 변경사항을 먼저 반영하고 충돌 해결 후 재시도                     |
-
----
-
-## 최종 요약: 상황별 실행 명령어
-
-### A. 처음 받는 팀원 — 최초 1회
-
-```powershell
-cd "$HOME\Desktop"
-git clone -b feature/board https://github.com/Six-Over-Sleep/playmate.git
-cd playmate
-
-git branch --show-current
-python -m venv .venv
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r backend\requirements-dev.txt
-
-Copy-Item .env.example .env
-notepad .env
-# 실제 DB 접속 정보를 입력하고 저장
-
-python database\scripts\check_connection.py
-python database\scripts\inspect_schema.py
-```
-
-### B. 이미 받은 팀원 — 최신 코드 받기
-
-```powershell
-# 이미 설치된 프로젝트 폴더에서 실행
-git status
-git switch feature/board
-git pull origin feature/board
-```
-
-### C. 터미널 1 — 백엔드 실행 (프로젝트 루트에서)
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-cd backend
-python -m uvicorn app.main:app --reload --port 8000
-```
-
-### D. 터미널 2 — 프론트엔드 실행 (프로젝트 루트에서)
-
-```powershell
-cd frontend
-npm.cmd install
-npm.cmd run dev
-```
-
-**최종 접속 주소: http://localhost:5173**
-
-> `feature/board`는 게시판 개발 브랜치입니다. 별도의 PR이나 병합 전까지 `main`에 자동 반영되지 않습니다.
+> 문서 작성 기준: `feature/board` 브랜치의 `backend/app/routers/board.py`, `backend/app/schemas/board.py`, `backend/app/core/auth.py` 및 기존 게시판 설치 가이드. 실제 배포된 버전 또는 이후 커밋에 따라 Swagger 화면·입력값·상태 코드가 달라질 수 있으니 **실습 전에 현재 코드와 `/docs`를 함께 확인**하세요.

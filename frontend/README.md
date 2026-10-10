@@ -8,13 +8,13 @@ FastAPI 백엔드와의 API 통신도 해당 영역에서 처리함.
 
 ## 폴더 구조
 
-| 세컨 폴더 | 써드 폴더 | 설명 |
-|---|---|---|
-| `public/` | - | 정적 파일 관리 영역임 |
-| `src/` | `components/` | 재사용 가능한 UI 컴포넌트 관리 영역임 |
-| `src/` | `pages/` | 실제 페이지 화면 관리 영역임 |
-| `src/` | `services/` | Backend API 통신 코드 관리 영역임 |
-| `src/` | `assets/` | 이미지, 아이콘 등 리소스 관리 영역임 |
+| 세컨 폴더   | 써드 폴더       | 설명                                  |
+| ----------- | --------------- | ------------------------------------- |
+| `public/` | -               | 정적 파일 관리 영역임                 |
+| `src/`    | `components/` | 재사용 가능한 UI 컴포넌트 관리 영역임 |
+| `src/`    | `pages/`      | 실제 페이지 화면 관리 영역임          |
+| `src/`    | `services/`   | Backend API 통신 코드 관리 영역임     |
+| `src/`    | `assets/`     | 이미지, 아이콘 등 리소스 관리 영역임  |
 
 ```text
 frontend/
@@ -104,3 +104,15 @@ API 요청 코드를 React Component 내부에 반복해서 작성하지 않고 
 여러 화면에서 반복해서 사용하는 UI는 `components/`로 분리함.
 
 특정 페이지에서만 사용하는 작은 컴포넌트는 필요 이상으로 분리하지 않음.
+
+
+## 게시판 설치 및 실행 안내
+
+PlayMate 게시판 개발 환경은 **React + Vite 프론트엔드**, **FastAPI 백엔드**, **Aiven PostgreSQL**로 구성됩니다.
+
+처음 프로젝트를 받는 팀원의 **Git Clone**부터 기존 팀원의 **Git Pull**, Python/Node.js 설치, `.env` 설정, DB 연결, 서버 실행 및 오류 해결 방법은 아래 문서를 참고하세요.
+
+- [게시판 설치 및 실행 가이드](docs/BOARD_SETUP_GUIDE.md)
+- [게시판 MVP 기능 검증 가이드](docs/BOARD_MVP_GUIDE.md)
+
+게시판 개발 브랜치: `feature/board`

@@ -1,16 +1,35 @@
+# Environment and secrets
 .env
+.env.*
+!.env.example
+
+# Python
 .venv/
 venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .testdeps*/
-node_modules/
-dist/
-uploads/
 .alltestdeps/
 .mysqltestdeps/
 .pgtestdeps/
+
+# IDE and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Frontend
+node_modules/
+dist/
 .vite/
 coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime files
+uploads/
 *.log

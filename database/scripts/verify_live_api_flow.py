@@ -20,7 +20,7 @@ def main() -> None:
     headers = {"X-Dev-Member-ID": str(member_id)}
     try:
         with httpx.Client(base_url="http://127.0.0.1:8000", timeout=20) as client:
-            response = client.post("/api/boards", headers=headers, json={"name": name, "category": "자유", "description": "통합 검증용", "creation_reason": "자동 검증"})
+            response = client.post("/api/boards", headers=headers, json={"name": name, "description": "통합 검증용", "creation_reason": "자동 검증"})
             response.raise_for_status(); board_id = response.json()["id"]
             with image_path.open("rb") as image:
                 response = client.post(f"/api/boards/{board_id}/posts", headers=headers, data={"title": name, "body": "PostgreSQL 통합 검증 본문\n줄바꿈 유지"}, files={"images": (image_path.name, image, "image/png")})

@@ -9,13 +9,12 @@ CREATE TABLE IF NOT EXISTS boards (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE boards ADD COLUMN IF NOT EXISTS category VARCHAR(20) NOT NULL DEFAULT '자유';
 ALTER TABLE boards ADD COLUMN IF NOT EXISTS creation_reason VARCHAR(500);
 ALTER TABLE boards ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_boards_name_ci ON boards (LOWER(board_name));
 
-INSERT INTO boards (board_name, category, description, created_by, is_default)
-SELECT '자유게시판', '자유', '함께 배우고, 편하게 이야기해요.', NULL, TRUE
+INSERT INTO boards (board_name, description, created_by, is_default)
+SELECT '자유게시판', '함께 배우고, 편하게 이야기해요.', NULL, TRUE
 WHERE NOT EXISTS (SELECT 1 FROM boards WHERE LOWER(board_name)=LOWER('자유게시판'));
 
 UPDATE boards SET is_default=TRUE

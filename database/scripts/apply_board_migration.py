@@ -9,11 +9,12 @@ from app.core.db_connect import get_connection  # noqa: E402
 
 
 def main() -> None:
-    migration = ROOT / "database" / "sql" / "001_board_mvp.sql"
+    migrations = [ROOT / "database" / "sql" / filename for filename in ("001_board_mvp.sql", "003_remove_board_category.sql")]
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
-            cursor.execute(migration.read_text(encoding="utf-8"))
+            for migration in migrations:
+                cursor.execute(migration.read_text(encoding="utf-8"))
         connection.commit()
     except Exception:
         connection.rollback()

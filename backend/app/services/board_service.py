@@ -16,14 +16,14 @@ def _images(cursor, post_id: int) -> list[dict[str, Any]]:
 
 def list_boards() -> list[dict[str, Any]]:
     with db_cursor() as cursor:
-        cursor.execute("""SELECT board_id AS id, board_name AS name, description, category, created_at
+        cursor.execute("""SELECT board_id AS id, board_name AS name, description, created_at
                             FROM boards ORDER BY is_default DESC, created_at, board_id""")
         return list(cursor.fetchall())
 
-def create_board(name: str, category: str, description: str | None, creation_reason: str | None, member_id: int) -> dict[str, Any]:
+def create_board(name: str, description: str | None, creation_reason: str | None, member_id: int) -> dict[str, Any]:
     try:
         with db_cursor(commit=True) as cursor:
-            cursor.execute("INSERT INTO boards(board_name,category,description,creation_reason,created_by) VALUES(%s,%s,%s,%s,%s) RETURNING board_id", (name, category, description or None, creation_reason or None, member_id))
+            cursor.execute("INSERT INTO boards(board_name,description,creation_reason,created_by) VALUES(%s,%s,%s,%s) RETURNING board_id", (name, description or None, creation_reason or None, member_id))
             board_id = cursor.fetchone()["board_id"]
     except errors.UniqueViolation as exc:
         raise HTTPException(status_code=409, detail="이미 같은 이름의 게시판이 있습니다.") from exc
@@ -31,7 +31,7 @@ def create_board(name: str, category: str, description: str | None, creation_rea
 
 def get_board(board_id: int) -> dict[str, Any]:
     with db_cursor() as cursor:
-        cursor.execute("SELECT board_id AS id,board_name AS name,description,category,created_at FROM boards WHERE board_id=%s", (board_id,))
+        cursor.execute("SELECT board_id AS id,board_name AS name,description,created_at FROM boards WHERE board_id=%s", (board_id,))
         row = cursor.fetchone()
         if row is None: raise HTTPException(status_code=404, detail="게시판을 찾을 수 없습니다.")
         return row

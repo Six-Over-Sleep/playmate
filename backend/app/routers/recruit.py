@@ -49,75 +49,125 @@ def get_recruit(recruit_id: int, db: Session = Depends(get_db)):
         "body": post.body,
         "category": recruit.category,
         "capacity": recruit.capacity,
-        "meeting_datetime": recruit.meeting_datetime,
-        "place": recruit.place,
         "state": recruit.state,
+        "recruit_mode": recruit.recruit_mode,
+        "deadline_at": recruit.deadline_at,
+        "regular_days": recruit.regular_days,
+        "regular_time": recruit.regular_time,
+        "meeting_start": recruit.meeting_start,
+        "regular_start_date": recruit.regular_start_date,
+        "meeting_end": recruit.meeting_end,
+        "place": recruit.place,
+        "is_online": recruit.is_online,
+        "contact_method": recruit.contact_method,
         "detail": {
             column.name: getattr(detail, column.name)
             for column in detail.__table__.columns
             if column.name != "recruit_id"
         } if detail else {}
     }
+    
 
 @router.post("", status_code=201)
 def add_recruit(data: RecruitCreate, db: Session = Depends(get_db)):
     return create_recruit(db, data)
 
 
-@router.get("/{recruit_id}")
-def get_recruit(recruit_id: int, db: Session = Depends(get_db)):
-    result = db.query(Post, Recruit).join(
+@router.get("")
+def get_recruits(db: Session = Depends(get_db)):
+    results = db.query(Post, Recruit).join(
         Recruit, Post.post_id == Recruit.post_id
     ).filter(
-        Recruit.recruit_id == recruit_id,
         or_(Post.post_status != "DELETED", Post.post_status.is_(None))
-    ).first()
+    ).all()
 
-    if not result:
-        raise HTTPException(status_code=404, detail="모임이 없습니다.")
-
-    post, recruit = result
-
-    return {
-        "recruit_id": recruit.recruit_id,
-        "title": post.title,
-        "body": post.body,
-        "category": recruit.category,
-        "capacity": recruit.capacity,
-        "meeting_datetime": recruit.meeting_datetime,
-        "place": recruit.place,
-        "state": recruit.state
-    }
+    return [
+        {
+            "recruit_id": recruit.recruit_id,
+            "title": post.title,
+            "body": post.body,
+            "category": recruit.category,
+            "capacity": recruit.capacity,
+            "state": recruit.state,
+            "view_count": post.view_count,
+            "recruit_mode": recruit.recruit_mode,
+            "deadline_at": recruit.deadline_at,
+            "regular_days": recruit.regular_days,
+            "regular_time": recruit.regular_time,
+            "regular_start_date": recruit.regular_start_date,
+            "meeting_start": recruit.meeting_start,
+            "meeting_end": recruit.meeting_end
+        }
+        for post, recruit in results
+    ]
 
 
 @router.patch("/{recruit_id}")
 def update_recruit(recruit_id: int, data: RecruitUpdate, db: Session = Depends(get_db)):
-    recruit = db.query(Recruit).filter(
-        Recruit.recruit_id == recruit_id
-    ).first()
+    recruit = db.get(Recruit, recruit_id)
 
     if not recruit:
-        raise HTTPException(status_code=404, detail="모임이 없습니다.")
+        raise HTTPException(404, "모임이 없습니다.")
 
-    post = db.query(Post).filter(
-        Post.post_id == recruit.post_id,
-        or_(Post.post_status != "DELETED", Post.post_status.is_(None))
-    ).first()
-
-    if not post:
-        raise HTTPException(status_code=404, detail="모임이 없습니다.")
+    post = db.get(Post, recruit.post_id)
+    if not post or post.post_status == "DELETED":
+        raise HTTPException(404, "모임이 없습니다.")
 
     changes = data.model_dump(exclude_unset=True)
 
+    new = {**{
+        "recruit_mode": recruit.recruit_mode,
+        "regular_days": recruit.regular_days,
+        "regular_time": recruit.regular_time,
+        "regular_start_date": recruit.regular_start_date,
+        "meeting_start": recruit.meeting_start,
+        "meeting_end": recruit.meeting_end,
+        "deadline_at": recruit.deadline_at,
+        "capacity": recruit.capacity
+    }, **changes}
+
+    if new["capacity"] is None or new["capacity"] <= 0:
+        raise HTTPException(400, "모집 인원은 1명 이상이어야 합니다.")
+
+    if new["deadline_at"] is None:
+        raise HTTPException(400, "모집 마감일은 필수입니다.")
+
+    if new["recruit_mode"] == "regular":
+        if not new["regular_days"] or new["regular_time"] is None:
+            raise HTTPException(400, "정기 모임은 요일과 시간이 필요합니다.")
+
+        if new["regular_start_date"] is None:
+            raise HTTPException(400, "정기 모임 시작 날짜가 필요합니다.")
+
+        weekdays = ["월", "화", "수", "목", "금", "토", "일"]
+        start_day = weekdays[new["regular_start_date"].weekday()]
+
+        if start_day not in new["regular_days"]:
+            raise HTTPException(400, "시작 날짜의 요일이 모임 요일에 포함되어야 합니다.")
+
+        first_meeting = datetime.combine(
+            new["regular_start_date"], new["regular_time"]
+        )
+
+        if new["deadline_at"] > first_meeting:
+            raise HTTPException(400, "모집 마감은 첫 모임 시작 이전이어야 합니다.")
     for key, value in changes.items():
-        if key in ["title", "body"]:
+        if key in ("title", "body"):
             setattr(post, key, value)
         else:
             setattr(recruit, key, value)
+    if recruit.recruit_mode == "regular":
 
-    db.commit()
+        recruit.meeting_start = None
+        recruit.meeting_end = None
+
+    elif recruit.recruit_mode == "short":
+        recruit.regular_days = None
+        recruit.regular_time = None
+        recruit.regular_start_date = None
+        db.commit()
+
     return {"message": "모임 수정 완료"}
-
 
 @router.delete("/{recruit_id}")
 def delete_recruit(recruit_id: int, db: Session = Depends(get_db)):

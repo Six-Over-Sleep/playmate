@@ -4,6 +4,7 @@ from backend.app.models.recruit import (
     Recruit, RecruitSportsDetail, RecruitGameDetail,
     RecruitStudyDetail, RecruitGroupBuyDetail
 )
+from pydantic import field_validator
 
 
 def create_recruit(db, data):
@@ -18,17 +19,22 @@ def create_recruit(db, data):
         db.flush()
 
         recruit = Recruit(
+            regular_start_date=data.regular_start_date,
             post_id=post.post_id,
             recruit_mode=data.recruit_mode,
             category=data.category,
             capacity=data.capacity,
-            meeting_datetime=data.meeting_datetime,
+            regular_days=data.regular_days,
+            regular_time=data.regular_time,
+            meeting_start=data.meeting_start,
+            meeting_end=data.meeting_end,
             place=data.place,
             is_online=data.is_online,
             contact_method=data.contact_method,
             deadline_at=data.deadline_at,
             state="OPEN"
         )
+
         db.add(recruit)
         db.flush()
 

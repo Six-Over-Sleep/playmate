@@ -1,5 +1,5 @@
 # 모임 모집, 참여자, 운동·게임·스터디·공동구매 상세 정보를 관리하는 모델
-from sqlalchemy import Column, BigInteger, Integer, String, DateTime, Boolean, Numeric, ForeignKey
+from sqlalchemy import Date, Time, ARRAY, Column, BigInteger, Integer, String, DateTime, Boolean, Numeric, ForeignKey
 from backend.app.core.database import Base
 
 class Recruit(Base):
@@ -19,7 +19,11 @@ class Recruit(Base):
     close_reason = Column(String)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
-
+    regular_days = Column(ARRAY(String))
+    regular_time = Column(Time)
+    regular_start_date = Column(Date)
+    meeting_start = Column(DateTime)
+    meeting_end = Column(DateTime)
 
 class RecruitMember(Base):
     __tablename__ = "recruit_members"

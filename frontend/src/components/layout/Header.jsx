@@ -10,9 +10,7 @@ export default function Header({ activeSection = 'board', onNavigate = () => {} 
 
       <nav className="app-nav" aria-label="주 메뉴">
         <button type="button" className={activeSection === 'board' ? 'active' : ''} onClick={() => onNavigate('board')}>게시판</button>
-        <button type="button" className={activeSection === 'meetup' ? 'active' : ''} onClick={() => onNavigate('meetup')}>모임</button>
-        <span>자격증</span>
-        <span>마이페이지</span>
+
       </nav>
     </header>
   )

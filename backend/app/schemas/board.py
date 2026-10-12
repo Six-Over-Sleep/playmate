@@ -9,7 +9,6 @@ class StrictModel(BaseModel):
 
 class BoardCreate(StrictModel):
     name: str = Field(min_length=1, max_length=40)
-    category: str = Field(pattern="^(자유|정보공유|분실물|취업)$")
     description: str | None = Field(default=None, max_length=200)
     creation_reason: str | None = Field(default=None, max_length=500)
 
@@ -18,7 +17,6 @@ class BoardResponse(BaseModel):
     id: int
     name: str
     description: str | None = None
-    category: str
     created_at: datetime
 
 

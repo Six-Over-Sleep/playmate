@@ -16,7 +16,7 @@ def list_boards(_: int = Depends(get_current_member_id)):
 
 @router.post("/boards", response_model=BoardResponse, status_code=status.HTTP_201_CREATED)
 def create_board(payload: BoardCreate, member_id: int = Depends(get_current_member_id)):
-    return board_service.create_board(payload.name, payload.category, payload.description, payload.creation_reason, member_id)
+    return board_service.create_board(payload.name, payload.description, payload.creation_reason, member_id)
 
 @router.get("/boards/{board_id}", response_model=BoardResponse)
 def get_board(board_id: int, _: int = Depends(get_current_member_id)):

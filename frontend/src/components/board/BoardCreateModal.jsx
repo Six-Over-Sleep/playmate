@@ -13,7 +13,6 @@ export default function BoardCreateModal({ open, busy, onClose, onCreate }) {
 
     const created = await onCreate({
       name: name.trim(),
-      category: '자유',
       description: description.trim() || null,
       creation_reason: reason.trim() || null,
     })

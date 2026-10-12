@@ -11,7 +11,7 @@ from app.services import board_service
 NOW = datetime.now(timezone.utc)
 
 def board(board_id=1, name="자유게시판"):
-    return {"id": board_id, "name": name, "description": "함께 이야기해요.", "category": "자유", "created_at": NOW}
+    return {"id": board_id, "name": name, "description": "함께 이야기해요.", "created_at": NOW}
 
 def post(post_id=1, owner=True, title="제목"):
     return {"id": post_id, "board_id": 1, "title": title, "body": "본문", "author_id": 1, "author_name": "익명 A001", "created_at": NOW, "updated_at": NOW, "comment_count": 0, "is_owner": owner}
@@ -24,18 +24,18 @@ def test_list_boards(monkeypatch):
     assert routes.list_boards(1)[0]["name"] == "자유게시판"
 
 def test_create_board(monkeypatch):
-    monkeypatch.setattr(board_service, "create_board", lambda name, category, description, reason, member_id: board(2, name))
-    assert routes.create_board(BoardCreate(name="알고리즘 질문", category="자유"), 1)["id"] == 2
+    monkeypatch.setattr(board_service, "create_board", lambda name, description, reason, member_id: board(2, name))
+    assert routes.create_board(BoardCreate(name="알고리즘 질문"), 1)["id"] == 2
 
 def test_duplicate_board_returns_409(monkeypatch):
     def duplicate(*_): raise HTTPException(status_code=409, detail="중복")
     monkeypatch.setattr(board_service, "create_board", duplicate)
-    with pytest.raises(HTTPException) as error: routes.create_board(BoardCreate(name="자유게시판", category="자유"), 1)
+    with pytest.raises(HTTPException) as error: routes.create_board(BoardCreate(name="자유게시판"), 1)
     assert error.value.status_code == 409
 
 @pytest.mark.parametrize("name", ["", " ", "가" * 41])
 def test_invalid_board_name_returns_validation_error(name):
-    with pytest.raises(ValidationError): BoardCreate(name=name, category="자유")
+    with pytest.raises(ValidationError): BoardCreate(name=name)
 
 def test_create_and_get_post(monkeypatch):
     monkeypatch.setattr(board_service, "create_post", lambda board_id, title, body, member_id, images: post(title=title))

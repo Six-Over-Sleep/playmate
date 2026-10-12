@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parents[3] # 프로젝트 루트 경로 검�
 load_dotenv(BASE_DIR / ".env") # .env에서 접속 정보 불러오기
 
 # PostgreSQL 연결 주소 생성
-DATABASE_URL = URL.create( 
+DATABASE_URL = URL.create(
     drivername = "postgresql+psycopg2",
     username = os.getenv("DB_USER"),
     password = os.getenv("DB_PASSWORD"),
@@ -21,7 +21,7 @@ DATABASE_URL = URL.create(
 )
 
 # SQLAlchemy DB 엔진 생성
-engine = create_engine( 
+engine = create_engine(
     DATABASE_URL,
     connect_args = {"sslmode": "require"},
     pool_pre_ping = True, # 연결 재사용 전 유효성 확인

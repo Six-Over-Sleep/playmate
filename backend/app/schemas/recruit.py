@@ -63,7 +63,7 @@ class RecruitCreate(BaseModel):
                 raise ValueError("모집 마감은 모임 시작 이전이어야 합니다.")
 
         return self
-    
+
     @field_validator("regular_days")
     @classmethod
     def check_days(cls, days):

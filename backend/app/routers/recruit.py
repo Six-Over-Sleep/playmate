@@ -66,7 +66,7 @@ def get_recruit(recruit_id: int, db: Session = Depends(get_db)):
             if column.name != "recruit_id"
         } if detail else {}
     }
-    
+
 
 @router.post("", status_code=201)
 def add_recruit(data: RecruitCreate, db: Session = Depends(get_db)):

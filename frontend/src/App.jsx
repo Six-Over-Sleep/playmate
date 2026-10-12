@@ -1,53 +1,227 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Header from './components/layout/Header'
+import BoardCreateModal from './components/board/BoardCreateModal'
+import BoardPage from './pages/board/BoardPage'
+import PostDetailPage from './pages/board/PostDetailPage'
+import PostEditorPage from './pages/board/PostEditorPage'
 import MeetupPage from './pages/meetup/MeetupPage'
 import MeetupDetailPage from './pages/meetup/MeetupDetailPage'
 import MeetupEditorPage from './pages/meetup/MeetupEditorPage'
+import { boardApi } from './services/boardApi'
 import { meetupApi } from './services/meetupApi'
-import './styles/meetup.css'
 
 export default function App() {
+  const [section, setSection] = useState('board')
+
+  return (
+    <>
+      <Header activeSection={section} onNavigate={setSection} />
+      {section === 'board' ? <BoardSection /> : <MeetupSection />}
+    </>
+  )
+}
+
+function BoardSection() {
+  const [boards, setBoards] = useState([])
+  const [board, setBoard] = useState(null)
+  const [posts, setPosts] = useState([])
+  const [post, setPost] = useState(null)
+  const [comments, setComments] = useState([])
+  const [view, setView] = useState('list')
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [modal, setModal] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [initialized, setInitialized] = useState(false)
+
+  const run = useCallback(async (task) => {
+    try {
+      setError('')
+      return await task()
+    } catch (err) {
+      setError(err.message)
+      throw err
+    }
+  }, [])
+
+  const loadPosts = useCallback(async (target, search = '') => {
+    if (!target) return
+    setLoading(true)
+    try {
+      setPosts(await run(() => boardApi.posts(target.id, search)))
+    } catch {
+      setPosts(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [run])
+
+  useEffect(() => {
+    run(boardApi.boards)
+      .then((items) => {
+        setBoards(items)
+        if (items[0]) {
+          setBoard(items[0])
+          loadPosts(items[0])
+        }
+      })
+      .catch(() => setLoading(false))
+      .finally(() => setInitialized(true))
+  }, [loadPosts, run])
+
+  const selectBoard = (target) => {
+    setBoard(target)
+    setQuery('')
+    setView('list')
+    loadPosts(target)
+  }
+
+  const openPost = async (item) => {
+    try {
+      const [detail, replies] = await Promise.all([
+        run(() => boardApi.post(board.id, item.id)),
+        run(() => boardApi.comments(board.id, item.id)),
+      ])
+      setPost(detail)
+      setComments(replies)
+      setView('detail')
+    } catch {}
+  }
+
+  const refreshDetail = async () => {
+    setPost(await run(() => boardApi.post(board.id, post.id)))
+    setComments(await run(() => boardApi.comments(board.id, post.id)))
+  }
+
+  const notify = (message) => {
+    setSuccess(message)
+    setTimeout(() => setSuccess(''), 2500)
+  }
+
+  const mutate = async (task, after) => {
+    setBusy(true)
+    try {
+      const result = await run(task)
+      await after(result)
+      return result
+    } catch {
+      return null
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createBoard = (payload) => mutate(() => boardApi.createBoard(payload), async (created) => {
+    const items = await boardApi.boards()
+    setBoards(items)
+    setModal(false)
+    selectBoard(created)
+    notify('게시판을 만들었습니다.')
+  })
+
+  const savePost = (payload) => mutate(
+    () => post
+      ? boardApi.updatePost(board.id, post.id, payload)
+      : boardApi.createPost(board.id, payload),
+    async (saved) => {
+      setPost(saved)
+      setComments(post ? comments : [])
+      setView('detail')
+      notify(post ? '게시글을 수정했습니다.' : '게시글을 등록했습니다.')
+    },
+  )
+
+  const deletePost = () => {
+    if (confirm('이 글을 삭제할까요?')) {
+      mutate(() => boardApi.deletePost(board.id, post.id), async () => {
+        setView('list')
+        setPost(null)
+        await loadPosts(board, query)
+      })
+    }
+  }
+
+  const addComment = (body) => mutate(() => boardApi.createComment(board.id, post.id, body), refreshDetail)
+  const editComment = (id, body) => mutate(() => boardApi.updateComment(id, body), refreshDetail)
+  const deleteComment = (id) => {
+    if (confirm('이 댓글을 삭제할까요?')) return mutate(() => boardApi.deleteComment(id), refreshDetail)
+  }
+
+  const unavailable = initialized && !board && error
+  return (
+    <>
+      {error && <div className="error-banner" role="alert">{error}</div>}
+      {success && <div className="success-toast" role="status">{success}</div>}
+      {unavailable ? (
+        <main className="service-error">
+          <h1>게시판을 불러오지 못했어요</h1>
+          <p>{error}</p>
+          <button className="button purple" onClick={() => location.reload()}>다시 시도</button>
+        </main>
+      ) : (
+        <>
+          {view === 'list' && (
+            <BoardPage
+              boards={boards} board={board} posts={posts} query={query} loading={loading}
+              onSelectBoard={selectBoard} onCreateBoard={() => setModal(true)}
+              onSearch={(value) => { setQuery(value); loadPosts(board, value) }}
+              onWrite={() => { setPost(null); setView('editor') }} onPost={openPost}
+            />
+          )}
+          {view === 'editor' && board && (
+            <PostEditorPage
+              board={board} post={post} busy={busy}
+              onBack={() => setView(post ? 'detail' : 'list')} onSubmit={savePost}
+            />
+          )}
+          {view === 'detail' && post && (
+            <PostDetailPage
+              boards={boards} board={board} post={post} comments={comments} busy={busy}
+              onSelectBoard={selectBoard} onCreateBoard={() => setModal(true)}
+              onBack={() => { setView('list'); loadPosts(board, query) }}
+              onEdit={() => setView('editor')} onDelete={deletePost} onComment={addComment}
+              onEditComment={editComment} onDeleteComment={deleteComment}
+            />
+          )}
+        </>
+      )}
+      <BoardCreateModal open={modal} busy={busy} onClose={() => setModal(false)} onCreate={createBoard} />
+    </>
+  )
+}
+
+function MeetupSection() {
   const [meetups, setMeetups] = useState([])
   const [selectedMeetup, setSelectedMeetup] = useState(null)
-
   const [view, setView] = useState('list')
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [busy, setBusy] = useState(false)
-
   const [members, setMembers] = useState([])
   const [memberCount, setMemberCount] = useState(0)
   const [joined, setJoined] = useState(false)
-
   const [error, setError] = useState('')
+
+  const normalizeCount = (data) => {
+    if (typeof data === 'number') return data
+    return Number(data?.current_members ?? data?.count ?? data?.member_count ?? data?.current_count ?? data?.participant_count ?? 0)
+  }
 
   const loadMeetups = async () => {
     setLoading(true)
-
     try {
       const data = await meetupApi.list()
-
-      const meetupsWithCount = await Promise.all(
-        data.map(async (meetup) => {
-          try {
-            const countData = await meetupApi.count(meetup.recruit_id)
-
-            return {
-              ...meetup,
-              participant_count: normalizeCount(countData),
-            }
-          } catch (err) {
-            console.error(err)
-
-            return {
-              ...meetup,
-              participant_count: 0,
-            }
-          }
-        }),
-      )
-
-      setMeetups(meetupsWithCount)
+      const withCounts = await Promise.all(data.map(async (meetup) => {
+        try {
+          return { ...meetup, participant_count: normalizeCount(await meetupApi.count(meetup.recruit_id)) }
+        } catch (err) {
+          console.error(err)
+          return { ...meetup, participant_count: 0 }
+        }
+      }))
+      setMeetups(withCounts)
     } catch (err) {
       console.error(err)
       setError(err.message)
@@ -56,54 +230,23 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
-    loadMeetups()
-  }, [])
-
-  const normalizeCount = (data) => {
-    if (typeof data === 'number') return data
-
-    return Number(
-      data?.current_members ??
-      data?.count ??
-      data?.member_count ??
-      data?.current_count ??
-      data?.participant_count ??
-      0
-    )
-  }
+  useEffect(() => { loadMeetups() }, [])
 
   const loadParticipation = async (recruitId) => {
-    const [memberData, countData] = await Promise.all([
-      meetupApi.members(recruitId),
-      meetupApi.count(recruitId),
-    ])
-
-    const memberList = Array.isArray(memberData)
-      ? memberData
-      : memberData?.members || []
-
+    const [memberData, countData] = await Promise.all([meetupApi.members(recruitId), meetupApi.count(recruitId)])
+    const memberList = Array.isArray(memberData) ? memberData : memberData?.members || []
     setMembers(memberList)
     setMemberCount(normalizeCount(countData))
-
-    // 현재 백엔드 개발 단계에서 로그인 대신 member_id=-1을 사용 중인 경우
-    const hasCurrentMember = memberList.some(
-      (member) => Number(member?.member_id ?? member?.id) === -1
-    )
-
-    setJoined(hasCurrentMember)
+    setJoined(memberList.some((member) => Number(member?.member_id ?? member?.id) === -1))
   }
 
   const openMeetup = async (meetup) => {
     setDetailLoading(true)
     setError('')
-
     try {
       const detail = await meetupApi.detail(meetup.recruit_id)
-
       setSelectedMeetup(detail)
       await loadParticipation(meetup.recruit_id)
-
       setView('detail')
     } catch (err) {
       console.error(err)
@@ -130,13 +273,10 @@ export default function App() {
 
   const openEdit = async () => {
     if (!selectedMeetup?.recruit_id) return
-
     setDetailLoading(true)
     setError('')
-
     try {
-      const detail = await meetupApi.detail(selectedMeetup.recruit_id)
-      setSelectedMeetup(detail)
+      setSelectedMeetup(await meetupApi.detail(selectedMeetup.recruit_id))
       setView('editor')
     } catch (err) {
       console.error(err)
@@ -149,18 +289,12 @@ export default function App() {
   const createMeetup = async (payload) => {
     setBusy(true)
     setError('')
-
     try {
       const created = await meetupApi.create(payload)
-
       await loadMeetups()
-
       if (created?.recruit_id) {
-        const detail = await meetupApi.detail(created.recruit_id)
-
-        setSelectedMeetup(detail)
+        setSelectedMeetup(await meetupApi.detail(created.recruit_id))
         await loadParticipation(created.recruit_id)
-
         setView('detail')
       } else {
         setView('list')
@@ -175,25 +309,13 @@ export default function App() {
 
   const updateMeetup = async (payload) => {
     if (!selectedMeetup) return
-
     setBusy(true)
     setError('')
-
     try {
-      await meetupApi.update(
-        selectedMeetup.recruit_id,
-        payload,
-      )
-
-      const detail = await meetupApi.detail(
-        selectedMeetup.recruit_id,
-      )
-
-      setSelectedMeetup(detail)
+      await meetupApi.update(selectedMeetup.recruit_id, payload)
+      setSelectedMeetup(await meetupApi.detail(selectedMeetup.recruit_id))
       await loadParticipation(selectedMeetup.recruit_id)
-
       await loadMeetups()
-
       setView('detail')
     } catch (err) {
       console.error(err)
@@ -204,29 +326,16 @@ export default function App() {
   }
 
   const deleteMeetup = async () => {
-    if (!selectedMeetup) return
-
-    const confirmed = window.confirm(
-      '이 모임을 삭제할까요?',
-    )
-
-    if (!confirmed) return
-
+    if (!selectedMeetup || !window.confirm('이 모임을 삭제할까요?')) return
     setBusy(true)
     setError('')
-
     try {
-      await meetupApi.remove(
-        selectedMeetup.recruit_id,
-      )
-
+      await meetupApi.remove(selectedMeetup.recruit_id)
       setSelectedMeetup(null)
       setMembers([])
       setMemberCount(0)
       setJoined(false)
-
       await loadMeetups()
-
       setView('list')
     } catch (err) {
       console.error(err)
@@ -236,45 +345,16 @@ export default function App() {
     }
   }
 
-  const joinMeetup = async () => {
+  const changeParticipation = async (join) => {
     if (!selectedMeetup || busy) return
-
     setBusy(true)
     setError('')
-
     try {
-      await meetupApi.join(selectedMeetup.recruit_id)
-
-      setJoined(true)
+      if (join) await meetupApi.join(selectedMeetup.recruit_id)
+      else await meetupApi.cancelJoin(selectedMeetup.recruit_id)
+      setJoined(join)
       await loadParticipation(selectedMeetup.recruit_id)
-
-      const detail = await meetupApi.detail(selectedMeetup.recruit_id)
-      setSelectedMeetup(detail)
-
-      await loadMeetups()
-    } catch (err) {
-      console.error(err)
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const cancelJoinMeetup = async () => {
-    if (!selectedMeetup || busy) return
-
-    setBusy(true)
-    setError('')
-
-    try {
-      await meetupApi.cancelJoin(selectedMeetup.recruit_id)
-
-      setJoined(false)
-      await loadParticipation(selectedMeetup.recruit_id)
-
-      const detail = await meetupApi.detail(selectedMeetup.recruit_id)
-      setSelectedMeetup(detail)
-
+      setSelectedMeetup(await meetupApi.detail(selectedMeetup.recruit_id))
       await loadMeetups()
     } catch (err) {
       console.error(err)
@@ -286,61 +366,21 @@ export default function App() {
 
   return (
     <>
-      <Header onMeetupHome={goBack} />
-
-      {error && (
-        <div className="error-banner">
-          {error}
-        </div>
-      )}
-
-      {detailLoading && (
-        <main className="meetup-page">
-          <p>모임 정보를 불러오는 중...</p>
-        </main>
-      )}
-
-      {!detailLoading && view === 'list' && (
-        <MeetupPage
-          meetups={meetups}
-          loading={loading}
-          onMeetup={openMeetup}
-          onWrite={openWrite}
+      {error && <div className="error-banner" role="alert">{error}</div>}
+      {detailLoading && <main className="meetup-page"><p>모임 정보를 불러오는 중...</p></main>}
+      {!detailLoading && view === 'list' && <MeetupPage meetups={meetups} loading={loading} onMeetup={openMeetup} onWrite={openWrite} />}
+      {!detailLoading && view === 'detail' && selectedMeetup && (
+        <MeetupDetailPage
+          meetup={selectedMeetup} members={members} memberCount={memberCount} joined={joined} busy={busy}
+          onBack={goBack} onEdit={openEdit} onDelete={deleteMeetup}
+          onJoin={() => changeParticipation(true)} onCancelJoin={() => changeParticipation(false)}
         />
       )}
-
-      {!detailLoading &&
-        view === 'detail' &&
-        selectedMeetup && (
-          <MeetupDetailPage
-            meetup={selectedMeetup}
-            members={members}
-            memberCount={memberCount}
-            joined={joined}
-            busy={busy}
-            onBack={goBack}
-            onEdit={openEdit}
-            onDelete={deleteMeetup}
-            onJoin={joinMeetup}
-            onCancelJoin={cancelJoinMeetup}
-          />
-        )}
-
       {!detailLoading && view === 'editor' && (
         <MeetupEditorPage
-          key={selectedMeetup?.recruit_id ?? 'new'}
-          meetup={selectedMeetup}
-          busy={busy}
-          onBack={
-            selectedMeetup
-              ? () => setView('detail')
-              : goBack
-          }
-          onSubmit={
-            selectedMeetup
-              ? updateMeetup
-              : createMeetup
-          }
+          key={selectedMeetup?.recruit_id ?? 'new'} meetup={selectedMeetup} busy={busy}
+          onBack={selectedMeetup ? () => setView('detail') : goBack}
+          onSubmit={selectedMeetup ? updateMeetup : createMeetup}
         />
       )}
     </>

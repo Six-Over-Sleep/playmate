@@ -47,14 +47,14 @@ def list_posts(board_id: int, q: str | None, sort: str, member_id: int) -> list[
         params += [f"%{search}%", f"%{search}%"]
     with db_cursor() as cursor:
         cursor.execute(f"""SELECT p.post_id AS id,p.board_id,p.title,COALESCE(p.body,'') AS body,
-                 p.author_member_id AS author_id,COALESCE(m.public_anonymous_id,'익명') AS author_name,
+                 p.author_member_id AS author_id,COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,
                  p.created_at,p.updated_at,
                  COUNT(c.comment_id) FILTER (WHERE c.deleted_at IS NULL)::int AS comment_count,
                  (p.author_member_id=%s) AS is_owner
             FROM posts p JOIN members m ON m.member_id=p.author_member_id
             LEFT JOIN comments c ON c.post_id=p.post_id
            WHERE p.board_id=%s AND {_board_post_guard()} {condition}
-           GROUP BY p.post_id,p.board_id,p.title,p.body,p.author_member_id,m.public_anonymous_id,p.created_at,p.updated_at
+           GROUP BY p.post_id,p.board_id,p.title,p.body,p.author_member_id,m.nickname,p.created_at,p.updated_at
            ORDER BY p.created_at DESC,p.post_id DESC""", params)
         rows = list(cursor.fetchall())
         for row in rows: row["images"] = _images(cursor, row["id"])
@@ -73,7 +73,7 @@ def create_post(board_id: int, title: str, body: str, member_id: int, images: li
 def get_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
     with db_cursor() as cursor:
         cursor.execute(f"""SELECT p.post_id AS id,p.board_id,p.title,COALESCE(p.body,'') AS body,
-                 p.author_member_id AS author_id,COALESCE(m.public_anonymous_id,'익명') AS author_name,
+                 p.author_member_id AS author_id,COALESCE(NULLIF(m.nickname, ''),'익명') AS author_name,
                  p.created_at,p.updated_at,
                  (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.post_id AND c.deleted_at IS NULL) AS comment_count,
                  (p.author_member_id=%s) AS is_owner
@@ -104,7 +104,7 @@ def list_comments(board_id: int, post_id: int, member_id: int) -> list[dict[str,
     get_post(board_id,post_id,member_id)
     with db_cursor() as cursor:
         cursor.execute("""SELECT c.comment_id AS id,c.post_id,c.body,c.author_member_id AS author_id,
-            COALESCE(m.public_anonymous_id,'익명') AS author_name,c.created_at,c.updated_at,(c.author_member_id=%s) AS is_owner
+            COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,c.created_at,c.updated_at,(c.author_member_id=%s) AS is_owner
             FROM comments c JOIN members m ON m.member_id=c.author_member_id
             WHERE c.post_id=%s AND c.deleted_at IS NULL ORDER BY c.created_at,c.comment_id""",(member_id,post_id))
         return list(cursor.fetchall())
@@ -118,7 +118,7 @@ def create_comment(board_id: int, post_id: int, body: str, member_id: int) -> di
 def get_comment(comment_id: int, member_id: int) -> dict[str, Any]:
     with db_cursor() as cursor:
         cursor.execute("""SELECT c.comment_id AS id,c.post_id,c.body,c.author_member_id AS author_id,
-            COALESCE(m.public_anonymous_id,'익명') AS author_name,c.created_at,c.updated_at,(c.author_member_id=%s) AS is_owner
+            COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,c.created_at,c.updated_at,(c.author_member_id=%s) AS is_owner
             FROM comments c JOIN members m ON m.member_id=c.author_member_id WHERE c.comment_id=%s AND c.deleted_at IS NULL""",(member_id,comment_id))
         row=cursor.fetchone()
         if row is None: raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")

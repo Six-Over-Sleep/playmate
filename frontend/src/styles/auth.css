@@ -1,0 +1,672 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Pretendard", "Noto Sans KR", Arial, sans-serif;
+  background: #f6f6f8;
+  color: #292140;
+}
+
+button {
+  font: inherit;
+}
+
+.auth-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% 30%, rgba(111, 197, 185, 0.10), transparent 30%),
+    radial-gradient(circle at 88% 34%, rgba(153, 144, 202, 0.15), transparent 32%),
+    #f6f6f8;
+}
+
+.login-main {
+  display: flex;
+  justify-content: center;
+  padding: 70px 40px 90px;
+}
+
+.login-container {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 430px;
+  align-items: center;
+  gap: 80px;
+  width: 100%;
+  max-width: 1000px;
+}
+
+.login-copy {
+  padding-left: 10px;
+}
+
+.login-eyebrow {
+  display: inline-flex;
+  margin-bottom: 16px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #eeeaf7;
+  color: #67528f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.login-copy h1 {
+  margin: 0 0 12px;
+  color: #493278;
+  font-family: "Fredoka", sans-serif;
+  font-size: 58px;
+  line-height: 1;
+}
+
+.login-copy h2 {
+  margin: 0;
+  color: #292140;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.login-copy > p {
+  margin: 18px 0 0;
+  color: #7f778a;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.75;
+}
+
+.login-feature-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 34px;
+}
+
+.login-feature {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  max-width: 350px;
+  padding: 13px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.feature-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 12px;
+  background: #f1eef8;
+  font-size: 17px;
+}
+
+.login-feature div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.login-feature strong {
+  color: #3a3052;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.login-feature div span {
+  color: #928a9d;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.login-card {
+  padding: 40px 36px 32px;
+  border: 1px solid #ececf0;
+  border-radius: 28px;
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 12px 35px rgba(43, 35, 70, 0.06);
+}
+
+.login-card-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.login-card-logo img {
+  width: 66px;
+  height: 66px;
+  border-radius: 18px;
+  object-fit: cover;
+}
+
+.login-card h2 {
+  margin: 0;
+  color: #292140;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.login-card-description {
+  margin: 14px 0 28px;
+  color: #867e91;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.8;
+}
+
+.discord-login-button {
+  display: grid;
+  grid-template-columns: 28px 1fr 28px;
+  align-items: center;
+  width: 100%;
+  min-height: 56px;
+  border: 0;
+  border-radius: 16px;
+  padding: 0 18px;
+  background: #493278;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.discord-login-button:hover {
+  background: #3e296a;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(73, 50, 120, 0.20);
+}
+
+.discord-icon {
+  font-size: 19px;
+}
+
+.login-arrow {
+  font-size: 22px;
+  font-weight: 400;
+}
+
+.login-guide {
+  display: grid;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.login-guide > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border-radius: 14px;
+  background: #f7f7fa;
+  text-align: left;
+}
+
+.guide-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  background: #eeeaf7;
+  color: #493278;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.login-guide p {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.login-guide strong {
+  color: #3b3150;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.login-guide p span {
+  color: #97909f;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.login-notice {
+  margin: 22px 0 0;
+  color: #aaa3b3;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .login-container {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    max-width: 560px;
+  }
+
+  .login-copy {
+    padding: 0;
+    text-align: center;
+  }
+
+  .login-copy h1 {
+    font-size: 48px;
+  }
+
+  .login-feature-list {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .login-main {
+    padding: 44px 16px 60px;
+  }
+
+  .login-copy h1 {
+    font-size: 42px;
+  }
+
+  .login-copy h2 {
+    font-size: 24px;
+  }
+
+  .login-card {
+    padding: 30px 20px 24px;
+    border-radius: 22px;
+  }
+}
+
+@media (max-width: 520px) {
+  .login-copy h1 {
+    font-size: 38px;
+  }
+
+  .login-copy h2 {
+    font-size: 22px;
+  }
+}
+
+
+/* =========================================================
+   Login page - centered card only
+   ========================================================= */
+
+.auth-page {
+  min-height: 100vh;
+}
+
+.login-main-centered {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.login-container-centered {
+  display: block;
+  width: min(100%, 430px);
+  max-width: 430px;
+}
+
+.login-container-centered .login-card {
+  width: 100%;
+  padding: 42px 36px 34px;
+}
+
+.login-card-title {
+  margin: 0 0 8px;
+  color: #493278;
+  font-family: "Fredoka", "Pretendard", sans-serif;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+@media (max-width: 700px) {
+  .login-main-centered {
+    padding: 24px 16px;
+  }
+
+  .login-container-centered {
+    width: min(100%, 410px);
+  }
+
+  .login-container-centered .login-card {
+    padding: 34px 22px 28px;
+  }
+
+  .login-card-title {
+    font-size: 30px;
+  }
+}
+
+/* =========================================================
+   Signup Page
+   ========================================================= */
+
+.signup-main {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.signup-card {
+  width: min(100%, 520px);
+  padding: 36px 38px 32px;
+  border: 1px solid #ececf0;
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: 0 12px 35px rgba(43, 35, 70, 0.06);
+}
+
+.signup-back-button {
+  margin: 0 0 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #91899f;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.signup-back-button:hover {
+  color: #493278;
+}
+
+.signup-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.signup-logo img {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  object-fit: cover;
+}
+
+.signup-heading {
+  margin-bottom: 28px;
+  text-align: left;
+}
+
+.signup-heading h1 {
+  margin: 0;
+  color: #292140;
+  font-size: 25px;
+  font-weight: 800;
+}
+
+.signup-heading p {
+  margin: 8px 0 0;
+  color: #91899f;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.signup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.signup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.signup-field > span {
+  color: #30283f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.signup-field b {
+  color: #6fc5b9;
+}
+
+.signup-field input,
+.signup-field select {
+  width: 100%;
+  min-height: 50px;
+  padding: 0 16px;
+  border: 1px solid #e4e1e9;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #30283f;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.signup-field input::placeholder {
+  color: #b2acba;
+}
+
+.signup-field input:focus,
+.signup-field select:focus {
+  outline: 2px solid rgba(73, 50, 120, 0.14);
+  border-color: transparent;
+}
+
+.signup-field small {
+  color: #aaa3b3;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.signup-disabled-input {
+  position: relative;
+}
+
+.signup-disabled-input input {
+  padding-right: 46px;
+}
+
+.signup-cohort-input {
+  position: relative;
+}
+
+.signup-cohort-input input {
+  padding-right: 42px;
+}
+
+.signup-cohort-input > span {
+  position: absolute;
+  top: 50%;
+  right: 17px;
+  transform: translateY(-50%);
+  color: #71697c;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.signup-submit-button {
+  width: 100%;
+  min-height: 54px;
+  margin-top: 6px;
+  border: 0;
+  border-radius: 16px;
+  background: #493278;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.signup-submit-button:hover:not(:disabled) {
+  background: #3e296a;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(73, 50, 120, 0.18);
+}
+
+.signup-submit-button:disabled {
+  background: #c9c4d0;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.discord-auth-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 50px;
+  padding: 0 16px;
+  border: 1px solid #ded9e8;
+  border-radius: 14px;
+  background: #f7f5fb;
+  color: #493278;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.discord-auth-button:hover {
+  background: #f0ecf7;
+  border-color: #c9bfda;
+  transform: translateY(-1px);
+}
+
+.discord-auth-icon {
+  font-size: 17px;
+}
+
+.discord-verified input {
+  border-color: #b9dec3 !important;
+  background: #f6fbf7 !important;
+  color: #4e7458 !important;
+}
+
+.discord-duplicate input {
+  border-color: #e8b1b7 !important;
+  background: #fff7f8 !important;
+  color: #a85a64 !important;
+}
+
+.signup-status-icon {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ece9f2;
+  color: #493278;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.discord-verified .signup-status-icon {
+  background: #e3f3e7;
+  color: #4f8e5e;
+}
+
+.discord-duplicate .signup-status-icon {
+  background: #f9e5e8;
+  color: #cc5967;
+}
+
+.discord-success {
+  color: #5b9a6b !important;
+}
+
+.discord-error {
+  color: #d65c68 !important;
+}
+
+@media (max-width: 600px) {
+  .signup-main {
+    padding: 24px 16px;
+  }
+
+  .signup-card {
+    padding: 30px 22px 26px;
+    border-radius: 22px;
+  }
+
+  .signup-heading h1 {
+    font-size: 23px;
+  }
+}
+
+.signup-text-button {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 4px 8px;
+
+  border: 0;
+  background: transparent;
+
+  color: #9c96a5;
+  font-size: 13px;
+  font-weight: 600;
+
+  cursor: pointer;
+}
+
+.signup-text-button:hover {
+  color: #493278;
+  text-decoration: underline;
+}
+
+/* 개발용 관리자 바로가기 */
+.dev-admin-button {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  z-index: 100;
+
+  padding: 8px 14px;
+
+  border: 1px solid #dedbe4;
+  border-radius: 10px;
+
+  background: rgba(255, 255, 255, 0.85);
+  color: #918a9c;
+
+  font-size: 12px;
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+.dev-admin-button:hover {
+  border-color: #c9c1d8;
+  background: #ffffff;
+  color: #493278;
+}

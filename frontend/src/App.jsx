@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import Header from './components/layout/Header'
+import LoginPage from './pages/auth/LoginPage'
+import SignupPage from './pages/auth/SignupPage'
 import BoardCreateModal from './components/board/BoardCreateModal'
 import BoardPage from './pages/board/BoardPage'
 import PostDetailPage from './pages/board/PostDetailPage'
@@ -9,15 +10,57 @@ import MeetupDetailPage from './pages/meetup/MeetupDetailPage'
 import MeetupEditorPage from './pages/meetup/MeetupEditorPage'
 import { boardApi } from './services/boardApi'
 import { meetupApi } from './services/meetupApi'
+import Header from './components/layout/Header'
 
 export default function App() {
+  const [authView, setAuthView] = useState('login')
   const [section, setSection] = useState('board')
+  const [boardKey, setBoardKey] = useState(0)
+
+  const handleNavigate = (nextSection) => {
+    setSection(nextSection)
+
+    // 게시판 메뉴를 누르면 게시판 내부 화면을 목록으로 초기화
+    if (nextSection === 'board') {
+      setBoardKey((prev) => prev + 1)
+    }
+  }
+
+  if (authView === 'signup') {
+    return (
+      <SignupPage
+        onBack={() => setAuthView('login')}
+      />
+    )
+  }
+
+  if (authView === 'board') {
+    return (
+      <>
+        <Header
+          activeSection={section}
+          onNavigate={handleNavigate}
+        />
+
+        {section === 'board' && (
+          <BoardSection key={boardKey} />
+        )}
+
+        {section === 'meetup' && (
+          <MeetupSection />
+        )}
+      </>
+    )
+  }
 
   return (
-    <>
-      <Header activeSection={section} onNavigate={setSection} />
-      {section === 'board' ? <BoardSection /> : <MeetupSection />}
-    </>
+    <LoginPage
+      onSignup={() => setAuthView('signup')}
+      onDevEnter={() => {
+        setSection('board')
+        setAuthView('board')
+      }}
+    />
   )
 }
 
@@ -62,9 +105,12 @@ function BoardSection() {
     run(boardApi.boards)
       .then((items) => {
         setBoards(items)
+
         if (items[0]) {
           setBoard(items[0])
           loadPosts(items[0])
+        } else {
+          setLoading(false)
         }
       })
       .catch(() => setLoading(false))
@@ -75,6 +121,7 @@ function BoardSection() {
     setBoard(target)
     setQuery('')
     setView('list')
+    setError('')
     loadPosts(target)
   }
 
@@ -166,7 +213,10 @@ function BoardSection() {
             <BoardPage
               boards={boards} board={board} posts={posts} query={query} loading={loading}
               onSelectBoard={selectBoard} onCreateBoard={() => setModal(true)}
-              onSearch={(value) => { setQuery(value); loadPosts(board, value) }}
+              onSearch={(value) => {
+                setQuery(value)
+                loadPosts(board, value)
+              }}
               onWrite={() => { setPost(null); setView('editor') }} onPost={openPost}
             />
           )}

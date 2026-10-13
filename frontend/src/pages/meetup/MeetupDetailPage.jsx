@@ -33,6 +33,20 @@ function formatDateTime(value) {
 }
 
 
+function formatDateOnly(value) {
+  if (!value) return ''
+
+  const raw = String(value).slice(0, 10)
+  const parts = raw.split('-')
+
+  if (parts.length === 3) {
+    return `${parts[0]}.${parts[1]}.${parts[2]}`
+  }
+
+  return raw
+}
+
+
 function formatTime(value) {
   if (!value) return ''
   return String(value).slice(0, 5)
@@ -164,6 +178,7 @@ export default function MeetupDetailPage({
 
   const category = getCategoryMeta(meetup.category)
   const detail = meetup?.detail || {}
+  const recruitMode = String(meetup?.recruit_mode ?? '').toLowerCase()
 
   const currentCount =
     memberCount ??
@@ -250,7 +265,8 @@ export default function MeetupDetailPage({
           {meetup.body || '등록된 모임 설명이 없습니다.'}
         </div>
 
-        {(detail.sport_name ||
+        {((recruitMode === 'regular' && meetup.regular_start_date) ||
+          detail.sport_name ||
           detail.game_name ||
           detail.study_topic ||
           detail.study_period ||
@@ -263,6 +279,14 @@ export default function MeetupDetailPage({
             <h2>모임 상세 정보</h2>
 
             <div className="meetup-extra-grid">
+              {recruitMode === 'regular' && meetup.regular_start_date && (
+                <div className="meetup-extra-item">
+                  <span className="meetup-extra-label">시작일</span>
+                  <span className="meetup-extra-value">
+                    {formatDateOnly(meetup.regular_start_date)}
+                  </span>
+                </div>
+              )}
               {['sports', 'sport', 'exercise'].includes(
                 String(meetup.category ?? '').toLowerCase(),
               ) &&
@@ -287,36 +311,36 @@ export default function MeetupDetailPage({
                   </div>
                 )}
 
-              {String(meetup.category ?? '').toLowerCase() === 'study' && (
-                <>
-                  {detail.study_topic && (
-                    <div className="meetup-extra-item">
-                      <span className="meetup-extra-label">스터디 주제</span>
-                      <span className="meetup-extra-value">
-                        {detail.study_topic}
-                      </span>
-                    </div>
-                  )}
+                {String(meetup.category ?? '').toLowerCase() === 'study' && (
+                  <>
+                    {detail.study_period && (
+                      <div className="meetup-extra-item">
+                        <span className="meetup-extra-label">스터디 기간</span>
+                        <span className="meetup-extra-value">
+                          {detail.study_period}
+                        </span>
+                      </div>
+                    )}
 
-                  {detail.study_period && (
-                    <div className="meetup-extra-item">
-                      <span className="meetup-extra-label">스터디 기간</span>
-                      <span className="meetup-extra-value">
-                        {detail.study_period}
-                      </span>
-                    </div>
-                  )}
+                    {detail.study_topic && (
+                      <div className="meetup-extra-item full">
+                        <span className="meetup-extra-label">스터디 주제</span>
+                        <span className="meetup-extra-value">
+                          {detail.study_topic}
+                        </span>
+                      </div>
+                    )}
 
-                  {detail.study_method && (
-                    <div className="meetup-extra-item full">
-                      <span className="meetup-extra-label">스터디 방식</span>
-                      <span className="meetup-extra-value">
-                        {detail.study_method}
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
+                    {detail.study_method && (
+                      <div className="meetup-extra-item full">
+                        <span className="meetup-extra-label">스터디 방식</span>
+                        <span className="meetup-extra-value">
+                          {detail.study_method}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
 
               {['group_buy', 'groupbuy', 'purchase'].includes(
                 String(meetup.category ?? '').toLowerCase(),

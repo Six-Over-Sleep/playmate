@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
-import Header from './components/layout/Header'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import LoginPage from './pages/auth/LoginPage'
+import SignupPage from './pages/auth/SignupPage'
 import BoardCreateModal from './components/board/BoardCreateModal'
 import BoardPage from './pages/board/BoardPage'
 import PostDetailPage from './pages/board/PostDetailPage'
@@ -9,15 +10,111 @@ import MeetupDetailPage from './pages/meetup/MeetupDetailPage'
 import MeetupEditorPage from './pages/meetup/MeetupEditorPage'
 import { boardApi } from './services/boardApi'
 import { meetupApi } from './services/meetupApi'
+import Header from './components/layout/Header'
+
+const API_BASE_URL = 'http://localhost:8000'
 
 export default function App() {
+  const [authView, setAuthView] = useState('checking')
   const [section, setSection] = useState('board')
+  const [boardKey, setBoardKey] = useState(0)
+
+  const enterService = useCallback(() => {
+    setSection('board')
+    setAuthView('board')
+  }, [])
+
+  const checkAuth = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        setAuthView('login')
+        return
+      }
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || '로그인 상태를 확인하지 못했습니다.')
+      }
+
+      if (data.signup_required) {
+        setAuthView('signup')
+        return
+      }
+
+      enterService()
+    } catch (error) {
+      console.error(error)
+      setAuthView('login')
+    } finally {
+      const url = new URL(window.location.href)
+
+      if (url.searchParams.has('auth') || url.searchParams.has('signup')) {
+        url.searchParams.delete('auth')
+        url.searchParams.delete('signup')
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+      }
+    }
+  }, [enterService])
+
+  useEffect(() => {
+    checkAuth()
+  }, [checkAuth])
+
+  const handleNavigate = (nextSection) => {
+    setSection(nextSection)
+
+    // 게시판 메뉴를 누르면 게시판 내부 화면을 목록으로 초기화
+    if (nextSection === 'board') {
+      setBoardKey((prev) => prev + 1)
+    }
+  }
+
+  if (authView === 'checking') {
+    return (
+      <main className="service-error">
+        <p>로그인 상태를 확인하는 중...</p>
+      </main>
+    )
+  }
+
+  if (authView === 'signup') {
+    return (
+      <SignupPage
+        onBack={() => setAuthView('login')}
+        onComplete={enterService}
+      />
+    )
+  }
+
+  if (authView === 'board') {
+    return (
+      <>
+        <Header
+          activeSection={section}
+          onNavigate={handleNavigate}
+        />
+
+        {section === 'board' && (
+          <BoardSection key={boardKey} />
+        )}
+
+        {section === 'meetup' && (
+          <MeetupSection />
+        )}
+      </>
+    )
+  }
 
   return (
-    <>
-      <Header activeSection={section} onNavigate={setSection} />
-      {section === 'board' ? <BoardSection /> : <MeetupSection />}
-    </>
+    <LoginPage
+      onSignup={() => setAuthView('signup')}
+      onDevEnter={enterService}
+    />
   )
 }
 
@@ -35,6 +132,7 @@ function BoardSection() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [initialized, setInitialized] = useState(false)
+  const postsRequestId = useRef(0)
 
   const run = useCallback(async (task) => {
     try {
@@ -48,13 +146,24 @@ function BoardSection() {
 
   const loadPosts = useCallback(async (target, search = '') => {
     if (!target) return
+
+    const requestId = ++postsRequestId.current
     setLoading(true)
+
     try {
-      setPosts(await run(() => boardApi.posts(target.id, search)))
+      const items = await run(() => boardApi.posts(target.id, search))
+
+      if (requestId === postsRequestId.current) {
+        setPosts(items)
+      }
     } catch {
-      setPosts(null)
+      if (requestId === postsRequestId.current) {
+        setPosts([])
+      }
     } finally {
-      setLoading(false)
+      if (requestId === postsRequestId.current) {
+        setLoading(false)
+      }
     }
   }, [run])
 
@@ -62,9 +171,12 @@ function BoardSection() {
     run(boardApi.boards)
       .then((items) => {
         setBoards(items)
+
         if (items[0]) {
           setBoard(items[0])
           loadPosts(items[0])
+        } else {
+          setLoading(false)
         }
       })
       .catch(() => setLoading(false))
@@ -73,8 +185,10 @@ function BoardSection() {
 
   const selectBoard = (target) => {
     setBoard(target)
+    setPosts([])
     setQuery('')
     setView('list')
+    setError('')
     loadPosts(target)
   }
 
@@ -135,9 +249,18 @@ function BoardSection() {
 
   const deletePost = () => {
     if (confirm('이 글을 삭제할까요?')) {
-      mutate(() => boardApi.deletePost(board.id, post.id), async () => {
-        setView('list')
+      const deletedPostId = post.id
+
+      mutate(() => boardApi.deletePost(board.id, deletedPostId), async () => {
+        setPosts((prev) =>
+          Array.isArray(prev)
+            ? prev.filter((item) => item.id !== deletedPostId)
+            : prev
+        )
+
         setPost(null)
+        setView('list')
+
         await loadPosts(board, query)
       })
     }
@@ -166,7 +289,10 @@ function BoardSection() {
             <BoardPage
               boards={boards} board={board} posts={posts} query={query} loading={loading}
               onSelectBoard={selectBoard} onCreateBoard={() => setModal(true)}
-              onSearch={(value) => { setQuery(value); loadPosts(board, value) }}
+              onSearch={(value) => {
+                setQuery(value)
+                loadPosts(board, value)
+              }}
               onWrite={() => { setPost(null); setView('editor') }} onPost={openPost}
             />
           )}

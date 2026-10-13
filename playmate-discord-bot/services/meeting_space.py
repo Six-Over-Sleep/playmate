@@ -2,10 +2,18 @@
 import discord
 
 
-async def create_meeting_space(guild: discord.Guild, meeting_name: str, visibility: str='PUBLIC', participant_ids: list[int] | None=None, create_voice_channel: bool=True):
+async def create_meeting_space(
+    guild: discord.Guild,
+    meeting_name: str,
+    recruit_mode: str,
+    visibility: str = "PUBLIC",
+    participant_ids: list[int] | None = None,
+    create_voice_channel: bool = True,
+):
     """
-    PlayMate에서 생성 승인된 모임의
-    Discord 공간을 생성한다.
+    PlayMate에서 생성 승인된 regular 모임의 Discord 공간을 생성한다.
+
+    short 모임은 Discord 공간을 만들지 않고 None을 반환한다.
 
     구조:
 
@@ -22,6 +30,12 @@ async def create_meeting_space(guild: discord.Guild, meeting_name: str, visibili
     - 실제 서비스 중복 생성 방지는
       recruit_id ↔ Discord resource ID 기준으로 처리한다.
     """
+    if recruit_mode == "short":
+        print("short 모임은 Discord 공간을 생성하지 않습니다.")
+        return None
+    if recruit_mode != "regular":
+        raise ValueError("recruit_mode는 'regular' 또는 'short'여야 합니다.")
+
     participant_ids = participant_ids or []
     visibility = visibility.upper()
     if visibility not in ('PUBLIC', 'PRIVATE'):

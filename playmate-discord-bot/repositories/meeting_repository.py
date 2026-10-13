@@ -15,40 +15,33 @@ Meeting = dict[str, Any]
 
 
 class MeetingRepository(Protocol):
-    def list_one_time_meetings(self) -> list[Meeting]: ...
-    def list_ongoing_meetings(self) -> list[tuple[int, Meeting]]: ...
-    def get_ongoing_meeting(self, category_id: int) -> Meeting | None: ...
-    def save_one_time_meeting(self, meeting: Meeting) -> None: ...
-    def save_ongoing_meeting(self, category_id: int, meeting: Meeting) -> None: ...
+    def list_regular_meetings(self) -> list[tuple[int, Meeting]]: ...
+
+    def get_regular_meeting(self, category_id: int) -> Meeting | None: ...
+
+    def save_regular_meeting(
+        self, category_id: int, meeting: Meeting
+    ) -> None: ...
 
 
 class InMemoryMeetingRepository:
     def __init__(
         self,
-        one_time_meetings: list[Meeting] | None = None,
-        ongoing_meetings: dict[int, Meeting] | None = None,
+        regular_meetings: dict[int, Meeting] | None = None,
     ):
-        # Keep references, including explicitly supplied empty fixtures.
-        self._one_time_meetings = (
-            one_time_meetings if one_time_meetings is not None else []
-        )
-        self._ongoing_meetings = (
-            ongoing_meetings if ongoing_meetings is not None else {}
+        self._regular_meetings = (
+            regular_meetings if regular_meetings is not None else {}
         )
 
-    def list_one_time_meetings(self) -> list[Meeting]:
-        return self._one_time_meetings
 
-    def list_ongoing_meetings(self) -> list[tuple[int, Meeting]]:
-        return list(self._ongoing_meetings.items())
+    def list_regular_meetings(self) -> list[tuple[int, Meeting]]:
+        return list(self._regular_meetings.items())
 
-    def get_ongoing_meeting(self, category_id: int) -> Meeting | None:
-        return self._ongoing_meetings.get(category_id)
+    def get_regular_meeting(self, category_id: int) -> Meeting | None:
+        return self._regular_meetings.get(category_id)
 
-    def save_one_time_meeting(self, meeting: Meeting) -> None:
-        # Records returned by list_one_time_meetings are live references.
-        # The explicit save boundary allows future adapters to persist updates.
-        pass
+    def save_regular_meeting(
+        self, category_id: int, meeting: Meeting
+    ) -> None:
+        self._regular_meetings[category_id] = meeting
 
-    def save_ongoing_meeting(self, category_id: int, meeting: Meeting) -> None:
-        self._ongoing_meetings[category_id] = meeting

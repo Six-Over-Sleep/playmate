@@ -36,9 +36,10 @@
 }
 
 .app-nav {
+  margin-left: 20px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 18px;
 }
 
 .app-nav span,
@@ -87,7 +88,7 @@
   }
 
   .app-nav {
-    gap: 2px;
+    gap: 4px;
   }
 
   .app-nav span,

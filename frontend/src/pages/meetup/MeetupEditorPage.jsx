@@ -55,6 +55,9 @@ function makeInitialForm(meetup) {
 
     regular_days: normalizeRegularDays(meetup?.regular_days),
     regular_time: toTimeValue(meetup?.regular_time),
+    regular_start_date: meetup?.regular_start_date
+      ? String(meetup.regular_start_date).slice(0, 10)
+      : '',
 
     recruit_end: toDateTimeLocal(meetup?.deadline_at),
 
@@ -70,7 +73,6 @@ function makeInitialForm(meetup) {
 
     study_topic: categoryDetail?.study_topic || '',
     study_period: categoryDetail?.study_period || '',
-    study_method: categoryDetail?.study_method || '',
 
     product_name: categoryDetail?.product_name || '',
     purchase_url: categoryDetail?.purchase_url || '',
@@ -89,6 +91,7 @@ export default function MeetupEditorPage({
   const isEdit = Boolean(meetup)
 
   const [form, setForm] = useState(() => makeInitialForm(meetup))
+  const isGroupBuy = form.category === 'group_buy'
   const [placeResults, setPlaceResults] = useState([])
   const [placeSearchStatus, setPlaceSearchStatus] = useState('')
   const mapContainerRef = useRef(null)
@@ -335,6 +338,11 @@ export default function MeetupEditorPage({
       return
     }
 
+    if (form.recruit_mode === 'regular' && !form.regular_start_date) {
+      alert('정기 모임 시작 날짜를 선택해주세요.')
+      return
+    }
+
     if (!form.is_online && !form.place.trim()) {
       alert('오프라인 모임 장소를 입력해주세요.')
       return
@@ -354,6 +362,10 @@ export default function MeetupEditorPage({
         // 아래 일정 필드는 백엔드 필드 추가 후 그대로 저장 가능
         regular_days:
           form.recruit_mode === 'regular' ? form.regular_days : null,
+        regular_start_date:
+          form.recruit_mode === 'regular'
+            ? form.regular_start_date || null
+            : null,
         regular_time:
           form.recruit_mode === 'regular' ? form.regular_time || null : null,
         meeting_start:
@@ -369,8 +381,6 @@ export default function MeetupEditorPage({
           form.category === 'study' ? form.study_topic || null : null,
         study_period:
           form.category === 'study' ? form.study_period || null : null,
-        study_method:
-          form.category === 'study' ? form.study_method || null : null,
         product_name:
           form.category === 'group_buy' ? form.product_name || null : null,
         purchase_url:
@@ -398,6 +408,10 @@ export default function MeetupEditorPage({
       meeting_datetime: null,
       regular_days:
         form.recruit_mode === 'regular' ? form.regular_days : null,
+      regular_start_date:
+        form.recruit_mode === 'regular'
+          ? form.regular_start_date || null
+          : null,
       regular_time:
         form.recruit_mode === 'regular' ? form.regular_time || null : null,
       meeting_start:
@@ -445,43 +459,67 @@ export default function MeetupEditorPage({
 
       <div className="meetup-editor-heading">
         <h1>{isEdit ? '모임 수정' : '모임 만들기'}</h1>
-
-        <p className="meetup-editor-description">
-          {isEdit
-            ? '모임 정보를 수정해보세요.'
-            : '함께할 사람을 모집해보세요.'}
-        </p>
       </div>
 
       <form className="meetup-form-card" onSubmit={submit}>
         <>
           <div className="meetup-form-section">
-              <div className="meetup-field-title">
-                모임 형태 <span>*</span>
-              </div>
+            <div className="meetup-field-title">
+              모임 카테고리 <span>*</span>
+            </div>
 
-              <div className="meetup-segmented-control meetup-recruit-mode">
+            <div className="meetup-category-buttons">
+              {CATEGORY_OPTIONS.map((option) => (
                 <button
+                  key={option.value}
                   type="button"
-                  className={form.recruit_mode === 'regular' ? 'active' : ''}
-                  onClick={() => setRecruitMode('regular')}
+                  className={form.category === option.value ? 'active' : ''}
+                  onClick={() => setCategory(option.value)}
                   disabled={isEdit}
-                  title={isEdit ? '모임 형태는 생성 후 변경할 수 없어요.' : undefined}
+                  title={isEdit ? '모임 카테고리는 생성 후 변경할 수 없어요.' : undefined}
                 >
-                  정기 모임
+                  {option.label}
                 </button>
+              ))}
+            </div>
+          </div>
 
-                <button
-                  type="button"
-                  className={form.recruit_mode === 'short' ? 'active' : ''}
-                  onClick={() => setRecruitMode('short')}
-                  disabled={isEdit}
-                  title={isEdit ? '모임 형태는 생성 후 변경할 수 없어요.' : undefined}
-                >
-                  단기 모임
-                </button>
-              </div>
+          <div className="meetup-form-section">
+            <div className="meetup-field-title">
+              모임 형태 <span>*</span>
+            </div>
 
+            <div className="meetup-segmented-control meetup-recruit-mode">
+              <button
+                type="button"
+                className={!isGroupBuy && form.recruit_mode === 'regular' ? 'active' : ''}
+                onClick={() => setRecruitMode('regular')}
+                disabled={isEdit || isGroupBuy}
+                title={
+                  isEdit
+                    ? '모임 형태는 생성 후 변경할 수 없어요.'
+                    : undefined
+                }
+              >
+                정기 모임
+              </button>
+
+              <button
+                type="button"
+                className={!isGroupBuy && form.recruit_mode === 'short' ? 'active' : ''}
+                onClick={() => setRecruitMode('short')}
+                disabled={isEdit || isGroupBuy}
+                title={
+                  isEdit
+                    ? '모임 형태는 생성 후 변경할 수 없어요.'
+                    : undefined
+                }
+              >
+                단기 모임
+              </button>
+            </div>
+
+            {!isGroupBuy && (
               <p className="meetup-type-help">
                 {isEdit
                   ? '모임 형태는 생성 후 변경할 수 없어요.'
@@ -489,27 +527,7 @@ export default function MeetupEditorPage({
                     ? '반복적으로 진행되는 모임이에요.'
                     : '특정 날짜에 진행되는 모임이에요.'}
               </p>
-            </div>
-
-            <div className="meetup-form-section">
-              <div className="meetup-field-title">
-                모임 카테고리 <span>*</span>
-              </div>
-
-              <div className="meetup-category-buttons">
-                {CATEGORY_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={form.category === option.value ? 'active' : ''}
-                    onClick={() => setCategory(option.value)}
-                    disabled={isEdit}
-                    title={isEdit ? '모임 카테고리는 생성 후 변경할 수 없어요.' : undefined}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
+            )}
           </div>
         </>
 
@@ -670,13 +688,22 @@ export default function MeetupEditorPage({
           </div>
         )}
 
-        {form.recruit_mode === 'regular' && (
+        {!isGroupBuy && form.recruit_mode === 'regular' && (
           <div className="meetup-form-section regular-schedule-section">
             <div className="meetup-field-title">
               정기 일정 <span>*</span>
             </div>
 
             <div className="meetup-regular-inline">
+              <input
+                className="meetup-regular-date"
+                type="date"
+                name="regular_start_date"
+                value={form.regular_start_date}
+                onChange={change}
+                required
+              />
+
               <div className="meetup-weekday-buttons">
                 {WEEKDAYS.map((day) => (
                   <button
@@ -702,7 +729,7 @@ export default function MeetupEditorPage({
           </div>
         )}
 
-        {form.recruit_mode === 'short' && (
+        {!isGroupBuy && form.recruit_mode === 'short' && (
           <div className="meetup-form-grid two">
             <label className="meetup-field">
               <span>
@@ -795,16 +822,6 @@ export default function MeetupEditorPage({
                 />
               </label>
             </div>
-
-            <label className="meetup-field">
-              <span>진행 방식</span>
-              <input
-                name="study_method"
-                value={form.study_method}
-                onChange={change}
-                placeholder="예) 주 2회 오프라인 문제 풀이"
-              />
-            </label>
           </div>
         )}
 
@@ -829,15 +846,29 @@ export default function MeetupEditorPage({
                 <span>
                   1인 예상 가격 <b>*</b>
                 </span>
-                <input
-                  type="number"
-                  name="estimated_price_per_person"
-                  value={form.estimated_price_per_person}
-                  onChange={change}
-                  placeholder="예) 15000"
-                  min="0"
-                  required
-                />
+
+                <div className="meetup-price-input">
+                  <input
+                    type="text"
+                    name="estimated_price_per_person"
+                    value={
+                      form.estimated_price_per_person
+                        ? Number(form.estimated_price_per_person).toLocaleString('ko-KR')
+                        : ''
+                    }
+                    onChange={(e) => {
+                      const onlyNumber = e.target.value.replace(/[^0-9]/g, '')
+
+                      setForm((prev) => ({
+                        ...prev,
+                        estimated_price_per_person: onlyNumber,
+                      }))
+                    }}
+                    placeholder="예) 15,000"
+                    inputMode="numeric"
+                    required
+                  />
+                </div>
               </label>
             </div>
 

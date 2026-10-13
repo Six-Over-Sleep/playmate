@@ -61,7 +61,6 @@ export default function BoardPage({
       <section className="page-intro">
         <div>
           <h1>게시판</h1>
-          <p>학생끼리 편하게 이야기해요.</p>
         </div>
       </section>
 
@@ -77,10 +76,6 @@ export default function BoardPage({
           <div className="feed-head">
             <div>
               <h2>{board?.name || '게시판'}</h2>
-              <p>
-                {board?.description ||
-                  '함께 배우고, 편하게 이야기해요.'}
-              </p>
             </div>
 
             <button

@@ -660,12 +660,6 @@ button { cursor: pointer; }
   font-weight: 800;
 }
 
-.meetup-editor-description {
-  margin: 0;
-  color: #807789;
-  font-size: 14px;
-}
-
 .meetup-form-card {
   display: flex;
   flex-direction: column;
@@ -1050,11 +1044,12 @@ button { cursor: pointer; }
 
 /* 카테고리별 상세 정보 섹션 */
 .meetup-extra-section {
-  margin-top: 24px;
+  margin-top: 20px;
+  padding-top: 0;
 }
 
 .meetup-extra-section h2 {
-  margin: 0 0 13px;
+  margin: 0 0 14px;
   color: #30283f;
   font-size: 16px;
   font-weight: 900;
@@ -1063,7 +1058,7 @@ button { cursor: pointer; }
 .meetup-extra-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 16px;
 }
 
 .meetup-extra-grid > .meetup-extra-item:only-child {
@@ -1072,7 +1067,7 @@ button { cursor: pointer; }
 
 .meetup-extra-item {
   min-width: 0;
-  padding: 16px 18px;
+  padding: 20px 24px;
   border-radius: 16px;
   background: #f7f7fa;
 }
@@ -1127,7 +1122,7 @@ button { cursor: pointer; }
 }
 
 /* =========================================================
-   정기 모임 요일 / 시간 선택
+   정기 모임 시작일 / 요일 / 시간
    ========================================================= */
 
 .regular-schedule-section {
@@ -1136,22 +1131,49 @@ button { cursor: pointer; }
 
 .meetup-regular-inline {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: 220px minmax(0, 1fr) 180px;
   gap: 16px;
   align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.meetup-regular-date,
+.meetup-regular-time {
+  width: 100%;
+  height: 56px;
+  min-width: 0;
+  padding: 0 18px;
+  border: 1px solid #ececf0;
+  border-radius: 16px;
+  background: #f7f7fa;
+  color: #2b2444;
+  font-size: 16px;
+  font-weight: 600;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.meetup-regular-date:focus,
+.meetup-regular-time:focus {
+  border-color: #6f58a8;
+  outline: 2px solid rgba(73, 50, 120, .12);
+  background: #ffffff;
 }
 
 .meetup-weekday-buttons {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(7, minmax(44px, 1fr));
+  gap: 10px;
+  min-width: 0;
 }
 
 .meetup-weekday-buttons button {
   min-width: 0;
-  min-height: 50px;
+  height: 56px;
   border: 0;
   border-radius: 14px;
+  padding: 0 10px;
   background: #f7f7fa;
   color: #aaa3b3;
   font-size: 14px;
@@ -1168,33 +1190,22 @@ button { cursor: pointer; }
   color: #ffffff;
 }
 
-.meetup-regular-time {
-  width: 100%;
-  min-height: 50px;
-  border: 0;
-  border-radius: 14px;
-  padding: 14px 16px;
-  background: #f7f7fa;
-  color: #30283f;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.meetup-regular-time:focus {
-  outline: 2px solid rgba(73, 50, 120, .16);
-  background: #fbfaff;
-}
-
-@media (max-width: 800px) {
+@media (max-width: 900px) {
   .meetup-regular-inline {
     grid-template-columns: 1fr;
+    gap: 14px;
   }
 
+  .meetup-weekday-buttons {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
   .meetup-weekday-buttons {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
-
 
 /* =========================================================
    Kakao 장소 검색 / 지도
@@ -1326,4 +1337,18 @@ button { cursor: pointer; }
   .meetup-kakao-map {
     height: 240px;
   }
+}
+
+.meetup-recruit-mode button:disabled {
+  background: #d7d4dc;
+  color: #77717f;
+  cursor: not-allowed;
+  transform: none;
+  opacity: 1;
+}
+
+.meetup-recruit-mode button:disabled:hover {
+  background: #d7d4dc;
+  color: #77717f;
+  transform: none;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import LoginPage from './pages/auth/LoginPage'
 import SignupPage from './pages/auth/SignupPage'
 import BoardCreateModal from './components/board/BoardCreateModal'
@@ -78,6 +78,7 @@ function BoardSection() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [initialized, setInitialized] = useState(false)
+  const postsRequestId = useRef(0)
 
   const run = useCallback(async (task) => {
     try {
@@ -91,13 +92,24 @@ function BoardSection() {
 
   const loadPosts = useCallback(async (target, search = '') => {
     if (!target) return
+
+    const requestId = ++postsRequestId.current
     setLoading(true)
+
     try {
-      setPosts(await run(() => boardApi.posts(target.id, search)))
+      const items = await run(() => boardApi.posts(target.id, search))
+
+      if (requestId === postsRequestId.current) {
+        setPosts(items)
+      }
     } catch {
-      setPosts(null)
+      if (requestId === postsRequestId.current) {
+        setPosts([])
+      }
     } finally {
-      setLoading(false)
+      if (requestId === postsRequestId.current) {
+        setLoading(false)
+      }
     }
   }, [run])
 
@@ -119,6 +131,7 @@ function BoardSection() {
 
   const selectBoard = (target) => {
     setBoard(target)
+    setPosts([])
     setQuery('')
     setView('list')
     setError('')
@@ -182,9 +195,18 @@ function BoardSection() {
 
   const deletePost = () => {
     if (confirm('이 글을 삭제할까요?')) {
-      mutate(() => boardApi.deletePost(board.id, post.id), async () => {
-        setView('list')
+      const deletedPostId = post.id
+
+      mutate(() => boardApi.deletePost(board.id, deletedPostId), async () => {
+        setPosts((prev) =>
+          Array.isArray(prev)
+            ? prev.filter((item) => item.id !== deletedPostId)
+            : prev
+        )
+
         setPost(null)
+        setView('list')
+
         await loadPosts(board, query)
       })
     }

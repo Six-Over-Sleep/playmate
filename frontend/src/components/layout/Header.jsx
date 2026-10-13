@@ -23,8 +23,6 @@ export default function Header({ activeSection, onNavigate }) {
           className="brand-logo"
           aria-hidden="true"
         />
-
-        <span className="brand-text">PlayMate</span>
       </a>
 
       <nav className="app-nav" aria-label="주 메뉴">

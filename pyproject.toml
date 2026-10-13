@@ -6,9 +6,11 @@ dependencies = [
     "fastapi>=0.143.0",
     "httpx>=0.28.1",
     "itsdangerous>=2.2.0",
+    "psycopg2-binary>=2.9.13",
     "psycopg[binary]>=3.3.6",
     "pydantic>=2.14.1",
     "python-dotenv>=1.2.4",
+    "python-multipart>=0.0.32",
     "sqlalchemy>=2.1.4",
     "uvicorn[standard]>=0.54.0",
 ]

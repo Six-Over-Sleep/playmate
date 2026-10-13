@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   height: 74px;
-  padding: 0 24px;
+  padding: 0 30px;
   background: #fff;
   border-bottom: 1px solid #ececf0;
 }
@@ -15,25 +15,22 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-right: 46px;
+  gap: 0;
+  margin-right: 38px;
   color: #302456;
   text-decoration: none;
 }
 
 .brand-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 11px;
-  object-fit: cover;
-  flex: 0 0 44px;
+  width: 140px;
+  height: auto;
+  border-radius: 0;
+  object-fit: contain;
+  flex: 0 0 auto;
+  display: block;
+  transform: translateY(-4px);
 }
 
-.brand-text {
-  font-family: "Fredoka", sans-serif;
-  font-size: 28px;
-  font-weight: 700;
-}
 
 .app-nav {
   margin-left: 20px;
@@ -73,18 +70,14 @@
 
   .brand {
     margin-right: 16px;
-    gap: 4px;
+    gap: 0;
   }
 
   .brand-logo {
-    width: 44px;
-    height: 44px;
-    flex: 0 0 44px;
-    border-radius: 11px;
-  }
-
-  .brand-text {
-    font-size: 21px;
+    width: 130px;
+    height: auto;
+    flex: 0 0 auto;
+    border-radius: 0;
   }
 
   .app-nav {

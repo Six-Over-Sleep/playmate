@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import '../../styles/auth.css'
 import logo from '../../assets/playmate-logo.png'
 
-const MOCK_IS_DUPLICATE = false
+const API_BASE_URL = 'http://localhost:8000'
 
-export default function SignupPage({ onBack }) {
+export default function SignupPage({ onBack, onComplete }) {
   const [form, setForm] = useState({
     discordId: '',
     nickname: '',
@@ -12,7 +12,49 @@ export default function SignupPage({ onBack }) {
     cohort: '',
   })
 
-  const [discordStatus, setDiscordStatus] = useState('idle')
+  const [discordStatus, setDiscordStatus] = useState('checking')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    const checkDiscordSession = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+          credentials: 'include',
+        })
+
+        if (response.status === 401) {
+          setDiscordStatus('idle')
+          return
+        }
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.detail || '인증 상태를 확인하지 못했습니다.')
+        }
+
+        if (!data.signup_required) {
+          onComplete?.()
+          return
+        }
+
+        setForm((prev) => ({
+          ...prev,
+          discordId:
+            data.discord_user?.username ||
+            data.discord_user?.discord_id ||
+            '',
+        }))
+
+        setDiscordStatus('verified')
+      } catch (error) {
+        console.error(error)
+        setDiscordStatus('idle')
+      }
+    }
+
+    checkDiscordSession()
+  }, [onComplete])
 
   const handleChange = (event) => {
     const { name, value } = event.target
@@ -24,25 +66,14 @@ export default function SignupPage({ onBack }) {
   }
 
   const handleDiscordAuth = () => {
-    // 실제 Discord OAuth 연결 전 화면 확인용 임시 동작
-    setForm((prev) => ({
-      ...prev,
-      discordId: 'admin',
-    }))
-
-    setDiscordStatus(MOCK_IS_DUPLICATE ? 'duplicate' : 'verified')
+    window.location.href = `${API_BASE_URL}/auth/discord/login`
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
 
-    if (discordStatus === 'idle') {
+    if (discordStatus !== 'verified') {
       alert('Discord 인증을 먼저 진행해주세요.')
-      return
-    }
-
-    if (discordStatus === 'duplicate') {
-      alert('이미 가입된 Discord 계정입니다.')
       return
     }
 
@@ -61,12 +92,46 @@ export default function SignupPage({ onBack }) {
       return
     }
 
-    // 추후 실제 회원가입 API 연결
-    console.log('회원가입 데이터:', form)
+    setSubmitting(true)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/signup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          nickname: form.nickname.trim(),
+          cohort: Number(form.cohort),
+          track: form.course,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        if (response.status === 409) {
+          alert(data.detail || '이미 가입된 회원입니다.')
+          onComplete?.()
+          return
+        }
+
+        throw new Error(data.detail || '회원가입에 실패했습니다.')
+      }
+
+      alert('회원가입이 완료되었습니다.')
+      onComplete?.()
+    } catch (error) {
+      console.error(error)
+      alert(error.message || '서버와 통신할 수 없습니다.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const isVerified = discordStatus === 'verified'
-  const isDuplicate = discordStatus === 'duplicate'
+  const isChecking = discordStatus === 'checking'
 
   return (
     <div className="auth-page">
@@ -86,7 +151,7 @@ export default function SignupPage({ onBack }) {
 
           <div className="signup-heading">
             <div>
-              <h1>PlayMate 회원가입</h1>
+              <h1>회원가입</h1>
               <p>커뮤니티에서 사용할 정보를 입력해주세요.</p>
             </div>
           </div>
@@ -97,15 +162,20 @@ export default function SignupPage({ onBack }) {
                 Discord ID <b>*</b>
               </span>
 
-              {discordStatus === 'idle' ? (
+              {!isVerified ? (
                 <>
                   <button
                     type="button"
                     className="discord-auth-button"
                     onClick={handleDiscordAuth}
+                    disabled={isChecking}
                   >
                     <span className="discord-auth-icon">◉</span>
-                    <span>Discord 인증하기</span>
+                    <span>
+                      {isChecking
+                        ? 'Discord 인증 확인 중...'
+                        : 'Discord 인증하기'}
+                    </span>
                   </button>
 
                   <small>
@@ -114,31 +184,19 @@ export default function SignupPage({ onBack }) {
                 </>
               ) : (
                 <>
-                  <div
-                    className={`signup-disabled-input ${
-                      isDuplicate ? 'discord-duplicate' : 'discord-verified'
-                    }`}
-                  >
+                  <div className="signup-disabled-input discord-verified">
                     <input
                       type="text"
                       value={form.discordId}
                       readOnly
                     />
 
-                    <span className="signup-status-icon">
-                      {isDuplicate ? '!' : '✓'}
-                    </span>
+                    <span className="signup-status-icon">✓</span>
                   </div>
 
-                  {isDuplicate ? (
-                    <small className="discord-error">
-                      이미 가입된 Discord 계정입니다.
-                    </small>
-                  ) : (
-                    <small className="discord-success">
-                      Discord 인증이 완료되었습니다.
-                    </small>
-                  )}
+                  <small className="discord-success">
+                    Discord 인증이 완료되었습니다.
+                  </small>
                 </>
               )}
             </div>
@@ -198,9 +256,9 @@ export default function SignupPage({ onBack }) {
             <button
               type="submit"
               className="signup-submit-button"
-              disabled={!isVerified}
+              disabled={!isVerified || submitting}
             >
-              가입하기
+              {submitting ? '가입 중...' : '가입하기'}
             </button>
           </form>
         </section>

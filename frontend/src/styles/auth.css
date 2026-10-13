@@ -135,14 +135,15 @@ button {
 .login-card-logo {
   display: flex;
   justify-content: center;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .login-card-logo img {
-  width: 66px;
-  height: 66px;
-  border-radius: 18px;
-  object-fit: cover;
+  width: 180px;
+  height: auto;
+  border-radius: 0;
+  object-fit: contain;
+  display: block;
 }
 
 .login-card h2 {
@@ -153,7 +154,7 @@ button {
 }
 
 .login-card-description {
-  margin: 14px 0 28px;
+  margin: 12px 0 28px;
   color: #867e91;
   font-size: 13px;
   font-weight: 600;
@@ -329,14 +330,6 @@ button {
   padding: 42px 36px 34px;
 }
 
-.login-card-title {
-  margin: 0 0 8px;
-  color: #493278;
-  font-family: "Fredoka", "Pretendard", sans-serif;
-  font-size: 34px;
-  font-weight: 700;
-  line-height: 1.1;
-}
 
 @media (max-width: 700px) {
   .login-main-centered {
@@ -349,10 +342,6 @@ button {
 
   .login-container-centered .login-card {
     padding: 34px 22px 28px;
-  }
-
-  .login-card-title {
-    font-size: 30px;
   }
 }
 
@@ -395,14 +384,15 @@ button {
 .signup-logo {
   display: flex;
   justify-content: center;
-  margin-bottom: 12px;
+  margin-bottom: 20px;
 }
 
 .signup-logo img {
-  width: 58px;
-  height: 58px;
-  border-radius: 16px;
-  object-fit: cover;
+  width: 160px;
+  height: auto;
+  border-radius: 0;
+  object-fit: contain;
+  display: block;
 }
 
 .signup-heading {

@@ -144,18 +144,16 @@ async def discord_callback(
     if member:
         request.session["member_id"] = member["member_id"]
 
-        return {
-            "message": "로그인 성공!",
-            "signup_required": False,
-            "member": member,
-        }
+        return RedirectResponse(
+            url="http://localhost:5173/?auth=success",
+            status_code=302,
+        )
 
     # 신규 회원인 경우
-    return {
-        "message": "추가 회원가입이 필요합니다.",
-        "signup_required": True,
-        "discord_user": request.session["user"],
-    }
+    return RedirectResponse(
+        url="http://localhost:5173/?signup=required",
+        status_code=302,
+    )
 
 
 # 3. 현재 로그인 및 회원가입 상태 확인

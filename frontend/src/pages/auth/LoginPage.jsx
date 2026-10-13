@@ -4,7 +4,7 @@ import logo from '../../assets/playmate-logo.png'
 export default function LoginPage({ onSignup, onDevEnter }) {
   const handleDiscordLogin = () => {
     window.location.href =
-      'http://127.0.0.1:8000/api/auth/discord/login'
+      'http://localhost:8000/auth/discord/login'
   }
 
   return (
@@ -30,10 +30,6 @@ export default function LoginPage({ onSignup, onDevEnter }) {
                 aria-hidden="true"
               />
             </div>
-
-            <h1 className="login-card-title">
-              PlayMate
-            </h1>
 
             <p className="login-card-description">
               Discord 계정으로 안전하고 간편하게 로그인하세요.

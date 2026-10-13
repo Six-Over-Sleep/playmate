@@ -12,10 +12,58 @@ import { boardApi } from './services/boardApi'
 import { meetupApi } from './services/meetupApi'
 import Header from './components/layout/Header'
 
+const API_BASE_URL = 'http://localhost:8000'
+
 export default function App() {
-  const [authView, setAuthView] = useState('login')
+  const [authView, setAuthView] = useState('checking')
   const [section, setSection] = useState('board')
   const [boardKey, setBoardKey] = useState(0)
+
+  const enterService = useCallback(() => {
+    setSection('board')
+    setAuthView('board')
+  }, [])
+
+  const checkAuth = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        setAuthView('login')
+        return
+      }
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || '로그인 상태를 확인하지 못했습니다.')
+      }
+
+      if (data.signup_required) {
+        setAuthView('signup')
+        return
+      }
+
+      enterService()
+    } catch (error) {
+      console.error(error)
+      setAuthView('login')
+    } finally {
+      const url = new URL(window.location.href)
+
+      if (url.searchParams.has('auth') || url.searchParams.has('signup')) {
+        url.searchParams.delete('auth')
+        url.searchParams.delete('signup')
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+      }
+    }
+  }, [enterService])
+
+  useEffect(() => {
+    checkAuth()
+  }, [checkAuth])
 
   const handleNavigate = (nextSection) => {
     setSection(nextSection)
@@ -26,10 +74,19 @@ export default function App() {
     }
   }
 
+  if (authView === 'checking') {
+    return (
+      <main className="service-error">
+        <p>로그인 상태를 확인하는 중...</p>
+      </main>
+    )
+  }
+
   if (authView === 'signup') {
     return (
       <SignupPage
         onBack={() => setAuthView('login')}
+        onComplete={enterService}
       />
     )
   }
@@ -56,10 +113,7 @@ export default function App() {
   return (
     <LoginPage
       onSignup={() => setAuthView('signup')}
-      onDevEnter={() => {
-        setSection('board')
-        setAuthView('board')
-      }}
+      onDevEnter={enterService}
     />
   )
 }

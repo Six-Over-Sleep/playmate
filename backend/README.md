@@ -49,7 +49,12 @@ backend/
 │   ├── services/
 │   │   ├── auth_service.py
 │   │   ├── member_service.py
+│   │   ├── board_service.py
 │   │   └── recruit.py
+│   │
+│   ├── repositories/
+│   │   ├── __init__.py
+│   │   └── board_repository.py
 │   │
 │   ├── schemas/
 │   │   └── member.py
@@ -76,6 +81,8 @@ backend/
 | `routers/board.py` | 게시판 관련 API |
 | `routers/recruit.py` | 모임 관련 API |
 | `services/auth_service.py` | Discord 토큰 교환 및 사용자 정보 조회 |
+| `repositories/board_repository.py` | 게시판 SQL 실행과 결과 매핑, 이미지 일괄 조회 (커밋하지 않음) |
+| `services/board_service.py` | 게시판 업무 순서, 작성자 권한, 트랜잭션 경계 관리 |
 | `services/member_service.py` | PostgreSQL 회원 조회 및 신규 회원 등록 |
 | `services/recruit.py` | 모임 관련 비즈니스 로직 |
 | `schemas/member.py` | 회원가입 요청 데이터 검증 |
@@ -84,7 +91,8 @@ backend/
 ### 폴더별 역할
 
 - `routers/`: API 엔드포인트 정의
-- `services/`: 비즈니스 로직 및 외부 서비스 통신
+- `services/`: 비즈니스 로직, 트랜잭션 관리 및 외부 서비스 통신
+- `repositories/`: 게시판 SQL 실행 및 결과 매핑
 - `schemas/`: Pydantic 요청·응답 데이터 구조 및 검증
 - `models/`: 데이터베이스 ORM 모델 정의
 - `core/`: DB 연결, 환경변수, 업로드 등 공통 설정
@@ -571,16 +579,11 @@ backend/tests/test_auth_flow.py
 실행:
 
 ```powershell
-uv run --directory backend python -m tests.test_auth_flow
+python -m pytest backend/tests/test_auth_flow.py -q
 ```
 
-예상 출력:
-
-```text
-신규 회원 구분 성공!
-기존 회원 자동 로그인 성공!
-모든 인증 분기 테스트 통과!
-```
+현재 콜백의 302 리디렉션과 이후 `/auth/me` 세션으로 신규·기존 회원을 구분합니다.
+테스트 수집 시 HTTP 요청을 실행하지 않습니다.
 
 해당 테스트는 Discord와 PostgreSQL 응답을 Mock으로 대체하므로 실제 외부 서비스에 회원을 생성하지 않습니다.
 
@@ -631,3 +634,88 @@ uv run --directory backend python -m tests.test_auth_flow
 현재 백엔드는 Discord 인증, 회원 조회, 신규·기존 회원 분기, 회원가입 API와 게시판·모임 API의 기본 구조가 구현된 상태입니다.
 
 로그인 기능과 게시판·모임 기능의 실제 회원 인증 연동 및 최종 프론트엔드 통합 테스트는 추가 작업이 필요합니다.
+
+## 12. Issue #6 게시판 백엔드 리팩터링 (2026-10-14)
+
+### 계층과 트랜잭션
+
+게시판은 Router → Service → Repository → PostgreSQL 순서입니다.
+Router는 요청 검증·인증·업로드를 연결하고, Service가 한 업무에 한 DB 연결을 열어
+권한과 처리 순서를 관리합니다. Repository는 전달받은 커서만 사용하며 커밋하지 않습니다.
+게시글·댓글 저장 후 응답 데이터도 커밋 전에 조회하여 응답 조회 실패 시 전체 롤백합니다.
+게시글 생성의 동기 DB 처리는 thread pool에서 실행해 비동기 요청 처리 흐름을 막지 않습니다.
+
+### 인증과 프론트 연동
+
+- 기존 Discord OAuth 세션의 `member_id`와 `user.discord_id`를 DB에서 함께 검증합니다.
+- 유효한 로그인 세션이 있으면 개발용 헤더로 회원 ID를 바꿀 수 없습니다.
+- `X-Dev-Member-ID`는 세션이 없고 `APP_ENV=development` 또는 `test`일 때만 허용합니다.
+  이 헤더는 개발용 신뢰 기능이므로 외부에 공개된 서버에서 개발 환경을 사용하면 안 됩니다.
+- 운영은 `APP_ENV=production`(기본값)과 기존 `SESSION_SECRET_KEY`를 사용합니다.
+  새 환경변수는 없습니다. 기존 OAuth Router와 회원 Service는 변경하지 않았습니다.
+- 같은 출처의 `/api` 프록시에서는 기존 fetch가 세션 쿠키를 전달합니다.
+  API를 다른 출처로 직접 호출할 경우 프론트 담당자가 `credentials: 'include'`와
+  CORS·쿠키 설정을 확인해야 합니다.
+- URL, Method, 요청·응답 스키마, 상태 코드, `/uploads/posts/...` 경로를 유지했습니다.
+  게시글 목록은 기존 배열 응답이며 기존에 없는 페이지네이션을 추가하지 않았습니다.
+- 연결 실패의 503 상태는 유지하되 상세 DB 진단은 서버 로그에만 남깁니다.
+
+### 초기 로딩 조회 개선
+
+`list_posts`는 게시판 확인 1회 + 게시글·댓글 집계 1회 + 이미지 일괄 조회 1회입니다.
+빈 게시글 목록은 이미지 SQL을 생략합니다. 이미지의 `display_order, image_id` 순서와
+게시글별 매핑·빈 이미지 목록을 유지합니다. 댓글 조회는 게시글 존재 확인과 댓글 조회만 합니다.
+
+동일 대역 데이터로 변경 전 소스(`ba330782a4f51d65e3c0802450c6b0027b280bac`)와 비교한 결과:
+
+| 입력 | 이전 SQL 호출 | 이후 SQL 호출 | 이전/이후 연결 생성 |
+|---|---:|---:|---:|
+| 게시글 0개 | 2 | 2 | 2 / 1 |
+| 게시글 1개 | 3 | 3 | 2 / 1 |
+| 게시글 25개 | 27 | 3 | 2 / 1 |
+| 게시글 100개 | 102 | 3 | 2 / 1 |
+| 댓글 목록 | 3 | 2 | 2 / 1 |
+
+위 값은 Service·Repository를 실행하여 **커서 대역의 execute 호출을 계측한 값**입니다.
+실제 PostgreSQL 쿼리 실행 횟수·응답 시간의 실측이 아닙니다. 인증 조회 1회는 표에서 제외했습니다.
+대역 응답과 전체 OpenAPI는 이전·이후 동일했습니다. 실DB 실행 계획·첫 요청/반복 요청 시간·
+응답 크기는 미측정입니다. 공유 DB에 쓰기·삭제·마이그레이션을 수행하지 않았습니다.
+
+프론트 코드상 게시판 초기 요청은 게시판 목록 → 첫 게시판 게시글 목록 2개입니다.
+앱의 로그인 확인 `/auth/me`까지 포함하면 정상 로그인 진입 경로는 3개입니다.
+개발 `StrictMode`의 effect 재실행으로 중복 요청 가능성이 있습니다. 브라우저 실측은 하지 않았습니다.
+프론트 파일은 변경하지 않았습니다. `frontend/src/services/boardApi.js`의 `mediaUrl()`은
+`new URL('/api')`처럼 상대 주소만으로 URL을 만들고 있으므로 프론트 담당자가
+`new URL(path, window.location.origin)`처럼 기준 주소를 지정해야 합니다.
+
+### 재현 가능한 안전한 테스트
+
+저장소 루트에서 backend 내부에만 환경을 만들 수 있습니다.
+
+```powershell
+python -m venv backend/.venv
+backend/.venv/Scripts/python.exe -m pip install -r backend/requirements-dev.txt
+$env:RUN_POSTGRES_INTEGRATION = '0'
+backend/.venv/Scripts/python.exe -m pytest backend/tests -q -p no:cacheprovider --basetemp=backend/.pytest-tmp
+backend/.venv/Scripts/python.exe -m compileall -q backend/app backend/tests
+```
+
+검증 환경은 Windows / Python 3.14입니다. 결과는 **70 passed, 1 skipped**입니다.
+기존 인증 테스트는 실제 302 콜백에 맞추어 수정했습니다. HTTP 테스트는 두 종류입니다:
+기존 `client` fixture는 인증 dependency를 override하고 실제 Service·Repository를 실행합니다.
+실제 인증 테스트는 override 없이 서명 세션·헤더·401/422·사용자 불일치를 검증합니다.
+모든 DB 결과는 대역이며 Discord 토큰 교환·회원 조회도 대역입니다.
+파일 테스트는 backend 내부 임시 경로만 사용합니다.
+
+통합 테스트는 `RUN_POSTGRES_INTEGRATION=1`일 때 쓰기를 수행하므로 **독립된 폐기 가능한
+테스트 DB를 확인한 경우에만** 실행합니다. 이번 환경에는 격리 DB가 없고 Docker 엔진도
+실행 중이지 않아 통합 테스트를 제외했습니다. 공유 Aiven DB에서는 실행하지 않습니다.
+Python 3.14에서 FastAPI/Starlette의 deprecated API 경고 56개가 발생했으며 실패는 아닙니다.
+
+모임 Router/Service의 개발 사용자 `-1`, 인증 연결, 참여 인원 집계와 ORM 조회 최적화는
+모임 담당자와 별도로 조율할 항목입니다. OAuth Router·회원 Service·DB 설정·ORM 구조는
+이번 게시판 리팩터링에서 변경하지 않았습니다.
+
+모임 화면은 목록 응답의 모임마다 별도 참가자 수 API를 호출합니다. 이 HTTP N+1은
+`frontend/src/App.jsx`의 `loadMeetups()` 및 모임 담당자에게 전달할 개선 사항이며,
+게시판 진입에서는 모임 컴포넌트가 마운트되지 않아 게시판 초기 병목과 구분했습니다.

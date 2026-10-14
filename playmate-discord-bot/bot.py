@@ -3889,7 +3889,6 @@
 # client.run(TOKEN)
 
 """PlayMate Discord Bot entry point and dependency wiring."""
-
 import discord
 
 from config import GUILD_ID, TEST_MODE, TOKEN
@@ -3903,7 +3902,7 @@ from services.permissions import (
     remove_participant_permissions,
 )
 
-# Message content is not needed or stored.
+# Preserve the original intents. Message content is not needed or stored.
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 repository = InMemoryMeetingRepository()
@@ -3917,22 +3916,20 @@ async def on_message(message: discord.Message):
 
 @client.event
 async def on_ready():
-    print(f"\nBot 로그인 성공: {client.user}")
+    print(f'\nBot 로그인 성공: {client.user}')
     guild = client.get_guild(GUILD_ID)
     if guild is None:
-        print("테스트 서버를 찾지 못했습니다.")
+        print('테스트 서버를 찾지 못했습니다.')
         return
-
-    print(f"서버 연결 성공: {guild.name}")
-    print("regular 모임 라이프사이클 관리 준비 완료")
+    print(f'서버 연결 성공: {guild.name}')
+    print('PlayMate Discord Bot 라이프사이클 관리 준비 완료')
     if not check_meeting_lifecycle.is_running():
         check_meeting_lifecycle.start()
         if TEST_MODE:
-            print("regular 모임 라이프사이클 검사 시작 (테스트: 1분 주기)")
+            print('모임 라이프사이클 검사 시작 (테스트: 1분 주기)')
         else:
-            print("regular 모임 라이프사이클 검사 시작 (실서비스: 하루 1회)")
+            print('모임 라이프사이클 검사 시작 (실서비스: 하루 1회)')
 
 
 if __name__ == "__main__":
     client.run(TOKEN)
-

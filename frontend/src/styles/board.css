@@ -35,7 +35,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .board-grid {
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
-  gap: 28px;
+  gap: 18px;
 }
 .board-sidebar { min-height: 540px; display: flex; flex-direction: column; gap: 7px; }
 .board-sidebar > button { border: 0; background: transparent; text-align: left; border-radius: 16px; padding: 18px 17px; font-weight: 700; }
@@ -162,7 +162,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .owner-actions { display: flex; gap: 8px; }
 .owner-actions button { border: 0; background: transparent; color: #776e93; padding: 7px; }
 .owner-actions button:last-child { color: #b25a68; }
-.post-body { min-height: 210px; padding: 32px 0; font-size: 16px; line-height: 2; white-space: pre-wrap; border-bottom: 1px solid #e9e9ed; }
+.post-body { min-height: 210px; padding: 20px 0; font-size: 16px; line-height: 2; white-space: pre-wrap; border-bottom: 1px solid #e9e9ed; }
 .post-images { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 20px 0; }
 .post-images img { width: 100%; max-height: 360px; object-fit: cover; border-radius: 16px; }
 .comments h2 { font-size: 19px; margin: 27px 0 14px; }
@@ -223,29 +223,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
 .service-error p { color: #8b829e; }
 .error-state { color: #9d3345; background: #fff7f8; }
 
-@media (max-width: 760px) {
-  .board-shell {
-    width: calc(100% - 32px);
-    padding: 28px 0 60px;
-  }
-  .page-intro { min-height: 94px; }
-  .board-grid { grid-template-columns: 1fr; }
-  .board-sidebar { min-height: auto; flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
-  .board-sidebar > button { white-space: nowrap; padding: 12px 15px; }
-  .sidebar-spacer { display: none; }
-  .feed-head { align-items: end; }
-  .feed-head h2 { font-size: 23px; }
-  .write { font-size: 14px; padding: 12px 17px; }
-  .search-row { flex-wrap: wrap; }
-  .search-box { width: 100%; flex-basis: 100%; height: 54px; }
-  .sort-pill { height: 46px; margin-left: auto; }
-  .post-card { border-radius: 20px; padding: 21px; }
-  .post-card h3 { font-size: 19px; }
-  .detail-layout, .detail-shell { padding: 25px 20px 65px; display: block; }
-  .detail-side { display: none; }
-  .detail-head h1 { font-size: 25px; }
-  .comment-form { align-items: stretch; flex-direction: column; }
-}
 /* 게시판 생성 창 중앙 배치 */
 .modal-backdrop {
   position: fixed;
@@ -271,23 +248,14 @@ select {
   font: inherit;
 }
 
-select.sort-pill {
-  width: 116px;
-  min-height: 46px;
-  padding: 0 14px;
-  background: #fff;
-  border: 1px solid #ecebf0;
-  border-radius: 999px;
-  font-weight: 700;
-  color: #40385f;
-  cursor: pointer;
-}
-
 select:focus-visible {
   outline: 3px solid #5fcdbb77;
   outline-offset: 2px;
 }
 
+/* =========================
+   Tablet
+========================= */
 @media (max-width: 1000px) {
   .board-shell,
   .detail-shell,
@@ -297,12 +265,29 @@ select:focus-visible {
   }
 }
 
-@media (max-width: 700px) {
+/* =========================
+   Mobile
+========================= */
+@media (max-width: 768px) {
+  /* 전체 좌우 여백: 10px */
   .board-shell,
   .detail-shell,
   .detail-layout,
   .editor-shell {
-    width: calc(100% - 32px);
+    width: calc(100% - 60px);
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .board-shell {
+    width: calc(100% - 60px);
+    padding: 28px 0 60px;
+  }
+
+  /* 게시판 제목 아래 과한 여백 제거 */
+  .page-intro {
+    min-height: auto;
+    margin-bottom: 28px;
   }
 
   .page-intro h1,
@@ -310,5 +295,105 @@ select:focus-visible {
   .detail-head h1,
   .detail-shell h1 {
     font-size: 27px;
+  }
+
+  /* 게시판 레이아웃 */
+  .board-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  /* 게시판 메뉴 가로 스크롤 */
+  .board-sidebar {
+    min-height: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .board-sidebar > button {
+    white-space: nowrap;
+    padding: 12px 15px;
+  }
+
+  .sidebar-spacer {
+    display: none;
+  }
+
+  /* 자유게시판 제목 + 글쓰기 */
+  .feed-head {
+    align-items: center;
+  }
+
+  .write {
+    font-size: 14px;
+    padding: 12px 17px;
+  }
+
+  /* 검색창 + 정렬 한 줄 */
+  .search-row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .search-box {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+    height: 54px;
+    padding: 0 14px;
+  }
+
+  /* 정렬 select */
+  select.sort-pill {
+    flex: 0 0 120px;
+    width: 120px;
+    height: 54px;
+    margin-left: 0;
+    padding: 0 32px 0 16px;
+    background-color: #fff;
+    border: 1px solid #ecebf0;
+    border-radius: 16px;
+    font-weight: 700;
+    color: #40385f;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, #40385f 50%),
+      linear-gradient(135deg, #40385f 50%, transparent 50%);
+    background-position:
+      calc(100% - 20px) 23px,
+      calc(100% - 15px) 23px;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+  }
+
+  /* 게시글 카드 */
+  .post-card {
+    border-radius: 20px;
+    padding: 21px;
+  }
+
+  .post-card h3 {
+    font-size: 19px;
+  }
+
+  /* 상세 화면 */
+  .detail-layout,
+  .detail-shell {
+    padding: 25px 0 65px;
+    display: block;
+  }
+
+  .detail-side {
+    display: none;
+  }
+
+  .comment-form {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

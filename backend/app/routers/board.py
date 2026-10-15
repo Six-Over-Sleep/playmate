@@ -12,6 +12,7 @@ from fastapi import (
 from fastapi.concurrency import run_in_threadpool
 
 from app.core.auth import get_current_member_id
+from app.core.db_connect import CommitOutcomeUnknownError
 from app.core.uploads import remove_saved_images, save_images
 from app.schemas.board import (
     BoardCreate,
@@ -76,6 +77,9 @@ async def create_post(
         return await run_in_threadpool(
             board_service.create_post, board_id, title, body, member_id, saved
         )
+    except CommitOutcomeUnknownError:
+        # DB가 이미 참조할 수 있는 파일은 결과를 확인하기 전까지 보존한다.
+        raise
     except Exception:
         remove_saved_images(saved)
         raise

@@ -93,6 +93,7 @@ def create_post(
 
     images는 업로드 모듈에서 검증한 메타데이터이다. 응답 조회 실패도 롤백하므로
     라우터가 실패 파일을 정리할 때 이미 커밋된 이미지 참조를 삭제하지 않는다.
+    커밋 응답이 끊겨 성공 여부가 불명확한 경우에는 업로드 파일을 보존한다.
     """
     with db_cursor(commit=True) as cursor:
         _require_board(cursor, board_id)

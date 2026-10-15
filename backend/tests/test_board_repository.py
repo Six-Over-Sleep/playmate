@@ -16,7 +16,6 @@ import pytest
 
 from app.core import db_connect
 from app.main import app
-from app.repositories import board_repository as repository
 from app.services import board_service as service
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -416,3 +415,80 @@ def test_connection_failure_does_not_disclose_diagnostic(monkeypatch):
     with pytest.raises(RuntimeError) as error:
         db_connect.get_connection()
     assert str(error.value) == "PostgreSQL 연결에 실패했습니다."
+
+@pytest.mark.parametrize("rollback_fails", [False, True])
+def test_http_commit_disconnect_preserves_upload(
+    client, database, tmp_path, monkeypatch, rollback_fails
+):
+    """COMMIT 응답 유실 시 이미 저장됐을 수 있는 DB 참조 파일을 삭제하지 않는다."""
+    from app.core import uploads
+    from psycopg2 import InterfaceError, OperationalError
+
+    monkeypatch.setattr(uploads, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "uploads" / "posts")
+    _, connection, _ = database(
+        [{"id": 1}, {"post_id": 2}, None, post_row(2), []]
+    )
+    connection.commit.side_effect = OperationalError("commit acknowledgement lost")
+    if rollback_fails:
+        connection.rollback.side_effect = InterfaceError("connection closed")
+    response = client.post(
+        "/api/boards/1/posts",
+        data={"title": "제목", "body": "본문"},
+        files={"images": ("image.png", b"\x89PNG\r\n\x1a\nexample", "image/png")},
+    )
+    assert response.status_code == 503
+    assert len(list(uploads.UPLOAD_DIR.glob("*"))) == 1
+    connection.rollback.assert_called_once()
+    connection.close.assert_called_once()
+
+
+def test_http_confirmed_commit_close_failure_preserves_upload(
+    client, database, tmp_path, monkeypatch
+):
+    """커밋 성공 후 연결 종료 오류가 저장된 이미지 삭제로 이어지지 않아야 한다."""
+    from app.core import uploads
+    from psycopg2 import InterfaceError
+
+    monkeypatch.setattr(uploads, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "uploads" / "posts")
+    _, connection, _ = database(
+        [{"id": 1}, {"post_id": 2}, None, post_row(2), []]
+    )
+    connection.close.side_effect = InterfaceError("close failed")
+    response = client.post(
+        "/api/boards/1/posts",
+        data={"title": "제목", "body": "본문"},
+        files={"images": ("image.png", b"\x89PNG\r\n\x1a\nexample", "image/png")},
+    )
+    assert response.status_code == 201
+    assert len(list(uploads.UPLOAD_DIR.glob("*"))) == 1
+    connection.commit.assert_called_once()
+    connection.rollback.assert_not_called()
+
+
+def test_http_known_commit_rejection_cleans_upload(
+    client, database, tmp_path, monkeypatch
+):
+    """서버 SQLSTATE로 확인된 커밋 거부는 결과 불명확 오류로 분류하지 않는다."""
+    from app.core import uploads
+    from psycopg2 import OperationalError
+
+    class RejectedCommit(OperationalError):
+        pgcode = "40001"
+
+    monkeypatch.setattr(uploads, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "uploads" / "posts")
+    _, connection, _ = database(
+        [{"id": 1}, {"post_id": 2}, None, post_row(2), []]
+    )
+    connection.commit.side_effect = RejectedCommit("server rejected commit")
+    with pytest.raises(RejectedCommit):
+        client.post(
+            "/api/boards/1/posts",
+            data={"title": "제목", "body": "본문"},
+            files={"images": ("image.png", b"\x89PNG\r\n\x1a\nexample", "image/png")},
+        )
+    assert not list(uploads.UPLOAD_DIR.glob("*"))
+    connection.rollback.assert_called_once()
+    connection.close.assert_called_once()

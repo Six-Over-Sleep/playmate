@@ -12,6 +12,13 @@ load_dotenv(PROJECT_ROOT / ".env")
 logger = logging.getLogger(__name__)
 
 
+class CommitOutcomeUnknownError(RuntimeError):
+    """COMMIT 응답 유실로 저장 성공 여부를 확인할 수 없는 오류.
+
+    DB가 이미 참조할 수 있으므로 호출자는 관련 업로드 파일을 삭제하면 안 된다.
+    """
+
+
 def _sslmode() -> str:
     mode = os.getenv("DB_SSLMODE", "require").lower()
     app_env = os.getenv("APP_ENV", "production").lower()
@@ -59,16 +66,31 @@ def db_cursor(*, commit: bool = False):
     """업무 단위의 커서를 제공하고 선택적으로 커밋한 뒤 연결을 닫는다.
 
     commit=True인 경우 응답 조회까지 성공해야 커밋한다. 본문·커밋 실패는
-    롤백하며, 읽기 전용 연결도 finally에서 항상 닫는다.
+    롤백하며, 읽기 전용 연결도 finally에서 항상 닫는다. COMMIT 중 연결이
+    끊기면 결과 불명확 오류로 구분한다. 정리 오류는 원래 예외·성공을 덮지 않는다.
     """
     connection = get_connection()
     try:
         with connection.cursor(cursor_factory=RealDictCursor) as cursor:
             yield cursor
         if commit:
-            connection.commit()
+            try:
+                connection.commit()
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as exc:
+                if exc.pgcode is not None:
+                    # 서버가 명시적으로 거부한 커밋은 기존 실패·파일 정리 흐름을 따른다.
+                    raise
+                raise CommitOutcomeUnknownError(
+                    "DB 저장 결과를 확인하지 못했습니다."
+                ) from exc
     except Exception:
-        connection.rollback()
+        try:
+            connection.rollback()
+        except psycopg2.Error as exc:
+            logger.warning("PostgreSQL rollback failed (%s)", type(exc).__name__)
         raise
     finally:
-        connection.close()
+        try:
+            connection.close()
+        except psycopg2.Error as exc:
+            logger.warning("PostgreSQL connection close failed (%s)", type(exc).__name__)

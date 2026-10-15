@@ -72,7 +72,11 @@ def database(monkeypatch):
         connection = Mock()
         connection.cursor.return_value = cursor
         factory = Mock(return_value=connection)
-        monkeypatch.setattr(db_connect, "get_connection", factory)
+        monkeypatch.setattr(
+            db_connect,
+            "_acquire_connection",
+            lambda: db_connect._ConnectionLease(factory(), None),
+        )
         return cursor, connection, factory
 
     return install
@@ -416,6 +420,7 @@ def test_connection_failure_does_not_disclose_diagnostic(monkeypatch):
         db_connect.get_connection()
     assert str(error.value) == "PostgreSQL 연결에 실패했습니다."
 
+
 @pytest.mark.parametrize("rollback_fails", [False, True])
 def test_http_commit_disconnect_preserves_upload(
     client, database, tmp_path, monkeypatch, rollback_fails
@@ -426,9 +431,7 @@ def test_http_commit_disconnect_preserves_upload(
 
     monkeypatch.setattr(uploads, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "uploads" / "posts")
-    _, connection, _ = database(
-        [{"id": 1}, {"post_id": 2}, None, post_row(2), []]
-    )
+    _, connection, _ = database([{"id": 1}, {"post_id": 2}, None, post_row(2), []])
     connection.commit.side_effect = OperationalError("commit acknowledgement lost")
     if rollback_fails:
         connection.rollback.side_effect = InterfaceError("connection closed")
@@ -452,9 +455,7 @@ def test_http_confirmed_commit_close_failure_preserves_upload(
 
     monkeypatch.setattr(uploads, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "uploads" / "posts")
-    _, connection, _ = database(
-        [{"id": 1}, {"post_id": 2}, None, post_row(2), []]
-    )
+    _, connection, _ = database([{"id": 1}, {"post_id": 2}, None, post_row(2), []])
     connection.close.side_effect = InterfaceError("close failed")
     response = client.post(
         "/api/boards/1/posts",
@@ -479,9 +480,7 @@ def test_http_known_commit_rejection_cleans_upload(
 
     monkeypatch.setattr(uploads, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "uploads" / "posts")
-    _, connection, _ = database(
-        [{"id": 1}, {"post_id": 2}, None, post_row(2), []]
-    )
+    _, connection, _ = database([{"id": 1}, {"post_id": 2}, None, post_row(2), []])
     connection.commit.side_effect = RejectedCommit("server rejected commit")
     with pytest.raises(RejectedCommit):
         client.post(

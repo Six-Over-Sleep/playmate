@@ -12,7 +12,7 @@ from fastapi import (
 from fastapi.concurrency import run_in_threadpool
 
 from app.core.auth import get_current_member_id
-from app.core.db_connect import CommitOutcomeUnknownError
+from app.core.db_connect import CommitOutcomeUnknownError, close_pool
 from app.core.uploads import remove_saved_images, save_images
 from app.schemas.board import (
     BoardCreate,
@@ -25,6 +25,7 @@ from app.schemas.board import (
 from app.services import board_service
 
 router = APIRouter(prefix="/api", tags=["boards"])
+router.add_event_handler("shutdown", close_pool)
 
 
 @router.get("/boards", response_model=list[BoardResponse])

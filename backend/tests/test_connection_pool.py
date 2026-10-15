@@ -32,7 +32,8 @@ class FakeCursor:
         pass
 
     def execute(self, *args, **kwargs):
-        self.conn.info.transaction_status = TRANSACTION_STATUS_INTRANS
+        if not self.conn.autocommit:
+            self.conn.info.transaction_status = TRANSACTION_STATUS_INTRANS
         if self.conn.query_error:
             self.conn.info.transaction_status = TRANSACTION_STATUS_UNKNOWN
             raise self.conn.query_error
@@ -44,6 +45,7 @@ class FakeCursor:
 class FakeConnection:
     def __init__(self):
         self.closed = False
+        self.autocommit = False
         self.info = SimpleNamespace(transaction_status=TRANSACTION_STATUS_IDLE)
         self.rollbacks = 0
         self.commits = 0
@@ -378,3 +380,143 @@ def test_retired_pool_does_not_close_another_active_lease(pool, monkeypatch):
     assert second.connection.closed and db._pool_state is None
     with db.db_cursor() as cursor:
         assert not cursor.conn.closed
+
+
+def test_read_only_select_reuses_connection_without_transaction_round_trips(pool):
+    """SELECT 전용 모드는 트랜잭션을 열지 않고 반환 전에 기본 모드로 복원한다."""
+    for _ in range(2):
+        with db.db_cursor(read_only=True) as cursor:
+            connection = cursor.conn
+            assert connection.autocommit
+            cursor.execute("SELECT 1")
+            assert connection.info.transaction_status == TRANSACTION_STATUS_IDLE
+        assert not connection.autocommit
+    assert len(pool.created) == 1
+    assert connection.rollbacks == 0 and connection.commits == 0
+
+
+@pytest.mark.parametrize("commit", [False, True])
+def test_write_after_read_only_keeps_explicit_transaction(pool, commit):
+    """읽기 연결을 재사용한 쓰기도 명시적 커밋 여부에 따라 커밋·롤백한다."""
+    with db.db_cursor(read_only=True) as cursor:
+        connection = cursor.conn
+        cursor.execute("SELECT 1")
+    with db.db_cursor(commit=commit) as cursor:
+        assert cursor.conn is connection and not connection.autocommit
+        cursor.execute("INSERT placeholder")
+        cursor.execute("UPDATE placeholder")
+        assert connection.info.transaction_status == TRANSACTION_STATUS_INTRANS
+        assert connection.commits == 0
+    assert connection.commits == int(commit)
+    assert connection.rollbacks == int(not commit)
+    with db.db_cursor(read_only=True) as cursor:
+        assert cursor.conn is connection and connection.autocommit
+    assert not connection.autocommit
+
+
+def test_read_only_and_commit_are_rejected_before_checkout(pool):
+    """쓰기 업무가 실수로 읽기 최적화를 요청하면 연결 대여 전에 거부한다."""
+    with pytest.raises(ValueError, match="함께 사용할 수 없습니다"):
+        with db.db_cursor(commit=True, read_only=True):
+            pass
+    assert not pool.created
+
+
+def test_read_only_business_error_restores_mode_before_reuse(pool):
+    """조회 후 404 등의 업무 예외가 나도 다음 요청의 트랜잭션 모드를 보존한다."""
+    with pytest.raises(ValueError):
+        with db.db_cursor(read_only=True) as cursor:
+            connection = cursor.conn
+            cursor.execute("SELECT 1")
+            raise ValueError("not found")
+    assert not connection.autocommit and not connection.closed
+    with db.db_cursor(commit=True) as cursor:
+        assert cursor.conn is connection and not connection.autocommit
+        cursor.execute("INSERT placeholder")
+    assert connection.commits == 1
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+def test_cancelled_work_discards_connection_and_returns_capacity(pool, read_only):
+    """작업 취소가 커서 본문까지 전달되면 연결을 폐기하고 슬롯을 반환한다."""
+    from asyncio import CancelledError
+
+    with pytest.raises(CancelledError):
+        with db.db_cursor(read_only=read_only) as cursor:
+            connection = cursor.conn
+            cursor.execute("SELECT 1")
+            raise CancelledError()
+    assert connection.closed and db._pool_state.active == 0
+    with db.db_cursor() as cursor:
+        assert cursor.conn is not connection and not cursor.conn.autocommit
+
+
+def test_read_only_driver_error_discards_connection(pool):
+    """autocommit 조회의 드라이버 실패도 고장 연결을 재사용하지 않는다."""
+    with pytest.raises(RuntimeError, match="연결이 종료"):
+        with db.db_cursor(read_only=True) as cursor:
+            connection = cursor.conn
+            connection.query_error = psycopg2.OperationalError("socket lost")
+            cursor.execute("SELECT 1")
+    assert connection.closed
+    with db.db_cursor(commit=True) as cursor:
+        assert cursor.conn is not connection and not cursor.conn.autocommit
+
+
+def test_read_only_unexpected_transaction_is_rolled_back_before_reset(pool):
+    """본문에서 모드를 바꿔도 열린 트랜잭션을 정리한 뒤 반환한다."""
+    with db.db_cursor(read_only=True) as cursor:
+        connection = cursor.conn
+        connection.autocommit = False
+        cursor.execute("SELECT 1")
+    assert connection.rollbacks == 1 and not connection.autocommit
+    assert connection.info.transaction_status == TRANSACTION_STATUS_IDLE
+
+
+def test_pool_retains_second_connection_without_eagerly_opening_it(pool):
+    """최대 수를 늘리지 않고 병렬 요청이 만든 두 번째 연결을 다음 요청에 쓴다."""
+    first = db._acquire_connection()
+    assert len(pool.created) == 1
+    second = db._acquire_connection()
+    assert len(pool.created) == 2
+    connections = {id(first.connection), id(second.connection)}
+    first.release()
+    second.release()
+    assert all(not connection.closed for connection in pool.created)
+    next_first = db._acquire_connection()
+    next_second = db._acquire_connection()
+    try:
+        assert {id(next_first.connection), id(next_second.connection)} == connections
+        assert len(pool.created) == 2 and db._pool_state.pool.maxconn == 2
+    finally:
+        next_first.release()
+        next_second.release()
+
+
+@pytest.mark.parametrize("fail_on_reset", [False, True])
+def test_read_only_mode_change_failure_discards_connection(
+    pool, monkeypatch, fail_on_reset
+):
+    """읽기 모드 설정·복원 실패 시 상태가 불확실한 연결을 폐기한다."""
+    with db.db_cursor() as cursor:
+        connection = cursor.conn
+
+    def set_autocommit(conn, value):
+        if value is not fail_on_reset:
+            raise psycopg2.InterfaceError("mode change failed")
+        conn.__dict__["autocommit"] = value
+
+    monkeypatch.setattr(
+        FakeConnection,
+        "autocommit",
+        property(lambda conn: conn.__dict__["autocommit"], set_autocommit),
+        raising=False,
+    )
+    if fail_on_reset:
+        with db.db_cursor(read_only=True) as cursor:
+            cursor.execute("SELECT 1")
+    else:
+        with pytest.raises(RuntimeError, match="연결이 종료"):
+            with db.db_cursor(read_only=True):
+                pass
+    assert connection.closed and db._pool_state.active == 0

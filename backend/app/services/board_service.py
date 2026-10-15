@@ -24,7 +24,7 @@ def _require_post(cursor, board_id: int, post_id: int) -> None:
 
 
 def _post_detail(cursor, board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
-    """같은 트랜잭션에서 게시글 응답을 구성하고 누락 시 404를 발생시킨다."""
+    """주어진 커서로 게시글 응답을 구성하고 누락 시 404를 발생시킨다."""
     post = repository.get_post(cursor, board_id, post_id, member_id)
     if post is None:
         raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
@@ -32,7 +32,7 @@ def _post_detail(cursor, board_id: int, post_id: int, member_id: int) -> dict[st
 
 
 def _comment_detail(cursor, comment_id: int, member_id: int) -> dict[str, Any]:
-    """같은 트랜잭션에서 댓글 응답을 구성하고 누락 시 404를 발생시킨다."""
+    """주어진 커서로 댓글 응답을 구성하고 누락 시 404를 발생시킨다."""
     comment = repository.get_comment(cursor, comment_id, member_id)
     if comment is None:
         raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
@@ -41,7 +41,7 @@ def _comment_detail(cursor, comment_id: int, member_id: int) -> dict[str, Any]:
 
 def list_boards() -> list[dict[str, Any]]:
     """기본 게시판을 우선하는 기존 순서로 게시판 목록을 반환한다."""
-    with db_cursor() as cursor:
+    with db_cursor(read_only=True) as cursor:
         return repository.list_boards(cursor)
 
 
@@ -63,7 +63,7 @@ def create_board(
 
 def get_board(board_id: int) -> dict[str, Any]:
     """게시판 ID의 상세를 반환한다. 없으면 404이다."""
-    with db_cursor() as cursor:
+    with db_cursor(read_only=True) as cursor:
         return _require_board(cursor, board_id)
 
 
@@ -77,7 +77,7 @@ def list_posts(
     """
     if sort != "latest":
         raise HTTPException(status_code=422, detail="sort는 latest만 지원합니다.")
-    with db_cursor() as cursor:
+    with db_cursor(read_only=True) as cursor:
         _require_board(cursor, board_id)
         return repository.list_posts(cursor, board_id, (q or "").strip(), member_id)
 
@@ -105,7 +105,7 @@ def create_post(
 
 def get_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
     """게시판·게시글 ID의 상세를 반환한다. 삭제·모임 게시글은 404이다."""
-    with db_cursor() as cursor:
+    with db_cursor(read_only=True) as cursor:
         return _post_detail(cursor, board_id, post_id, member_id)
 
 
@@ -138,7 +138,7 @@ def delete_post(board_id: int, post_id: int, member_id: int) -> None:
 
 def list_comments(board_id: int, post_id: int, member_id: int) -> list[dict[str, Any]]:
     """게시글 확인 후 댓글을 반환한다. 불필요한 상세·이미지 조회를 생략한다."""
-    with db_cursor() as cursor:
+    with db_cursor(read_only=True) as cursor:
         _require_post(cursor, board_id, post_id)
         return repository.list_comments(cursor, post_id, member_id)
 
@@ -155,7 +155,7 @@ def create_comment(
 
 def get_comment(comment_id: int, member_id: int) -> dict[str, Any]:
     """댓글 상세를 반환한다. 없거나 삭제된 댓글은 404이다."""
-    with db_cursor() as cursor:
+    with db_cursor(read_only=True) as cursor:
         return _comment_detail(cursor, comment_id, member_id)
 
 

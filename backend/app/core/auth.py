@@ -26,7 +26,7 @@ def get_current_member_id(
             raise HTTPException(
                 status_code=401, detail="유효하지 않은 로그인 세션입니다."
             )
-        with db_cursor() as cursor:
+        with db_cursor(read_only=True) as cursor:
             cursor.execute(
                 """
                 SELECT 1
@@ -51,7 +51,7 @@ def get_current_member_id(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="개발 환경에서는 X-Dev-Member-ID 헤더가 필요합니다.",
         )
-    with db_cursor() as cursor:
+    with db_cursor(read_only=True) as cursor:
         cursor.execute("SELECT 1 FROM members WHERE member_id = %s", (x_dev_member_id,))
         if cursor.fetchone() is None:
             raise HTTPException(

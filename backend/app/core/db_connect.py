@@ -2,7 +2,8 @@
 
 db_cursor는 인증·업무마다 연결을 빌리되, 정리한 연결을 다음 호출에 재사용한다.
 DB_POOL_MAX_CONNECTIONS는 프로세스당 1~4개(기본 2), DB_POOL_WAIT_SECONDS는
-풀 대기 0.1~5초(기본 2)이다. 유휴 연결은 1개만 유지한다. 설정 변경은 재시작한다.
+풀 대기 0.1~5초(기본 2)이다. 생성한 연결은 최대 개수 안에서 유지한다.
+설정 변경은 재시작한다.
 풀은 첫 사용 때 생성하므로 worker별로 독립적이다. 이미 사용한 풀을 상속하는
 fork는 거부한다. worker 생성 전에 DB에 접속하지 않는다.
 """
@@ -143,6 +144,9 @@ def _get_pool_state(wait: float, maximum: int) -> _PoolState:
         else:
             try:
                 pool = ThreadedConnectionPool(1, maximum, **_connection_settings())
+                # 첫 접속은 1개만 만들고, 병렬 요청으로 추가한 연결도 재사용한다.
+                # psycopg2는 반환 시 minconn을 넘는 유휴 연결을 닫는다.
+                pool.minconn = maximum
             except psycopg2.Error as exc:
                 logger.warning(
                     "PostgreSQL pool connection failed (%s)", type(exc).__name__
@@ -236,17 +240,26 @@ atexit.register(close_pool)
 
 
 @contextmanager
-def db_cursor(*, commit: bool = False):
+def db_cursor(*, commit: bool = False, read_only: bool = False):
     """업무 단위의 커서를 제공하고 선택적으로 커밋한 뒤 풀에 반환한다.
 
     commit=True인 경우 응답 조회까지 성공해야 커밋한다. 본문·커밋 실패는
-    롤백하며, 읽기 전용 연결도 finally에서 롤백 후 반환한다. COMMIT 중 연결이
-    끊기면 결과 불명확 오류로 구분한다. 정리 오류는 원래 예외·성공을 덮지 않는다.
+    롤백한다. read_only=True는 검토된 SELECT 전용 호출에서만 사용하며,
+    autocommit으로 불필요한 BEGIN·ROLLBACK 왕복을 줄인다. DB 쓰기 권한을
+    제한하는 옵션은 아니므로 쓰기·잠금 조회·여러 문장의 원자성이 필요한 업무에는
+    사용하지 않는다. 기존 READ COMMITTED처럼 각 SELECT의 최신 결과를 읽는다.
+    반환 전 autocommit을 해제하여 다음 쓰기의 트랜잭션을 보존한다.
+    COMMIT 중 연결이 끊기면 결과 불명확 오류로 구분한다.
+    정리 오류는 원래 예외·성공을 덮지 않으며, 복구할 수 없는 연결은 폐기한다.
     """
+    if commit and read_only:
+        raise ValueError("읽기 전용 조회와 커밋을 함께 사용할 수 없습니다.")
     lease = _acquire_connection()
     connection = lease.connection
     discard = False
     try:
+        if read_only:
+            connection.autocommit = True
         with connection.cursor(cursor_factory=RealDictCursor) as cursor:
             yield cursor
         if commit:
@@ -278,4 +291,18 @@ def db_cursor(*, commit: bool = False):
             raise RuntimeError("PostgreSQL 연결이 종료되었습니다.") from exc
         raise
     finally:
+        if read_only and not discard:
+            try:
+                # 호출 중 모드가 변경되어도 열린 트랜잭션을 풀에 넘기지 않는다.
+                if connection.info.transaction_status in {
+                    TRANSACTION_STATUS_INTRANS,
+                    TRANSACTION_STATUS_INERROR,
+                }:
+                    connection.rollback()
+                connection.autocommit = False
+            except psycopg2.Error as exc:
+                discard = True
+                logger.warning(
+                    "PostgreSQL read mode reset failed (%s)", type(exc).__name__
+                )
         lease.release(discard=discard)

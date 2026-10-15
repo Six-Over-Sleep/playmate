@@ -1,60 +1,25 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
+import PostSearch from '../../components/board/PostSearch'
+import { useSortedPosts } from '../../hooks/board/useBoardSearch'
 import BoardSidebar from '../../components/board/BoardSidebar'
 import PostCard from '../../components/board/PostCard'
 
+/** 목록 레이아웃과 화면 상태만 표현하고 검색·정렬은 전용 모듈에 맡긴다. */
 export default function BoardPage({
   boards,
   board,
   posts,
   query,
   loading,
+  busy,
   onSelectBoard,
   onCreateBoard,
   onSearch,
   onWrite,
   onPost,
 }) {
-  const [search, setSearch] = useState(query || '')
   const [sort, setSort] = useState('latest')
-
-  useEffect(() => {
-    setSearch(query || '')
-  }, [query, board?.id])
-
-  const sortedPosts = useMemo(() => {
-    if (!Array.isArray(posts)) return []
-
-    const indexed = posts.map((post, index) => {
-      const parsed = Date.parse(post.created_at ?? post.createdAt ?? '')
-
-      return {
-        post,
-        index,
-        time: Number.isFinite(parsed) ? parsed : null,
-      }
-    })
-
-    const hasDates = indexed.every(({ time }) => time !== null)
-
-    indexed.sort((a, b) => {
-      // 날짜가 없으면 API의 최신순 응답 순서를 사용합니다.
-      const difference = hasDates
-        ? b.time - a.time
-        : a.index - b.index
-
-      return (
-        (sort === 'latest' ? difference : -difference) ||
-        a.index - b.index
-      )
-    })
-
-    return indexed.map(({ post }) => post)
-  }, [posts, sort])
-
-  const submitSearch = (event) => {
-    event.preventDefault()
-    onSearch(search.trim())
-  }
+  const sortedPosts = useSortedPosts(posts, sort)
 
   return (
     <main className="board-shell">
@@ -67,6 +32,7 @@ export default function BoardPage({
       <div className="board-grid">
         <BoardSidebar
           boards={boards}
+          busy={busy}
           selectedId={board?.id}
           onSelect={onSelectBoard}
           onCreate={onCreateBoard}
@@ -81,7 +47,7 @@ export default function BoardPage({
             <button
               type="button"
               className="button mint write"
-              disabled={!board}
+              disabled={!board || busy}
               onClick={onWrite}
             >
               ＋ 글쓰기
@@ -89,32 +55,14 @@ export default function BoardPage({
           </div>
 
           {board && (
-            <form className="search-row" onSubmit={submitSearch}>
-              <div className="search-box">
-                <span aria-hidden="true">⌕</span>
-
-                <input
-                  aria-label="게시글 검색"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="게시글 검색"
-                />
-
-                <button type="submit" aria-label="검색">
-                  검색
-                </button>
-              </div>
-
-              <select
-                className="sort-pill"
-                aria-label="게시글 정렬"
-                value={sort}
-                onChange={(event) => setSort(event.target.value)}
-              >
-                <option value="latest">최신순</option>
-                <option value="oldest">오래된순</option>
-              </select>
-            </form>
+            <PostSearch
+              key={board.id}
+              value={query}
+              sort={sort}
+              onSort={setSort}
+              onSearch={onSearch}
+              busy={busy}
+            />
           )}
 
           {loading ? (
@@ -128,6 +76,7 @@ export default function BoardPage({
               <PostCard
                 key={post.id}
                 post={post}
+                disabled={busy}
                 onClick={() => onPost(post)}
               />
             ))

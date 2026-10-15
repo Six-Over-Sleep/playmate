@@ -8,8 +8,10 @@ export default function PostSearch({ value, sort, onSort, onSearch, busy }) {
     <form className="search-row" onSubmit={submitSearch}>
       <div className="search-box">
         <span aria-hidden="true">⌕</span>
+        {/* 백엔드 검색어(q)의 최대 100자 계약에 맞춰 입력을 제한한다. */}
         <input
           aria-label="게시글 검색"
+          maxLength={100}
           value={search}
           disabled={busy}
           onChange={(event) => setSearch(event.target.value)}

@@ -137,3 +137,28 @@ def add_category_detail(db: Session, detail) -> None:
 def add_member(db: Session, member: RecruitMember) -> None:
     """신규 참여자를 DB 세션에 등록함. commit은 Service에서 수행함."""
     db.add(member)
+
+def get_recruit_capacity_and_count(db: Session, recruit_id: int):
+    """모임 존재 여부, 모집 정원, 현재 인원을 한 번에 조회함."""
+
+    return (
+        db.query(
+            Recruit.capacity,
+            func.count(RecruitMember.member_id).label("current_members"),
+        )
+        .join(Post, Post.post_id == Recruit.post_id)
+        .outerjoin(
+            RecruitMember,
+            (RecruitMember.recruit_id == Recruit.recruit_id)
+            & (RecruitMember.status == "JOINED"),
+        )
+        .filter(
+            Recruit.recruit_id == recruit_id,
+            or_(
+                Post.post_status != "DELETED",
+                Post.post_status.is_(None),
+            ),
+        )
+        .group_by(Recruit.recruit_id, Recruit.capacity)
+        .first()
+    )

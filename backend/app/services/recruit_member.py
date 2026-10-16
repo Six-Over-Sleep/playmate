@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from backend.app.models.recruit import RecruitMember
 from backend.app.repositories import recruit as recruit_repo
 
-import time
+import time 
 
 def ensure_capacity_not_below_joined(
     db: Session,

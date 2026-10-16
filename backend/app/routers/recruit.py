@@ -12,7 +12,7 @@ from backend.app.services import recruit_member as member_service
 router = APIRouter(prefix="/api/recruits", tags=["모임"])
 
 
-@router.get("/{recruit_id}")
+@router.get("/{recruit_id}") 
 def get_recruit(recruit_id: int, db: Session = Depends(get_db)):
     """모임 상세 조회."""
     return recruit_service.get_recruit(db, recruit_id)

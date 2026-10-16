@@ -20,7 +20,7 @@ def validate_regular_days(days: list[str] | None) -> list[str] | None:
     if any(day not in WEEKDAYS for day in days):
         raise ValueError("요일은 월~일 중에서 선택해야 합니다.")
 
-    return days
+    return days 
 
 
 class RecruitCreate(BaseModel):

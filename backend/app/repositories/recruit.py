@@ -6,7 +6,7 @@ Router는 API를 연결하고, Service는 업무 규칙을 판단함.
 """
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session 
 
 from backend.app.models.post import Post
 from backend.app.models.recruit import Recruit, RecruitMember

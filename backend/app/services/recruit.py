@@ -314,4 +314,4 @@ def delete_recruit(db: Session, recruit_id: int):
     recruit.state = "CLOSED"
 
     db.commit()
-    return {"message": "모임 삭제 완료"}
+    return {"message": "모임 삭제 완료"}  

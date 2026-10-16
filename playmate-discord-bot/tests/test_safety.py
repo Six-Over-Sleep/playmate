@@ -29,9 +29,10 @@ for mode, expected_test, expected_interval in (
     assert namespace["CHECK_INTERVAL_SECONDS"] == expected_interval
 
 pins = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
-assert pins == ["discord.py==2.7.1", "python-dotenv==1.2.4"]
+assert pins == ["discord.py==2.7.1", "python-dotenv==1.2.4", "psycopg[binary]==3.3.6", "tzdata==2026.5"]
 for pin in pins:
     package, expected = pin.split("==")
+    package = package.split("[")[0]
     assert version(package) == expected
 assert ".env" in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 assert "PLAYMATE_TEST_MODE=false" in (ROOT / ".env.example").read_text(encoding="utf-8")

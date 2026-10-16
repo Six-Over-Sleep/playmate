@@ -3891,9 +3891,13 @@
 """PlayMate Discord Bot entry point and dependency wiring."""
 import discord
 
-from config import GUILD_ID, TEST_MODE, TOKEN
+from config import DB_CONFIGURED, GUILD_ID, TEST_MODE, TOKEN
 from handlers.message_handler import handle_message
-from repositories.meeting_repository import InMemoryMeetingRepository
+from repositories.meeting_repository import (
+    InMemoryMeetingRepository,
+    PostgresMeetingRepository,
+)
+from services.db_sync import create_sync_task
 from services.lifecycle import create_lifecycle_task
 from services.meeting_space import create_meeting_space, delete_meeting_space
 from services.permissions import (
@@ -3905,8 +3909,15 @@ from services.permissions import (
 # Preserve the original intents. Message content is not needed or stored.
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
-repository = InMemoryMeetingRepository()
+# Persistent state lives in the shared PostgreSQL (recruit_discord_channels).
+# Without DB settings the Bot keeps the original in-memory behaviour.
+if DB_CONFIGURED:
+    repository = PostgresMeetingRepository.from_env()
+else:
+    print('DB 설정이 없어 메모리 저장소를 사용합니다 (재시작 시 상태 유실).')
+    repository = InMemoryMeetingRepository()
 check_meeting_lifecycle = create_lifecycle_task(client, repository)
+sync_db = create_sync_task(client, repository) if DB_CONFIGURED else None
 
 
 @client.event
@@ -3923,6 +3934,9 @@ async def on_ready():
         return
     print(f'서버 연결 성공: {guild.name}')
     print('PlayMate Discord Bot 라이프사이클 관리 준비 완료')
+    if sync_db is not None and not sync_db.is_running():
+        sync_db.start()
+        print('PlayMate DB 동기화 시작')
     if not check_meeting_lifecycle.is_running():
         check_meeting_lifecycle.start()
         if TEST_MODE:

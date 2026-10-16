@@ -2,8 +2,11 @@
 
 PlayMate의 **모임 기능과 Discord를 연결하기 위한 Bot 모듈**입니다.
 
-현재 버전은 Discord 기능 자체를 독립적으로 구현하고 검증한 단계이며,  
-아직 PlayMate 모임 프론트엔드/백엔드 및 PostgreSQL과는 연결하지 않았습니다.
+Discord 기능은 독립적으로 구현·검증되어 있고, 이 브랜치(`feature/13-discord-bot`)에서
+**공용 PostgreSQL(`recruit_discord_channels`)과 DB polling 방식으로 연결**했습니다.
+Backend / Frontend / Auth 코드는 수정하지 않고, Bot이 DB를 주기적으로 읽어 Discord에 반영합니다.
+HOST 식별, PUBLIC/PRIVATE 저장 위치, 실제 로그인 사용자 연동은 아직 미완료입니다
+(아래 "PlayMate DB 연동 상태" 참고).
 
 > 팀원이 이 저장소를 처음 받아도 구조를 이해하고, 로컬에서 Bot을 실행하고,
 > 테스트 코드까지 확인할 수 있도록 정리한 README입니다.
@@ -11,24 +14,19 @@ PlayMate의 **모임 기능과 Discord를 연결하기 위한 Bot 모듈**입니
 ---
 ## 요약
 
-현재 PlayMate Discord Bot은 Discord 기능 자체에 대한 구현과 검증을 완료한 상태입니다.
-
 ```text
-Discord 기능 구현             완료
+Discord 기능 구현 / 모듈화 / 실제 Discord 검증     완료
 ↓
-모듈화                       완료
+공용 DB 연동 (DB polling, regular 모임만)          완료 (이 브랜치)
 ↓
-운영 안전성 수정              완료
-↓
-실제 Discord 통합 재검증      완료
-↓
-모임 FE/BE 구현               대기
-↓
-PostgreSQL / API 연동          예정
+HOST 식별 · PUBLIC/PRIVATE 저장 · 실제 사용자      Backend 협의 후 연결 (미완료)
 ```
 
-모임 백엔드가 준비되면 현재 서비스와 Repository 경계를 이용해
-실제 PlayMate 데이터와 연결하는 단계로 넘어갑니다.
+정책 요약:
+
+- `recruit_mode='regular'` 모임만 Discord 공간을 만들고 관리합니다.
+- `recruit_mode='short'` 모임은 Discord 공간을 만들지 않으며, Bot의 모든 경로(생성·권한·활동·삭제)에서 제외됩니다.
+- `recruits.state`(OPEN/CLOSED 등)는 **모집 상태**일 뿐이며 Discord 삭제 기준이 아닙니다. `meeting_end`도 사용하지 않습니다.
 
 ---
 
@@ -56,13 +54,12 @@ PlayMate 공식 Discord 서버
 - 모임 참여자 Discord 권한 부여
 - 참여 취소 시 권한 회수
 - HOST 권한 부여
-- 일회성 모임 종료 후 24시간 뒤 Discord 공간 자동 삭제
-- 상시모임 활동 시각 추적
+- regular 모임 활동 시각 추적 (DB `last_activity_at`)
 - 30일 비활성 시 HOST에게 DM 경고
 - 경고 후 7일 동안 활동이 없으면 자동 종료
 - 유예기간 중 활동이 재개되면 자동 종료 예약 취소
 - 삭제 직전 최신 활동 여부를 다시 확인하는 안전장치
-- Discord 공간 삭제 후 삭제 시각 기록
+- Discord 공간 삭제가 확인된 뒤에만 `discord_deleted_at` 기록
 
 메시지 **본문은 저장하지 않습니다.**  
 상시모임의 활동 여부 판단에는 마지막 활동 시각만 사용합니다.
@@ -74,17 +71,14 @@ PlayMate 공식 Discord 서버
 ### 완료
 
 - Discord Bot 로그인 / Guild 연결
-- 모임별 카테고리 + 채팅 + 음성 채널 생성
-- PUBLIC / PRIVATE 권한 정책
-- 참여자 권한 부여 / 회수
-- HOST 권한
-- 일회성 모임 라이프사이클
-- 상시모임 라이프사이클
+- regular 모임 카테고리 + 채팅 + 음성 채널 생성 (DB에서 감지, 중복 생성 방지, 실패 복구)
+- PUBLIC / PRIVATE 권한 정책 (코드 유지, 현재 DB 연동은 임시로 PUBLIC)
+- 참여자 권한 부여 / 회수 (`members.discord_id` 기반, 카테고리·텍스트·음성 전체 위치 검증)
+- regular 모임 라이프사이클 (30일 → HOST DM → 7일 유예 → 삭제), 상태는 DB에 저장되어 재시작 후에도 유지
 - 단일 `bot.py` 구조를 역할별 모듈로 리팩터링
-- 운영 안전성 설정
-- 실제 Discord 테스트 서버 통합 재검증
+- 실제 Discord 테스트 서버 통합 검증 (DB 연동 이전 버전 기준)
 
-실제 Discord 테스트 서버에서 다음 7단계를 모두 다시 검증했습니다.
+실제 Discord 테스트 서버에서 다음 7단계를 검증했습니다.
 
 | 단계 | 검증 내용 | 결과 |
 | --- | --- | --- |
@@ -96,23 +90,18 @@ PlayMate 공식 Discord 서버
 | 6 | HOST: `manage_channels=True`, `manage_messages=None` | PASS |
 | 7 | 모임 공간 삭제 및 삭제 후 Discord API 404 확인 | PASS |
 
-### 아직 하지 않은 것
+> DB 연동 코드(`db_sync.py`, PostgreSQL 저장소)는 가짜 Discord 객체와 일회용 PostgreSQL로 검증했습니다.
+> **실제 공용 DB + 실제 Discord 서버를 함께 쓰는 종단(E2E) 테스트와 Bot 로그인/Gateway 확인은 아직 하지 않았습니다.**
 
-현재는 **Discord 기능 단독 검증 단계**입니다.
+### 아직 하지 않은 것 (미완료)
 
-다음 항목은 모임 프론트엔드/백엔드 구현이 진행된 뒤 연결할 예정입니다.
-
-- PlayMate 모임 생성 API ↔ Discord 공간 생성 연결
-- 참여 / 참여 취소 API ↔ Discord 권한 연결
-- PostgreSQL 연결
-- `members.discord_user_id` 연동
-- `recruit_id ↔ Discord resource ID` 영속화
-- 실제 DB 기반 라이프사이클 조회
-- 서비스 환경의 트랜잭션 / 동시성 처리
-
-따라서 현재 `repository`는 PostgreSQL 구현체가 아니라 **메모리 기반 임시 구현체**입니다.
-
----
+- **HOST 식별**: Backend가 모임 생성자를 `recruit_members.role='HOST'`로 저장하지 않습니다.
+  HOST를 알 수 없으므로 HOST 권한 부여와 비활성 HOST DM은 **지금 동작하지 않으며**,
+  HOST를 모르는 모임은 경고/유예 예약도 하지 않습니다 (`host_resolver` 연결 지점만 준비됨).
+- **PUBLIC / PRIVATE 저장 위치**: 미확정입니다. `config.DEFAULT_VISIBILITY="PUBLIC"` 임시 정책을 사용합니다.
+- **실제 로그인 사용자 기반 참여/취소**: Backend가 `member_id=-1`로 고정되어 있어
+  `member_id=-1`, `discord_id`가 없거나 숫자가 아닌 회원은 권한 동기화에서 제외합니다.
+- Backend → Bot 내부 API 호출 방식은 이번 단계에서 도입하지 않았습니다 (현재는 DB polling).
 
 ## 3. 프로젝트 구조
 
@@ -126,7 +115,8 @@ playmate-discord-bot/
 │  ├─ __init__.py
 │  ├─ meeting_space.py
 │  ├─ permissions.py
-│  └─ lifecycle.py
+│  ├─ lifecycle.py
+│  └─ db_sync.py
 │
 ├─ handlers/
 │  ├─ __init__.py
@@ -140,7 +130,8 @@ playmate-discord-bot/
 │  ├─ fixtures/
 │  │  └─ original_bot.py
 │  ├─ test_refactor.py
-│  └─ test_safety.py
+│  ├─ test_safety.py
+│  └─ test_db_integration.py
 │
 ├─ .env.example
 ├─ .gitignore
@@ -156,11 +147,13 @@ playmate-discord-bot/
 | `config.py` | 환경변수와 시간 정책 관리 |
 | `services/meeting_space.py` | Discord 모임 공간 생성 / 삭제 |
 | `services/permissions.py` | 참여자 / 참여 취소 / HOST 권한 처리 |
-| `services/lifecycle.py` | 일회성·상시모임 종료 정책과 주기 검사 |
+| `services/lifecycle.py` | regular 모임 30일 경고 / 7일 유예 / 삭제 정책과 주기 검사 |
+| `services/db_sync.py` | DB polling: regular 모임 Discord 생성, 참여자 권한 동기화 |
 | `handlers/message_handler.py` | Discord 사용자 활동 감지 및 활동 재개 처리 |
-| `repositories/meeting_repository.py` | 현재 메모리 저장소. 향후 PostgreSQL 구현으로 교체할 경계 |
+| `repositories/meeting_repository.py` | 저장소 경계. 메모리 구현(DB 설정 없을 때)과 PostgreSQL 구현 |
 | `tests/test_refactor.py` | 리팩터링 전후 동작 비교 회귀 테스트 |
 | `tests/test_safety.py` | 운영 설정, 의존성, `.env` 제외 등 안전성 검증 |
+| `tests/test_db_integration.py` | 일회용 PostgreSQL 대상 DB 연동·실패 복구·경쟁 조건 테스트 |
 | `REFACTORING.md` | 리팩터링 배경과 상세 변경 내역 |
 
 ---
@@ -207,43 +200,67 @@ manage_messages = 미설정(None)
 
 ## 5. 모임 라이프사이클
 
-### 일회성 모임
+### short 모임
+
+Discord 공간을 **만들지 않으며**, Bot의 어떤 경로(생성 / 권한 / 활동 / 삭제)에서도 다루지 않습니다.
+`meeting_end`는 Bot에서 사용하지 않습니다. 모임이 생성된 뒤 `short`로 바뀌어도 Bot은 더 이상 관리하지 않습니다.
+
+### regular 모임
 
 ```text
-모임 end_at 도달
-        ↓
-24시간 유예
-        ↓
-Discord 채널 / 카테고리 삭제
-        ↓
-discord_deleted_at 기록
-```
-
-종료 즉시 삭제하지 않고 24시간의 유예시간을 둡니다.
-
-### 상시모임
-
-```text
-마지막 활동
+Discord 채팅 활동 → last_activity_at 갱신 (메시지 본문은 저장 안 함)
     ↓
 30일 동안 활동 없음
     ↓
-HOST에게 DM 경고
+HOST에게 DM 경고 → inactivity_warned_at 기록, scheduled_delete_at = 7일 후
     ↓
 7일 유예
-    ├─ 활동 발생 → 자동 종료 예약 취소
+    ├─ 활동 발생 → inactivity_warned_at / scheduled_delete_at 초기화 (삭제 예약 취소)
     │
-    └─ 활동 없음 → 삭제 직전 최신 활동 재확인
+    └─ 활동 없음 → 삭제 직전 DB 상태 재확인
                           ↓
-                    Discord 공간 삭제
+                    Discord 공간 삭제 → 삭제가 확인된 뒤 discord_deleted_at 기록
 ```
 
-삭제 직전에도 `last_activity_at`과 `inactivity_warned_at`을 다시 비교하여,
-경고 이후 활동이 있었다면 삭제를 취소합니다.
-
-> 현재 메모리 저장소 단계의 방어 로직이며,
-> PostgreSQL 연결 시에는 조건부 UPDATE / Transaction 등의 방식으로
-> 동시성까지 보강할 예정입니다.
+- `recruits.state`(모집 상태)는 삭제 기준이 아닙니다.
+- 상태 변경은 목적별 **조건부 UPDATE**로만 하므로, 오래된 값이 최신 활동을 덮어쓰지 못합니다.
+- **Discord는 카테고리를 삭제해도 하위 채널을 자동 삭제하지 않습니다.**
+  그래서 삭제 완료 여부를 카테고리 하나로 판단하지 않고, DB에 저장된 세 리소스
+  (`discord_category_id`, `discord_text_channel_id`, `discord_voice_channel_id`)를 각각 삭제·확인합니다.
+  `discord_deleted_at`은 **세 리소스 모두 Discord API가 NotFound를 돌려준 경우에만** 기록합니다.
+  권한 부여/회수도 같은 원칙으로 **DB에 저장된 세 ID가 기준**입니다: 카테고리 하위 목록이나 캐시에 의존하지 않고,
+  캐시에 없으면 API로 조회하며, 채널이 다른 카테고리로 옮겨져 있어도 해당 채널의 overwrite를 부여/회수합니다.
+  NotFound는 "그 리소스가 없음", Forbidden/HTTP 오류/타임아웃은 "불명확"이며 불명확하면 완료로 보지 않고 다음 poll에 다시 시도합니다.
+  캐시에 없다는 것은 "없음"의 근거가 아닙니다: 캐시에 없으면 `fetch_channel`로 실제 존재를 확인하고,
+  Forbidden / HTTP 오류 / 타임아웃 등 불명확한 응답은 "삭제 미완료"로 취급합니다.
+  카테고리만 없고 text/voice가 남아 있으면 남은 채널을 계속 정리합니다.
+- 일부 채널 삭제가 실패하면 `discord_deleted_at`을 기록하지 않고(나머지 채널은 계속 시도),
+  다음 검사 주기 또는 재시작 후 DB 상태를 기준으로 남은 리소스를 다시 정리합니다.
+- **regular → short 직렬화 (DB row lock)**: 삭제와 참여/취소 권한 변경 같은 Discord 부수효과는
+  `recruits` 행에 `SELECT ... FOR SHARE`를 잡은 트랜잭션 안에서 실행합니다. 모임이 regular이고 Discord 공간이
+  SUCCESS/미삭제인지 확인한 뒤 **작업이 끝날 때까지 락을 유지**하므로, Backend의 `recruit_mode='short'` UPDATE는
+  그 작업이 끝날 때까지 대기합니다. short가 먼저 commit되었다면 Bot은 락을 얻은 뒤 이를 확인하고 Discord를 건드리지 않습니다.
+  타임아웃은 세 가지로 구분됩니다.
+  - **DB 락 대기 5초** (`lock_timeout`): Backend가 해당 행을 잡고 있어 락을 못 얻으면 이번 주기는 건너뛰고 다음 주기에 재시도합니다.
+  - **Discord 작업 전체 30초** (`DISCORD_LOCK_HOLD_SECONDS`): 락을 얻은 *이후*의 전체 구간 — 채널 조회/fetch, 하위 채널·카테고리 삭제,
+    삭제 후 세 리소스의 최종 fetch 확인, `discord_deleted_at` 기록 — 이 하나의 예산입니다. 초과하면 작업을 중단하고
+    `discord_deleted_at`을 기록하지 않으며 트랜잭션을 rollback해 락을 풀고, 다음 주기에 재시도합니다 (Bot loop는 계속 동작).
+    권한 변경(참여/취소)도 같은 30초 예산을 씁니다.
+  - **서버 안전망 60초** (`idle_in_transaction_session_timeout`): 정상 해제 경로가 아니라, Bot이 비정상 종료되었을 때를 위한 최후 수단입니다.
+- **취소(cancel) 안전성**: 락 획득은 worker thread에서 진행되므로, 획득 도중 작업이 취소되어도 세션의 소유권이 한 곳으로만 넘어가도록
+  했습니다. 취소를 알게 된 쪽이 "포기(abandoned)" 표시를 하고, 이후 worker가 뒤늦게 락을 얻으면 스스로 rollback/close 하며,
+  이미 획득을 마친 경우에는 호출자가 해제합니다. 어느 시점에 취소되어도 열린 트랜잭션과 연결이 남지 않습니다.
+- `discord_deleted_at`을 기록하는 SQL(`mark_deleted`)도 `recruit_mode='regular'`일 때만 성공합니다.
+  0행이면 기록하지 않고 로그만 남기며 Bot은 계속 동작합니다.
+- **삭제 기록은 락과 같은 트랜잭션에서만 합니다.** 삭제 lifecycle에서는 `mark_deleted`가 별도 autocommit 연결이 아니라
+  `regular_lock`이 잡고 있는 **같은 DB 연결·같은 트랜잭션** 안에서 실행되고, 블록이 오류 없이 끝날 때 한 번 COMMIT됩니다.
+  순서: `BEGIN → recruits 행 FOR SHARE → regular/SUCCESS/미삭제 확인 → Discord 삭제 → 세 리소스 NotFound 확인 → mark_deleted(같은 트랜잭션) → COMMIT`.
+  timeout·취소·오류가 나면 진행 중인 SQL을 서버에서 취소(`cancel_safe`)하고, worker thread가 그 SQL을 실제로 끝낸 뒤에야
+  ROLLBACK/close 하므로, 대기 중이던 UPDATE가 나중에 살아나 COMMIT되는 일이 없습니다.
+  SQL에는 남은 시간 예산만큼의 서버 `statement_timeout`도 설정합니다.
+  (Discord 공간이 이미 사라졌는데 기록만 실패한 경우는 다음 주기에 "이미 없음"으로 기록됩니다.)
+- 삭제 시도 중 들어온 활동은 거부되지 않고 기록되며, 삭제가 실패하면 최신 활동 기준으로 다시 계산됩니다.
+- HOST를 알 수 없는 모임은 경고/유예 예약을 하지 않습니다 (HOST 미연동, 위 "아직 하지 않은 것" 참고).
 
 ---
 
@@ -261,7 +278,14 @@ HOST에게 DM 경고
 Python 3.13.15
 discord.py 2.7.1
 python-dotenv 1.2.4
+psycopg[binary] 3.3.6   (PostgreSQL 연결, DB 연동 시 필요)
+tzdata 2026.5           (Asia/Seoul 시간대. 일부 리눅스 이미지는 시스템 tzdata가 없어 명시적으로 고정)
 ```
+
+운영 DB 계정은 `recruit_discord_channels`와 `recruits`/`posts`/`recruit_members`/`members`를 조회·수정할 수 있어야 하고,
+`recruits`에 대한 `SELECT ... FOR SHARE`(UPDATE 권한)가 필요합니다
+(SUCCESS 확정, 권한 변경, 삭제가 recruit_mode 변경과 엇갈리지 않게 행을 잠그기 위함).
+락 세션마다 DB 연결을 하나 더 사용하므로, 동시에 처리하는 작업 수만큼의 연결 여유가 필요합니다 (순차 처리라 보통 1개).
 
 ### Discord Bot 준비
 
@@ -305,7 +329,11 @@ python -m pip install -r requirements.txt
 ```text
 discord.py==2.7.1
 python-dotenv==1.2.4
+psycopg[binary]==3.3.6
+tzdata==2026.5
 ```
+
+새 가상환경에서 위 파일만으로 설치한 뒤 `bot` import와 회귀 테스트가 통과하는 것을 확인했습니다.
 
 ---
 
@@ -325,6 +353,17 @@ Copy-Item .env.example .env
 DISCORD_BOT_TOKEN=여기에_본인의_Bot_Token
 DISCORD_GUILD_ID=여기에_테스트_서버_ID
 PLAYMATE_TEST_MODE=false
+
+# 공용 PostgreSQL (Backend와 같은 변수 이름). 비워 두면 메모리 저장소로 동작하며 DB 동기화는 시작되지 않습니다.
+DB_HOST=
+DB_PORT=
+DB_USER=
+DB_PASSWORD=
+DB_NAME=
+DB_SSLMODE=
+
+# DB ↔ Discord 동기화 주기(초), 기본 10
+PLAYMATE_SYNC_INTERVAL_SECONDS=
 ```
 
 ### 중요
@@ -391,6 +430,7 @@ python bot.py
 Bot 로그인 성공: PlayMate Bot#....
 서버 연결 성공: PlayMate Bot Test
 PlayMate Discord Bot 라이프사이클 관리 준비 완료
+PlayMate DB 동기화 시작            (DB_* 설정이 있을 때만)
 모임 라이프사이클 검사 시작 (실서비스: 하루 1회)
 
 [모임 라이프사이클 검사] YYYY-MM-DD HH:MM:SS
@@ -405,23 +445,17 @@ PlayMate Discord Bot 라이프사이클 관리 준비 완료
 
 ## 11. "실행했는데 모임이 자동으로 안 생겨요"
 
-현재는 정상입니다.
+`DB_*` 환경변수가 설정되어 있으면 Bot은 약 10초마다(`PLAYMATE_SYNC_INTERVAL_SECONDS`) 공용 DB를 조회해서
+**`recruit_mode='regular'`이고 삭제되지 않은 모임**에 Discord 공간을 자동으로 만듭니다
+(Backend 호출이 필요하지 않습니다). 만들어지지 않는다면 아래를 확인하세요.
 
-지금 `bot.py`는 Discord에 로그인하고 라이프사이클 Task를 실행하지만,
-**PlayMate 모임 백엔드 API와 아직 연결되어 있지 않습니다.**
-
-또한 현재 기본 Repository에는 실제 서비스 모임 데이터가 들어있지 않습니다.
-
-따라서:
-
-```text
-python bot.py
-```
-
-만 실행한다고 새로운 모임 카테고리가 자동 생성되지는 않습니다.
-
-모임 생성 / 참여 / 취소 기능은 향후 PlayMate 백엔드 이벤트에서
-각 Discord 서비스 함수를 호출하도록 연결할 예정입니다.
+- `DB_*`가 없으면 메모리 저장소로 시작하며 "DB 설정이 없어 메모리 저장소를 사용합니다" 로그가 나옵니다.
+- `recruit_mode='short'` 모임은 만들지 않습니다.
+- `recruit_discord_channels`에 이미 행이 있으면 건너뜁니다.
+  - `FAILED`: 일반 오류는 5분 뒤 자동 재시도합니다.
+  - `sync_error`가 `MANUAL:` 또는 `ABORTED:`로 시작하면 **자동 재시도하지 않습니다** (운영자 확인 필요, 아래 15절).
+  - `PENDING`이 10분 넘게 남아 있으면 중단된 것으로 보고 `MANUAL:`로 표시합니다.
+- Bot 계정이 채널 생성 권한을 가지고 있는지 확인하세요.
 
 ---
 
@@ -436,7 +470,7 @@ python tests/test_refactor.py
 검증 내용 예시:
 
 - 리팩터링 전후 핵심 함수 실행 로직 비교
-- 24시간 / 30일 / 7일 경계값
+- 30일 / 7일 경계값
 - PUBLIC / PRIVATE 권한
 - 삭제 성공 / 실패
 - 활동 재개
@@ -444,7 +478,7 @@ python tests/test_refactor.py
 - Bot 메시지 / DM / 미등록 채널 무시
 - 중복 Task 시작 방지
 
-현재 **45개 동등성 단언을 통과**한 상태입니다.
+현재 **46개 단언을 통과**한 상태입니다.
 
 ### 안전성 테스트
 
@@ -459,6 +493,19 @@ python tests/test_safety.py
 - HOST 권한 설정
 - 의존성 버전
 - `.env` 배포 제외 등
+
+### DB 통합 테스트
+
+일회용 PostgreSQL이 필요합니다. 공용 DB로 실행하지 마세요 (테스트는 별도 스키마 `bot_test`를 만들고 지웁니다).
+
+```powershell
+docker run -d --name pm-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=pm -p 55432:5432 postgres:16
+$env:PLAYMATE_TEST_PG_DSN = "host=127.0.0.1 port=55432 user=postgres password=test dbname=pm"
+python tests/test_db_integration.py
+```
+
+`PLAYMATE_TEST_PG_DSN`이 없으면 건너뜁니다. 검증 내용: regular만 생성 / 중복 생성 방지 / 응답 유실·정리 실패·ID 저장 실패 복구 /
+참여·취소 권한 전체 위치 검증 / 활동·경고·삭제 경쟁 조건 / DB 장애 후 loop 유지 / regular→short 경쟁.
 
 ---
 
@@ -505,72 +552,59 @@ Discord Developer Portal에서 Token을 재발급해야 합니다.
 
 ---
 
-## 15. 현재 Repository의 한계
+## 15. Repository 구현과 한계
 
-`repositories/meeting_repository.py`는 현재
-**InMemoryMeetingRepository**를 사용합니다.
+- `DB_*` 환경변수(Backend와 같은 이름)가 있으면 `PostgresMeetingRepository`를 사용합니다. 상태가 DB에 저장되어 재시작 후에도 유지됩니다.
+- `DB_*`가 없으면 `InMemoryMeetingRepository`로 동작하며, 이 경우 프로세스 종료 시 상태가 사라지고 DB 동기화는 시작되지 않습니다.
+- DB 호출은 동기 코드를 worker thread에서 실행하며, 연결 타임아웃 10초 / statement timeout 15초 / row lock 대기 5초입니다.
+- Backend가 `recruits`를 오래 잠그고 있으면(미커밋 트랜잭션) Bot의 해당 작업은 건너뛰어지고 다음 주기에 재시도됩니다.
+- 쓰기 SQL은 자동 재시도하지 않습니다 (응답이 유실되어도 commit되었을 수 있기 때문). 읽기만 1회 재시도합니다.
+- Bot 프로세스는 1개를 전제로 합니다. 생성 선점(`PENDING`)은 DB에서 원자적이라 중복 실행에도 중복 생성은 막지만, 권한 동기화는 다중 프로세스를 고려하지 않았습니다.
+- **`recruits.discord_channel_id` / `discord_channel_status`**는 legacy Discord 컬럼으로 보이며 Bot은 읽지도 쓰지도 않습니다.
+  Discord 상태의 기준은 `recruit_discord_channels`입니다. 실제 사용 여부 확인 후 추후 팀 협의로 정리합니다.
 
-즉:
+### 자동 재시도 규칙
 
-- 프로세스가 종료되면 데이터가 사라집니다.
-- PostgreSQL과 연결되어 있지 않습니다.
-- 다중 프로세스 환경의 동시성을 보장하지 않습니다.
-- DB Transaction / Lock이 없습니다.
+| `sync_status` / `sync_error` | 자동 재시도 |
+| --- | --- |
+| `FAILED` + 일반 오류 (`CREATE ...`, `SAVE ...`) | 5분 뒤 재시도 (Discord ID가 없는 경우에 한함) |
+| `FAILED` + `MANUAL: ...` | **안 함** |
+| `FAILED` + `ABORTED: ...` | **안 함** |
+| `PENDING` 10분 초과 | 중단된 것으로 보고 `MANUAL:`로 변경 |
 
-현재 목적은 Discord 기능을 다른 코드와 분리하고,
-향후 실제 DB 구현체로 교체할 수 있는 경계를 만드는 것입니다.
+### `MANUAL:` / `ABORTED:` 행 — 운영자 확인 필요
+
+- `MANUAL:` — 생성 도중 실패했고 정리도 실패했거나, DB 저장 결과를 확인할 수 없는 경우입니다.
+  Discord에 공간이 남아 있을 수 있어 중복 생성을 막기 위해 자동 재시도하지 않습니다.
+  `sync_error`에 남은 category/channel ID가 있으면 Discord 서버에서 해당 리소스를 확인하고 수동으로 정리하세요.
+- `ABORTED:` — 생성 중 모임이 regular가 아니게 되어(예: short로 수정) 만든 공간을 정리한 경우입니다.
+  이후 다시 regular로 바뀌어도 **자동으로 재생성하지 않습니다.** 다시 만들려면 사람이 상황을 확인한 뒤
+  해당 행을 정리해야 합니다 (수동 recovery 기능은 아직 없습니다).
 
 ---
 
-## 16. 앞으로 연결할 구조
+## 16. 연결 구조와 앞으로의 계획
 
-향후 PlayMate 모임 백엔드가 준비되면 다음 흐름으로 연결할 예정입니다.
-
-```text
-PlayMate 모임 생성
-        ↓
-recruit 저장
-        ↓
-Discord 모임 공간 생성
-        ↓
-Discord resource ID 저장
-```
-
-참여:
+현재 (DB polling, Backend 수정 없음):
 
 ```text
-PlayMate 참여
-    ↓
-recruit_members 갱신
-    ↓
-members.discord_user_id 조회
-    ↓
-Discord 참여 권한 부여
+Backend가 posts / recruits / recruit_members 저장
+        ↓  (Bot이 주기적으로 조회)
+regular 모임 → Discord 카테고리/채팅/음성 생성 → recruit_discord_channels에 ID 저장
+참여/취소 → members.discord_id로 Discord 권한 부여/회수
+Discord 채팅 → last_activity_at 갱신
+30일 비활성 → HOST DM → 7일 유예 → 삭제 확인 후 discord_deleted_at 기록
 ```
 
-참여 취소:
+Discord resource ID는 `recruit_discord_channels`에 `varchar`로 저장하고(`str`로 쓰고 `int`로 읽음),
+중복 방지는 모임 이름이 아니라 `recruit_id`(PK)와 Discord resource ID의 연결을 기준으로 합니다.
 
-```text
-PlayMate 참여 취소
-    ↓
-Discord 권한 회수
-```
+Backend 담당자와 협의 후 진행할 항목:
 
-라이프사이클:
-
-```text
-PostgreSQL
-    ↓
-종료 대상 / 비활성 모임 조회
-    ↓
-Discord Bot
-    ↓
-DM / 자동 종료 / 삭제
-    ↓
-DB 상태 갱신
-```
-
-실서비스 중복 방지는 **모임 이름이 아니라 `recruit_id`와 Discord resource ID의 연결**을 기준으로 구현할 예정입니다.
+1. 모임 생성 시 생성자를 `recruit_members.role='HOST'`로 저장 → `host_resolver` 연결
+2. PUBLIC/PRIVATE 저장 위치 결정 → `DEFAULT_VISIBILITY` 대체
+3. 참여/취소가 실제 로그인 사용자(`member_id`)를 쓰도록 변경
+4. 필요하면 DB polling을 Backend → Bot 내부 API 호출로 교체
 
 ---
 
@@ -604,10 +638,10 @@ last_activity_at
 
 개인 대화 내용을 PlayMate DB에 복사하지 않습니다.
 
-### 종료된 Discord 공간은 보관하지 않습니다
+### 삭제된 Discord 공간은 보관하지 않습니다
 
 Discord 서버의 카테고리 수에는 제한이 있으므로,
-종료된 모임은 Discord 공간을 계속 쌓아두지 않고 삭제하는 방향입니다.
+비활성으로 삭제 대상이 된 regular 모임은 Discord 공간을 계속 쌓아두지 않고 삭제합니다.
 
 필요한 활동 기록은 향후 PlayMate 서비스의 후기/활동 기록 기능으로 관리하는 것을 전제로 합니다.
 
@@ -656,6 +690,14 @@ PLAYMATE_TEST_MODE=false
 ```
 
 로 변경하세요.
+
+---
+
+## 18-1. PlayMate DB 연동 상태 (feature/13-discord-bot)
+
+위 "2. 현재 개발 상태", "5. 모임 라이프사이클", "15. Repository 구현과 한계"가 현재 구현 기준입니다.
+미완료 항목(HOST resolver 미연동, PUBLIC/PRIVATE 저장 위치 미확정, 실제 로그인 사용자 미연동,
+`MANUAL:` 행의 운영 확인)은 해당 절의 TODO를 확인하세요.
 
 ---
 

@@ -1,34 +1,18 @@
-import { useState } from 'react'
+import { useBoardCreateForm } from '../../hooks/board/useBoardForms'
 
+/** 게시판 생성 모달의 표현을 담당하며 제출·초기화는 전용 hook에서 관리한다. */
 export default function BoardCreateModal({ open, busy, onClose, onCreate }) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [reason, setReason] = useState('')
+  const {
+    name, setName, description, setDescription, reason, setReason, submit,
+  } = useBoardCreateForm(busy, onCreate)
 
   if (!open) return null
-
-  const submit = async (event) => {
-    event.preventDefault()
-    if (busy || !name.trim()) return
-
-    const created = await onCreate({
-      name: name.trim(),
-      description: description.trim() || null,
-      creation_reason: reason.trim() || null,
-    })
-
-    if (created) {
-      setName('')
-      setDescription('')
-      setReason('')
-    }
-  }
 
   return (
     <div
       className="modal-backdrop"
       role="presentation"
-      onMouseDown={onClose}
+      onMouseDown={busy ? undefined : onClose}
     >
       <section
         className="modal board-create-modal"
@@ -40,6 +24,7 @@ export default function BoardCreateModal({ open, busy, onClose, onCreate }) {
         <button
           type="button"
           className="modal-close"
+          disabled={busy}
           onClick={onClose}
           aria-label="닫기"
         >
@@ -56,6 +41,7 @@ export default function BoardCreateModal({ open, busy, onClose, onCreate }) {
               autoFocus
               required
               maxLength={40}
+              disabled={busy}
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="예: 알고리즘 질문"
@@ -67,6 +53,7 @@ export default function BoardCreateModal({ open, busy, onClose, onCreate }) {
             <textarea
               maxLength={200}
               rows={3}
+              disabled={busy}
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="어떤 이야기를 나눌 공간인가요?"
@@ -79,6 +66,7 @@ export default function BoardCreateModal({ open, busy, onClose, onCreate }) {
             <textarea
               maxLength={500}
               rows={3}
+              disabled={busy}
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               placeholder="새 공간이 필요한 이유를 알려주세요."
@@ -92,6 +80,7 @@ export default function BoardCreateModal({ open, busy, onClose, onCreate }) {
             <button
               type="button"
               className="button ghost"
+              disabled={busy}
               onClick={onClose}
             >
               취소

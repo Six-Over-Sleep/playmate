@@ -1,5 +1,52 @@
 # PlayMate 게시판 설치 · 실행 · Swagger API 실습 통합 가이드
 
+## 게시판 프론트엔드 정리 반영 사항
+
+현재 작업 브랜치는 `feature/7-board-frontend`입니다. 게시판 정리 후 공통 API 설정을 추가해 게시판에 먼저 연결했습니다. 인증·모임·백엔드 코드는 변경하지 않았습니다. 공통 설정·프록시·환경 변수의 추가 내용은 [공통 API 가이드](API_COMMON_GUIDE.md)를 참고하세요.
+
+| 파일 | 역할 |
+| --- | --- |
+| `src/components/board/BoardSection.jsx` | 목록·상세·편집·생성 모달 연결 |
+| `src/hooks/board/useBoard.js` | 게시판 조회, 요청 취소, 변경 처리, 성공·실패 상태 |
+| `src/hooks/board/useBoardForms.js` | 게시판·게시글·댓글 폼, 이미지 검증과 미리보기 수명 |
+| `src/hooks/board/useBoardSearch.js` | 검색 초안과 목록 정렬 |
+| `src/utils/board.js` | 날짜 표시와 원본을 변경하지 않는 정렬 |
+| `src/services/boardApi.js` | 기존 `/api` 경로를 사용하는 게시판 전용 통신 |
+| `src/config/api.js` | API·인증·이미지 주소를 반환하는 공통 함수 |
+| `src/services/apiClient.js` | 공용 요청·응답·오류 처리 |
+
+### 유지한 통신 설정
+
+- 게시판은 origin이 비어 있으면 기존 Vite `/api` 프록시를 사용합니다. 이미지도 `/uploads/...`로 요청합니다. 별도 서버 origin을 설정하면 API·이미지가 함께 해당 서버를 사용합니다.
+- `VITE_DEV_MEMBER_ID` 개발용 헤더는 유지합니다. 최신 게시판 백엔드는 유효한 로그인 세션을 우선하고, 세션이 없는 development·test 환경에서만 개발용 헤더를 허용합니다. 실제 로그인 연결은 별도로 검증합니다.
+- 아래 설치 양식의 `VITE_API_BASE_URL`은 다른 기능에서 사용할 수 있지만 현재 게시판의 주소 변경에는 적용되지 않습니다.
+- 현재 API는 `sort=latest`만 지원하므로 오래된순은 받은 목록을 브라우저에서 정렬합니다.
+
+### 상태와 요청 갱신 규칙
+
+- StrictMode를 유지하고 같은 인스턴스에서 진행 중인 초기 요청을 재사용합니다. 전역·영구 캐시는 만들지 않습니다.
+- 현재 게시판·검색 결과를 같은 화면에서 재사용합니다. 다른 기능으로 이동했다 돌아오면 새 인스턴스에서 다시 조회합니다.
+- 댓글 작성·수정·삭제 응답으로 댓글과 표시 개수를 갱신합니다. 변경 직후 상세·댓글 GET을 반복하지 않습니다. 다른 사용자의 동시 변경은 상세 재진입 때 확인합니다.
+- 게시글 작성·수정 후 목록은 무효화하고 목록 복귀 때 다시 조회합니다. 정상 목록의 단순 복귀·같은 메뉴 재선택에는 재조회하지 않습니다.
+- 변경 함수는 성공 객체 또는 `true`, 실패 시 `null`을 반환합니다. 폼은 성공한 경우에만 초기화·편집 종료합니다.
+- 빠른 검색·게시판·상세 전환은 이전 요청을 취소하거나 늦은 결과를 무시합니다.
+- 글 저장 성공 시 저장 전에 시작한 목록 조회를 무효화합니다. 늦은 응답이 목록 갱신 필요 상태를 해제하지 못하게 합니다.
+- 검색을 실행하면 진행 중인 상세 조회도 취소해 검색 후 이전 글 상세로 이동하지 않게 합니다.
+- 게시판 목록이 도착하면 먼저 표시하고 선택·생성을 허용합니다. 글 목록은 별도로 로딩하며, 기다리는 동안 다른 게시판을 선택하거나 글을 저장하면 이전 조회를 취소하고 늦은 응답을 무시합니다.
+- 같은 게시판·검색어의 조회가 진행 중이면 반복 선택·검색에도 요청을 추가하지 않습니다. 글 조회 실패 시 게시판 목록은 유지해 다른 게시판 선택·재검색이 가능합니다.
+
+### 검증 방법과 결과
+
+빌드: `frontend`에서 `npm.cmd run build`를 실행합니다. 현재 package.json에는 lint 명령이 없습니다.
+
+2026년 10월 14일에는 실제 DB 대신 모의 HTTP 응답을 사용한 Playwright 브라우저 검증으로 초기 조회 각 1회, 메뉴·정렬·목록 복귀의 불필요한 재조회 제거, 댓글 변경 후 추가 GET 없음, 실패 입력 보존, 검색 경쟁 응답 차단, 게시판 전환, 이미지 URL·미리보기 해제, 게시글·댓글·게시판 변경 흐름을 확인했습니다. 이 결과는 실제 서버 응답 시간이나 인증·DB 통합 검증을 의미하지 않습니다.
+
+2026년 10월 15일에는 개발 모드 StrictMode에서 모의 응답을 지연시켜 게시판 선표시, 진행 중 동일 요청 중복 방지, 다른 게시판 전환·게시판 생성 후 이전 응답 무시, 글 조회 실패 시 게시판 유지, 빈 게시판 목록 처리를 추가 확인했습니다. 프론트엔드 빌드도 통과했습니다.
+
+실제 연동 시에는 목록·상세·검색·정렬, 글·댓글 작성/수정/삭제, 실패 입력 보존, 이미지 표시·선택/제거, 같은 메뉴 재선택을 확인합니다. 개발자 도구 Network에서 변경 요청 이후 불필요한 GET이 없는지도 확인합니다. 공유 App 연결 변경에 대해서는 기존 로그인·모임 화면 전환을 함께 점검합니다.
+
+작성자 표시 문구는 기존 익명 표현을 유지했습니다. 백엔드는 nickname을 반환하므로 익명/닉네임 정책의 확정은 인증·백엔드 담당자와 확인해야 합니다.
+
 > **Windows · VS Code · PowerShell 기준**  
 > 저장소: https://github.com/Six-Over-Sleep/playmate/tree/feature/board  
 > 브랜치: `feature/board` · 프론트엔드: React + Vite · 백엔드: FastAPI · DB: Aiven PostgreSQL
@@ -178,8 +225,11 @@ DB_SSLMODE=require
 APP_ENV=development
 FRONTEND_ORIGINS=http://localhost:5173
 
+# 기존 모임 코드용 설정이며 게시판에는 적용되지 않습니다.
 VITE_API_BASE_URL=http://localhost:8000/api
 VITE_DEV_MEMBER_ID=실제로_존재하는_member_id
+VITE_BACKEND_ORIGIN=
+BACKEND_PROXY_TARGET=http://localhost:8000
 ```
 
 - DB 포트가 반드시 `5432`인 것은 아닙니다. Aiven 접속 화면을 확인하세요.
@@ -232,8 +282,8 @@ npm.cmd run dev
 ## 8. Swagger 실습 전에 꼭 알아둘 것
 
 1. Swagger는 **http://localhost:8000/docs**에서 확인합니다. 본인 컴퓨터에서 백엔드를 실행해야 열립니다.
-2. 현재 게시판 백엔드는 **개발 전용 회원 ID 헤더**를 요구합니다. 일반 로그인이나 Discord OAuth가 연결된 상태라고 가정하면 안 됩니다.
-3. 모든 게시판 API 요청에 `X-Dev-Member-ID` 헤더와 **DB에 실제 존재하는 정수 회원 ID**가 필요합니다. 서버의 `APP_ENV`는 `development` 또는 `test`여야 합니다.
+2. 최신 게시판 백엔드는 유효한 로그인 세션을 우선합니다. 세션이 없는 development·test 환경에서는 개발용 회원 ID 헤더를 사용할 수 있습니다. 실제 로그인 검증은 루트 `.env`의 `VITE_DEV_MEMBER_ID`를 빈 값으로 설정하고 프론트 개발 서버를 재시작한 뒤 진행합니다. `http://localhost:5173`에서 Discord 로그인 후 게시판 조회·작성·수정·삭제와 작성자 권한을 확인하세요. 개발 헤더를 사용한 성공 결과를 실제 로그인 검증으로 간주하지 않습니다.
+3. 개발 헤더로 테스트할 때에는 `X-Dev-Member-ID`에 **DB에 실제 존재하는 정수 회원 ID**를 지정하고, 서버의 `APP_ENV`를 `development` 또는 `test`로 설정합니다. 유효한 로그인 세션이 있으면 해당 세션의 회원이 우선되며 개발 헤더로 다른 회원으로 전환할 수 없습니다.
 4. Swagger의 `Try it out` → 입력 → `Execute`로 요청합니다. Swagger에서 해당 헤더 입력란이 보이면 값을 넣으세요. 일반적으로 이 프로젝트에서는 의존성에 의해 헤더 파라미터로 표시됩니다.
 5. GET은 조회, POST는 생성, PATCH는 수정, DELETE는 삭제입니다. **공용 Aiven DB에 연결했다면 POST/PATCH/DELETE는 다른 팀원 데이터에도 영향을 줍니다.**
 6. 직접 만든 **테스트 게시판·테스트 게시글·테스트 댓글**만 수정/삭제하세요. 삭제는 논리 삭제라 DB에 이력이 남을 수 있습니다.
@@ -431,7 +481,7 @@ npm.cmd run dev
 git status
 git add frontend/BOARD_SETUP_GUIDE.md
 git commit -m "docs: 게시판 통합 설치 및 API 실습 가이드 보완"
-git push origin feature/board
+git push origin feature/7-board-frontend
 ```
 
 > 문서 작성 기준: `feature/board` 브랜치의 `backend/app/routers/board.py`, `backend/app/schemas/board.py`, `backend/app/core/auth.py` 및 기존 게시판 설치 가이드. 실제 배포된 버전 또는 이후 커밋에 따라 Swagger 화면·입력값·상태 코드가 달라질 수 있으니 **실습 전에 현재 코드와 `/docs`를 함께 확인**하세요.

@@ -5,6 +5,8 @@ from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+# Post.author_member_id 외래키가 참조하는 members 모델을 SQLAlchemy에 등록함.
+from backend.app.models.member import Member  # noqa: F401
 from backend.app.models.post import Post
 from backend.app.models.recruit import (
     Recruit,

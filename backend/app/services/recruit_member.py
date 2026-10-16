@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from backend.app.models.recruit import RecruitMember
 from backend.app.repositories import recruit as recruit_repo
 
-import time
 
 def ensure_capacity_not_below_joined(
     db: Session,
@@ -116,29 +115,19 @@ def get_recruit_members(db: Session, recruit_id: int):
 
 
 def get_recruit_count(db: Session, recruit_id: int):
-    """모임 참여 인원과 남은 자리를 조회함."""
+    """모임이 존재하고 삭제되지 않았으면 참여 인원·남은 자리를 계산함."""
+    recruit = recruit_repo.get_recruit(db, recruit_id)
+    if recruit is None:
+        raise HTTPException(status_code=404, detail="모임이 없습니다.")
 
-    start = time.perf_counter()
+    post = recruit_repo.get_post(db, recruit.post_id)
+    if post is None or post.post_status == "DELETED":
+        raise HTTPException(status_code=404, detail="모임이 없습니다.")
 
-    result = recruit_repo.get_recruit_capacity_and_count(
-        db, recruit_id
-    )
-
-    elapsed = (time.perf_counter() - start) * 1000
-    print(f"[성능 측정] DB 조회: {elapsed:.2f}ms", flush=True)
-
-    if result is None:
-        raise HTTPException(
-            status_code=404,
-            detail="모임이 없습니다.",
-        )
-
-    count = result.current_members
-    capacity = result.capacity
-
+    count = recruit_repo.count_joined_members(db, recruit_id)
     return {
         "recruit_id": recruit_id,
         "current_members": count,
-        "capacity": capacity,
-        "remaining": max(0, capacity - count),
+        "capacity": recruit.capacity,
+        "remaining": max(0, recruit.capacity - count),
     }

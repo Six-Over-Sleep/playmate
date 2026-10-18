@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-
+from fastapi import Request, HTTPException
 from backend.app.core.database import get_db
 from backend.app.schemas.recruit import RecruitCreate, RecruitUpdate
 from backend.app.services import recruit as recruit_service
@@ -19,9 +19,24 @@ def get_recruit(recruit_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-def add_recruit(data: RecruitCreate, db: Session = Depends(get_db)):
-    """모임 생성."""
-    return recruit_service.create_recruit(db, data)
+def add_recruit(
+    request: Request,
+    data: RecruitCreate,
+    db: Session = Depends(get_db),
+):
+    member_id = request.session.get("member_id")
+
+    if member_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="로그인이 필요합니다.",
+        )
+
+    return recruit_service.create_recruit(
+        db=db,
+        data=data,
+        member_id=int(member_id),
+    )
 
 
 @router.get("")

@@ -9,6 +9,7 @@ from backend.app.models.post import Post
 from backend.app.models.recruit import (
     Recruit,
     RecruitGameDetail,
+    RecruitMember,
     RecruitGroupBuyDetail,
     RecruitSportsDetail,
     RecruitStudyDetail,
@@ -60,7 +61,7 @@ def _get_detail_model_and_values(data: RecruitCreate):
 def create_recruit(
     db: Session,
     data: RecruitCreate,
-    member_id: int = -1,
+    member_id: int,
 ) -> dict[str, int]:
     """모임 게시글, 모집 정보, 카테고리 상세를 하나의 트랜잭션으로 생성함.
 
@@ -112,6 +113,17 @@ def create_recruit(
             **detail_values,
         )
         recruit_repo.add_category_detail(db, detail)
+
+        # 모임 생성자를 HOST로 자동 등록
+        host = RecruitMember(
+            recruit_id=recruit.recruit_id,
+            member_id=member_id,
+            role="HOST",
+            status="JOINED",
+            joined_at=datetime.now(),
+        )
+
+        recruit_repo.add_member(db, host)
 
         # commit 후 ORM 객체가 만료되더라도 응답에 추가 SELECT가 발생하지 않게 함.
         result = {

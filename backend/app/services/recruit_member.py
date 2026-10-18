@@ -84,18 +84,37 @@ def join_recruit(
 
 
 def cancel_join(db: Session, recruit_id: int):
-    """참여 중인 회원의 상태를 CANCELED로 바꾸고 취소 시간을 기록함.
+    """모임 참여 취소 처리.
 
-    TODO: 임시 회원 ID -1을 실제 로그인 ID로 바꾸는 것은 후속 단계에서 처리함.
+    일반 참여자(MEMBER)만 취소할 수 있음.
+    모임장(HOST)은 참여를 취소할 수 없음.
     """
+    # TODO: Discord 로그인 연동 후 실제 member_id로 변경
     member_id = -1
-    member = recruit_repo.find_member(db, recruit_id, member_id)
-    if member is None or member.status != "JOINED":
-        raise HTTPException(status_code=400, detail="참여 중인 모임이 아닙니다.")
 
+    # 참여 기록 조회
+    member = recruit_repo.find_member(db, recruit_id, member_id)
+
+    # 참여 중인 회원인지 확인
+    if member is None or member.status != "JOINED":
+        raise HTTPException(
+            status_code=400,
+            detail="참여 중인 모임이 아닙니다.",
+        )
+
+    # 모임장은 일반 참여 취소 불가
+    if member.role == "HOST":
+        raise HTTPException(
+            status_code=403,
+            detail="모임장은 참여를 취소할 수 없습니다.",
+        )
+
+    # 일반 참여자만 취소 처리
     member.status = "CANCELED"
     member.canceled_at = datetime.now()
+
     db.commit()
+
     return {"message": "모임 참여 취소 완료"}
 
 

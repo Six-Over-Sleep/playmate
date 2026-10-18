@@ -5,8 +5,9 @@ PlayMate의 **모임 기능과 Discord를 연결하기 위한 Bot 모듈**입니
 Discord 기능은 독립적으로 구현·검증되어 있고, 이 브랜치(`feature/13-discord-bot`)에서
 **공용 PostgreSQL(`recruit_discord_channels`)과 DB polling 방식으로 연결**했습니다.
 Backend / Frontend / Auth 코드는 수정하지 않고, Bot이 DB를 주기적으로 읽어 Discord에 반영합니다.
-HOST 식별, PUBLIC/PRIVATE 저장 위치, 실제 로그인 사용자 연동은 아직 미완료입니다
-(아래 "PlayMate DB 연동 상태" 참고).
+HOST 식별, PUBLIC/PRIVATE 저장 위치, 실제 로그인 사용자 연동은 아직 미완료입니다.
+무엇이 구현되었고 무엇이 실환경에서 확인되었는지는 "2. 현재 개발 상태"와
+"13. 실환경에서 확인된 내용"을 참고하세요.
 
 > 팀원이 이 저장소를 처음 받아도 구조를 이해하고, 로컬에서 Bot을 실행하고,
 > 테스트 코드까지 확인할 수 있도록 정리한 README입니다.
@@ -17,7 +18,7 @@ HOST 식별, PUBLIC/PRIVATE 저장 위치, 실제 로그인 사용자 연동은 
 ```text
 Discord 기능 구현 / 모듈화 / 실제 Discord 검증     완료
 ↓
-공용 DB 연동 (DB polling, regular 모임만)          완료 (이 브랜치)
+공용 DB 연동 (DB polling, regular 모임만)          구현 완료, 실환경 확인은 일부 (13절 참고)
 ↓
 HOST 식별 · PUBLIC/PRIVATE 저장 · 실제 사용자      Backend 협의 후 연결 (미완료)
 ```
@@ -68,30 +69,35 @@ PlayMate 공식 Discord 서버
 
 ## 2. 현재 개발 상태
 
-### 완료
+"구현됨"은 코드가 있고 자동 테스트로 확인했다는 뜻이고, "실환경 확인"은 실제 Discord 서버와
+공용 DB로 직접 확인한 항목입니다. 두 가지는 구분해서 읽어야 합니다. 실환경 결과는 13절에 있습니다.
+
+### 구현됨 (자동 테스트로 확인)
 
 - Discord Bot 로그인 / Guild 연결
 - regular 모임 카테고리 + 채팅 + 음성 채널 생성 (DB에서 감지, 중복 생성 방지, 실패 복구)
+- short 모임은 Discord 공간도, `recruit_discord_channels` 행도 만들지 않음
 - PUBLIC / PRIVATE 권한 정책 (코드 유지, 현재 DB 연동은 임시로 PUBLIC)
 - 참여자 권한 부여 / 회수 (`members.discord_id` 기반, 카테고리·텍스트·음성 전체 위치 검증)
+- 활동 감지 → `last_activity_at` 갱신
 - regular 모임 라이프사이클 (30일 → HOST DM → 7일 유예 → 삭제), 상태는 DB에 저장되어 재시작 후에도 유지
-- 단일 `bot.py` 구조를 역할별 모듈로 리팩터링
-- 실제 Discord 테스트 서버 통합 검증 (DB 연동 이전 버전 기준)
+- 실패 복구: 생성 실패 정리, `FAILED` / `MANUAL` / `ABORTED` 구분, row lock, timeout, 취소 안전성
 
-실제 Discord 테스트 서버에서 다음 7단계를 검증했습니다.
+자동 테스트는 두 종류입니다.
 
-| 단계 | 검증 내용 | 결과 |
-| --- | --- | --- |
-| 1 | 모임 공간 생성 | PASS |
-| 2 | PUBLIC 비참여자: 읽기 가능 / 쓰기·음성 연결 불가 | PASS |
-| 3 | PRIVATE 비참여자: 전체 숨김 | PASS |
-| 4 | 참여자 권한 부여 | PASS |
-| 5 | 참여 취소 권한 회수 | PASS |
-| 6 | HOST: `manage_channels=True`, `manage_messages=None` | PASS |
-| 7 | 모임 공간 삭제 및 삭제 후 Discord API 404 확인 | PASS |
+- **mock 테스트** (`test_refactor.py`, `test_safety.py`): Discord와 DB에 연결하지 않는 정책·설정 확인.
+- **DB 통합 테스트** (`test_db_integration.py`): **실제 일회용 PostgreSQL**을 쓰지만 Discord는
+  **가짜 객체**입니다. 실제 Discord 서버와의 동작을 증명하지는 않습니다.
 
-> DB 연동 코드(`db_sync.py`, PostgreSQL 저장소)는 가짜 Discord 객체와 일회용 PostgreSQL로 검증했습니다.
-> **실제 공용 DB + 실제 Discord 서버를 함께 쓰는 종단(E2E) 테스트와 Bot 로그인/Gateway 확인은 아직 하지 않았습니다.**
+### 실환경에서 확인된 것 / 아직 확인하지 못한 것
+
+실제 Discord 서버와 공용 PostgreSQL로 팀이 확인한 결과이며, 자세한 내용은 13절에 있습니다.
+
+- 확인됨: Bot 로그인과 Gateway 연결, DB polling, regular 모임 채널 자동 생성(재시작 후 중복 없음),
+  `members.discord_id` 기반 JOINED 참여자 권한 부여, 실제 메시지로 `last_activity_at` 갱신,
+  CANCELED 감지와 PUBLIC 읽기 전용 처리 로직 실행, short 모임에 채널과 DB 행이 생기지 않음.
+- 확인하지 못함: 일반 사용자 계정의 실제 쓰기·음성 차단 (테스트 계정이 서버 Owner라서),
+  HOST 권한과 HOST DM (Backend가 HOST를 저장하지 않음), 그 밖의 아래 미확인 항목.
 
 ### 아직 하지 않은 것 (미완료)
 
@@ -128,7 +134,7 @@ playmate-discord-bot/
 │
 ├─ tests/
 │  ├─ fixtures/
-│  │  └─ original_bot.py
+│  │  └─ original_bot.py      (리팩터링 이전 원본 Bot. 참고용으로 보관하며 현재 테스트는 사용하지 않음)
 │  ├─ test_refactor.py
 │  ├─ test_safety.py
 │  └─ test_db_integration.py
@@ -136,14 +142,14 @@ playmate-discord-bot/
 ├─ .env.example
 ├─ .gitignore
 ├─ requirements.txt
-└─ REFACTORING.md
+└─ README.md
 ```
 
 ### 파일별 역할
 
 | 파일 | 역할 |
 | --- | --- |
-| `bot.py` | Discord Client 생성, 의존성 연결, 이벤트 등록, 라이프사이클 Task 시작 |
+| `bot.py` | Discord Client 생성, 저장소 선택, 이벤트 등록, DB 동기화·라이프사이클 Task 시작 |
 | `config.py` | 환경변수와 시간 정책 관리 |
 | `services/meeting_space.py` | Discord 모임 공간 생성 / 삭제 |
 | `services/permissions.py` | 참여자 / 참여 취소 / HOST 권한 처리 |
@@ -151,10 +157,9 @@ playmate-discord-bot/
 | `services/db_sync.py` | DB polling: regular 모임 Discord 생성, 참여자 권한 동기화 |
 | `handlers/message_handler.py` | Discord 사용자 활동 감지 및 활동 재개 처리 |
 | `repositories/meeting_repository.py` | 저장소 경계. 메모리 구현(DB 설정 없을 때)과 PostgreSQL 구현 |
-| `tests/test_refactor.py` | 리팩터링 전후 동작 비교 회귀 테스트 |
+| `tests/test_refactor.py` | 정책 회귀 테스트 (mock, Discord/DB 연결 없음) |
 | `tests/test_safety.py` | 운영 설정, 의존성, `.env` 제외 등 안전성 검증 |
-| `tests/test_db_integration.py` | 일회용 PostgreSQL 대상 DB 연동·실패 복구·경쟁 조건 테스트 |
-| `REFACTORING.md` | 리팩터링 배경과 상세 변경 내역 |
+| `tests/test_db_integration.py` | 실제 일회용 PostgreSQL + 가짜 Discord 객체로 DB 연동·실패 복구·경쟁 조건 테스트 |
 
 ---
 
@@ -461,7 +466,9 @@ PlayMate DB 동기화 시작            (DB_* 설정이 있을 때만)
 
 ## 12. 테스트 실행
 
-### 리팩터링 회귀 테스트
+### 정책 회귀 테스트 (mock)
+
+Discord와 DB에 연결하지 않고, 가짜 객체로 정책과 배선을 확인합니다.
 
 ```powershell
 python tests/test_refactor.py
@@ -469,7 +476,6 @@ python tests/test_refactor.py
 
 검증 내용 예시:
 
-- 리팩터링 전후 핵심 함수 실행 로직 비교
 - 30일 / 7일 경계값
 - PUBLIC / PRIVATE 권한
 - 삭제 성공 / 실패
@@ -494,9 +500,9 @@ python tests/test_safety.py
 - 의존성 버전
 - `.env` 배포 제외 등
 
-### DB 통합 테스트
+### DB 통합 테스트 (실제 일회용 PostgreSQL + 가짜 Discord)
 
-일회용 PostgreSQL이 필요합니다. 공용 DB로 실행하지 마세요 (테스트는 별도 스키마 `bot_test`를 만들고 지웁니다).
+DB 동작은 실제 PostgreSQL로 확인하지만 Discord는 가짜 객체입니다. 일회용 PostgreSQL이 필요합니다. 공용 DB로 실행하지 마세요 (테스트는 별도 스키마 `bot_test`를 만들고 지웁니다).
 
 ```powershell
 docker run -d --name pm-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=pm -p 55432:5432 postgres:16
@@ -509,9 +515,32 @@ python tests/test_db_integration.py
 
 ---
 
-## 13. 실제 Discord에서 검증된 내용
+## 13. 실환경에서 확인된 내용
 
-리팩터링 후 실제 테스트 서버에서도 다음을 재검증했습니다.
+### DB 연동 이후: 실제 Discord 서버 + 공용 PostgreSQL (팀 확인 결과)
+
+| 항목 | 결과 |
+| --- | --- |
+| Bot 로그인 및 Gateway 연결 | 확인됨 |
+| 공용 PostgreSQL DB polling | 확인됨 |
+| regular 모임 → 카테고리 / 채팅 / 음성 자동 생성 | 확인됨 |
+| Bot 재시작 후 중복 채널 생성 없음 | 확인됨 |
+| 실제 `members.discord_id` 기반 JOINED 참여자 권한 부여 | 확인됨 |
+| 실제 메시지 → `last_activity_at` 갱신 | 확인됨 |
+| CANCELED 감지 및 PUBLIC 읽기 전용 처리 로직 실행 | 실행 확인 (아래 한계 참고) |
+| short 모임은 채널을 만들지 않음 | 확인됨 |
+| short 모임은 `recruit_discord_channels`에도 행을 만들지 않음 | 확인됨 |
+
+**확인하지 못한 항목**
+
+- 일반 사용자 계정의 실제 쓰기·음성 차단: 테스트 계정이 서버 Owner라서 권한 제한을 받지 않아 최종 확인하지 못했습니다.
+- HOST 권한과 HOST DM: Backend가 `recruit_members.role='HOST'`를 만들지 않아 확인하지 못했습니다.
+- 30일 비활성 경고, 7일 유예, 자동 삭제를 DB 연동 상태의 실제 서버에서 끝까지 돌려 본 결과는 아직 없습니다.
+- PRIVATE 모임, `MANUAL:` / `ABORTED:` 상태의 실제 운영 시나리오, 실제 로그인 사용자 기반 참여/취소도 확인하지 못했습니다.
+
+### DB 연동 이전: 독립 Bot의 7단계 검증
+
+DB 연동 이전의 독립 Bot에서 실제 테스트 서버로 다음을 확인했습니다. 현재 DB 연동 코드의 검증은 아닙니다.
 
 ```text
 모임 공간 생성                    PASS
@@ -692,22 +721,3 @@ PLAYMATE_TEST_MODE=false
 로 변경하세요.
 
 ---
-
-## 18-1. PlayMate DB 연동 상태 (feature/13-discord-bot)
-
-위 "2. 현재 개발 상태", "5. 모임 라이프사이클", "15. Repository 구현과 한계"가 현재 구현 기준입니다.
-미완료 항목(HOST resolver 미연동, PUBLIC/PRIVATE 저장 위치 미확정, 실제 로그인 사용자 미연동,
-`MANUAL:` 행의 운영 확인)은 해당 절의 TODO를 확인하세요.
-
----
-
-## 19. 관련 문서
-
-더 자세한 리팩터링 내용과 검증 기준은 아래 파일에서 확인할 수 있습니다.
-
-```text
-REFACTORING.md
-```
-
-이 README는 **팀원이 프로젝트를 이해하고 실행하기 위한 문서**이고,
-`REFACTORING.md`는 **왜 코드를 분리했고 어떤 동작을 보존했는지 확인하기 위한 개발 기록**입니다.

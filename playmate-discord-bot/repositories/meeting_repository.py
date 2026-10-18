@@ -1,18 +1,19 @@
-"""Storage boundary for meeting lifecycle state.
+"""모임 상태 저장소 경계.
 
-InMemoryMeetingRepository keeps the original in-memory fixtures (state is lost
-when the process stops). PostgresMeetingRepository (below) is the persistent
-implementation backed by the shared table recruit_discord_channels.
-Keys are Discord category IDs; recruit_id remains the backend meeting identity.
-Message content is never accepted here.
+- InMemoryMeetingRepository: DB 설정이 없을 때 쓰는 메모리 구현. 프로세스가 끝나면 상태가 사라진다.
+- PostgresMeetingRepository: 공용 테이블 recruit_discord_channels를 쓰는 영속 구현.
+키는 Discord 카테고리 ID이고, 모임의 식별자는 항상 Backend의 recruit_id다.
+메시지 본문은 이 계층에 전달되지 않는다.
 
-Lifecycle/activity state changes are purpose-specific *conditional* operations
-(record_activity, record_warning, cancel_schedule, mark_deleted),
-and the read-only is_delete_due. A stale snapshot can therefore never overwrite newer state:
-each operation only applies if the stored state still matches its precondition.
+상태 변경 원칙:
+    lifecycle/활동 상태는 목적별 조건부 연산(record_activity, record_warning,
+    cancel_schedule, mark_deleted)으로만 바꾸고, 읽기 전용 is_delete_due로 확인한다.
+    각 연산은 저장된 상태가 전제 조건과 같을 때만 적용되므로, 오래된 snapshot이
+    더 새로운 상태를 덮어쓸 수 없다.
 
-Repository methods are synchronous; async callers go through `call()` so the
-blocking DB work runs in a worker thread, not on the Discord event loop.
+동기/비동기:
+    저장소 메서드는 동기 함수다. 비동기 코드는 `call()`로 호출해서, 막히는 DB 작업이
+    Discord 이벤트 루프(heartbeat 포함)를 멈추지 않고 worker thread에서 실행되게 한다.
 """
 import asyncio
 import threading
@@ -23,7 +24,6 @@ from typing import Any, Callable, Protocol
 from config import (
     DB_LOCK_IDLE_IN_TRANSACTION_MS,
     DB_LOCK_TIMEOUT_MS,
-    DB_STATEMENT_TIMEOUT_MS,
     KST,
     SYNC_RETRY_AFTER_SECONDS,
     SYNC_STALE_PENDING_SECONDS,
@@ -33,24 +33,32 @@ Meeting = dict[str, Any]
 
 
 async def call(method: Callable, *args):
-    """Run a (blocking) repository method outside the event loop."""
+    """동기 저장소 메서드를 이벤트 루프 밖의 worker thread에서 실행하고 결과를 기다린다.
+
+    DB 호출이 오래 걸려도 Discord 이벤트 루프가 멈추지 않게 하기 위한 래퍼다.
+    """
     return await asyncio.to_thread(method, *args)
 
 
 class GuardRejected(Exception):
-    """The recruit is no longer an eligible regular meeting with a live Discord
-    space (e.g. it became short); the Discord side effect must not run."""
+    """모임이 더 이상 "Discord 공간이 살아 있는 regular 모임"이 아니어서 작업을 시작할 수 없다.
+
+    예: 모임이 short로 바뀌었거나 이미 삭제 처리됨. 이때 Discord 작업은 실행하지 않는다.
+    """
 
 
 class RegularLockUnavailable(Exception):
-    """The recruits row lock could not be taken in time (a concurrent change is
-    in progress); skip now and try again next cycle."""
+    """recruits 행 락을 제한 시간 안에 얻지 못했다 (Backend가 같은 행을 수정 중).
+
+    이번 주기는 건너뛰고 다음 주기에 다시 시도한다.
+    """
 
 
 class ProvisioningUnconfirmed(RuntimeError):
-    """The DB outcome of saving a created Discord space could not be confirmed.
+    """만들어 둔 Discord 공간의 ID를 DB에 저장한 결과를 확인할 수 없다.
 
-    The Discord space must NOT be deleted or re-created automatically.
+    저장이 실제로 성공했을 수도 있으므로, 이 경우 Discord 공간을 자동으로 삭제하거나
+    다시 만들면 안 된다 (호출자가 MANUAL로 남기고 사람이 확인한다).
     """
 
 
@@ -81,6 +89,11 @@ class MeetingRepository(Protocol):
 
 
 class InMemoryMeetingRepository:
+    """DB 설정이 없을 때 쓰는 메모리 저장소 (테스트와 DB 없는 실행용).
+
+    조건부 연산(record_activity 등)은 PostgreSQL 구현과 같은 의미로 동작해서,
+    같은 lifecycle 코드를 두 구현으로 모두 검증할 수 있다.
+    """
     def __init__(
         self,
         regular_meetings: dict[int, Meeting] | None = None,
@@ -101,7 +114,7 @@ class InMemoryMeetingRepository:
     ) -> None:
         self._regular_meetings[category_id] = meeting
 
-    # -- conditional lifecycle operations (same semantics as PostgreSQL) -------
+    # -- 조건부 lifecycle 연산 (PostgreSQL 구현과 같은 의미) -------
     def _live(self, category_id: int) -> Meeting | None:
         meeting = self._regular_meetings.get(category_id)
         if meeting is None or meeting.get("discord_deleted_at") is not None:
@@ -170,6 +183,7 @@ class InMemoryMeetingRepository:
 
 
 class _InMemoryRegularLock:
+    """메모리 저장소용 락. 실제 row lock은 없고 "삭제되지 않은 모임인가"만 확인한다."""
     def __init__(self, repository, recruit_id: int):
         self._repository, self._recruit_id = repository, recruit_id
 
@@ -186,19 +200,23 @@ class _InMemoryRegularLock:
 
 
 # ---------------------------------------------------------------------------
-# PostgreSQL implementation (shared PlayMate DB, table recruit_discord_channels)
+# PostgreSQL 구현 (공용 PlayMate DB의 recruit_discord_channels 테이블)
 # ---------------------------------------------------------------------------
 
-# Optional hook: recruit_id -> HOST's Discord user id (or None).
-# TODO: the backend does not store the creator as recruit_members.role='HOST'
-# yet, so no resolver is wired. Agree on the contract with the backend owner.
+# 선택 훅: recruit_id -> HOST의 Discord 사용자 ID (모르면 None).
+# TODO: Backend가 모임 생성자를 recruit_members.role='HOST'로 저장하지 않아
+#       아직 resolver를 연결하지 않았다. Backend 담당자와 계약을 정한 뒤 연결한다.
 HostResolver = Callable[[int], "int | None"]
 
 PING_AFTER_IDLE_SECONDS = 30
 
 
 def _to_int(value: Any) -> int | None:
-    """DB varchar Discord id -> int for discord.py; None for NULL/invalid."""
+    """DB의 varchar Discord ID를 discord.py가 쓰는 정수로 바꾼다.
+
+    NULL, 숫자가 아닌 값, 0 이하의 값은 None으로 돌려준다. 잘못된 ID 하나 때문에
+    Bot 전체가 멈추지 않도록 호출자가 해당 행만 건너뛰게 하기 위해서다.
+    """
     try:
         number = int(value)
     except (TypeError, ValueError):
@@ -207,18 +225,24 @@ def _to_int(value: Any) -> int | None:
 
 
 def _aware(value: datetime | None) -> datetime | None:
+    """시간대 없는 시각(naive)이면 KST를 붙이고, 이미 시간대가 있으면 그대로 돌려준다."""
     if value is not None and value.tzinfo is None:
         return value.replace(tzinfo=KST)
     return value
 
 
 def _regular(alias: str) -> str:
-    """Policy guard: only recruit_mode='regular' is ever managed by the Bot."""
+    """"recruit_mode='regular'인 모임만 Bot이 관리한다"는 정책을 SQL 조건으로 만든다.
+
+    alias는 recruit_id를 가진 테이블의 별칭이다. short 모임이 어떤 경로로도
+    Discord 생성/권한/활동/삭제 대상이 되지 않게 하는 공통 방어선이다.
+    """
     return (f"EXISTS (SELECT 1 FROM recruits r WHERE r.recruit_id = {alias}.recruit_id"
             " AND r.recruit_mode = 'regular')")
 
 
-# discord_deleted_at is only ever written for a live, regular meeting.
+# discord_deleted_at은 살아 있는 regular 모임에만 기록한다. 일반 저장소 메서드와
+# 락 트랜잭션 안의 기록이 같은 SQL을 쓰도록 한 곳에 둔다.
 _MARK_DELETED_SQL = f"""
     UPDATE recruit_discord_channels rc
        SET discord_deleted_at = %s, updated_at = now()
@@ -228,20 +252,19 @@ _MARK_DELETED_SQL = f"""
 
 
 class PostgresMeetingRepository:
-    """Implements MeetingRepository plus the provisioning/participant queries.
+    """MeetingRepository 구현 + 생성(provisioning)/참여자 조회 쿼리 (공용 PostgreSQL).
 
-    NOTE: recruits.discord_channel_id / recruits.discord_channel_status look like
-    legacy Discord columns. The Bot neither reads nor writes them;
-    recruit_discord_channels is the single source of truth for Discord state.
-    TODO: confirm whether anything uses them and tidy up via team discussion.
+    참고: recruits.discord_channel_id / discord_channel_status는 예전 Discord 컬럼으로 보이며
+    Bot은 읽지도 쓰지도 않는다. Discord 상태의 기준은 recruit_discord_channels 하나다.
+    TODO: 실제 사용처를 확인한 뒤 팀 협의로 정리한다.
 
-    DB contract: recruit_discord_channels stores Discord IDs as varchar(32).
-    IDs are written and compared as str(...) and converted with int() only
-    when read back for discord.py; NULL/non-numeric IDs are skipped, never fatal.
+    DB 계약: recruit_discord_channels의 Discord ID는 varchar(32)다.
+    쓰고 비교할 때는 str(...)을 쓰고, discord.py에 넘길 때만 int()로 바꾼다.
+    NULL이나 숫자가 아닌 ID는 해당 행만 건너뛰며 Bot을 멈추지 않는다.
 
-    Retry policy: reads are retried once after a connection loss. Writes are
-    never blindly retried (a lost response can hide a committed change); an
-    idle connection is pinged first so a stale socket does not fail a write.
+    재시도 정책: 읽기는 연결이 끊기면 한 번 재시도한다. 쓰기는 자동 재시도하지 않는다
+    (응답만 유실되고 실제로는 commit되었을 수 있기 때문). 대신 오래 쉰 연결은 먼저 ping해서,
+    끊어진 소켓 때문에 첫 쓰기가 실패하는 일을 줄인다.
     """
 
     _LIFECYCLE_SELECT = f"""
@@ -262,12 +285,17 @@ class PostgresMeetingRepository:
         self._conn = None
         self._last_used = 0.0
         self._lock = threading.RLock()
-        # Category ids of live Discord meetings; lets the message handler skip
-        # the DB for chat in unrelated categories. None = not loaded yet.
+        # 관리 중인 카테고리 ID 집합. 메시지 핸들러가 관리 대상이 아닌 카테고리의 메시지마다
+        # DB를 조회하지 않게 한다. None이면 아직 읽지 않은 상태(필터 없음).
         self._known_categories: set[int] | None = None
 
     @classmethod
     def from_env(cls, host_resolver: HostResolver | None = None):
+        """환경변수(DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_SSLMODE)로 저장소를 만든다.
+
+        연결은 autocommit, 서울 시간대, 서버 statement_timeout(DB_STATEMENT_TIMEOUT_MS)을
+        설정해서 연다. 실제 연결은 처음 쿼리를 실행할 때 만든다 (lazy).
+        """
         import psycopg
         import config
 
@@ -276,13 +304,21 @@ class PostgresMeetingRepository:
                 host=config.DB_HOST, port=int(config.DB_PORT), user=config.DB_USER,
                 password=config.DB_PASSWORD, dbname=config.DB_NAME,
                 sslmode=config.DB_SSLMODE, connect_timeout=10, autocommit=True,
-                options=f"-c TimeZone=Asia/Seoul -c statement_timeout={config.DB_STATEMENT_TIMEOUT_MS}",
+                options=(
+                    "-c TimeZone=Asia/Seoul "
+                    f"-c statement_timeout={config.DB_STATEMENT_TIMEOUT_MS}"
+                ),
             )
 
         return cls(connect, host_resolver)
 
-    # -- connection ---------------------------------------------------------
+    # -- 연결 ---------------------------------------------------------
     def _connection(self):
+        """공유 연결을 돌려준다. 필요하면 새로 연결한다.
+
+        닫힌 연결은 버리고, PING_AFTER_IDLE_SECONDS 넘게 쓰지 않은 연결은 `SELECT 1`로
+        확인해서 끊어졌으면 다시 연결한다.
+        """
         import psycopg
 
         if self._conn is not None and self._conn.closed:
@@ -298,6 +334,7 @@ class PostgresMeetingRepository:
         return self._conn
 
     def _reset_connection(self) -> None:
+        """공유 연결을 닫고 버린다 (다음 사용 때 새로 연결). 닫는 중 오류는 무시한다."""
         try:
             if self._conn is not None:
                 self._conn.close()
@@ -306,7 +343,14 @@ class PostgresMeetingRepository:
         self._conn = None
 
     def _execute(self, sql: str, params: tuple = (), *, fetch: str | None = None):
-        """fetch None -> write (rowcount, never retried); "one"/"all" -> read (retried once)."""
+        """SQL 한 개를 실행한다 (스레드 안전, 한 번에 하나만 실행).
+
+        fetch=None: 쓰기. 영향 받은 행 수를 돌려주며 자동 재시도하지 않는다.
+        fetch="one"/"all": 읽기. 한 행(dict 또는 None) / 모든 행(list[dict])을 돌려주며,
+            연결이 끊기면 연결을 다시 열고 한 번 재시도한다.
+        쓰기를 재시도하지 않는 이유: 응답이 유실되었어도 이미 commit된 변경일 수 있어서,
+        재시도하면 결과를 잘못 판단하게 된다.
+        """
         import psycopg
 
         attempts = 1 if fetch is None else 2
@@ -331,16 +375,25 @@ class PostgresMeetingRepository:
                     if attempt == attempts:
                         raise
 
-    # -- MeetingRepository (lifecycle / activity) --------------------------
+    # -- MeetingRepository 구현 (lifecycle / 활동) --------------------------
     def get_host_discord_id(self, recruit_id: int) -> int | None:
+        """모임의 HOST Discord ID를 돌려준다. host_resolver가 연결되지 않았으면 None.
+
+        TODO: Backend가 생성자를 recruit_members.role='HOST'로 저장하지 않아 아직 연결하지 않았다.
+        """
         if self._host_resolver is None:
             return None
         return self._host_resolver(recruit_id)
 
     def refresh_known_categories(self) -> None:
+        """관리 중인 카테고리 ID 집합을 다시 읽는다.
+
+        메시지 핸들러가 관리 대상이 아닌 카테고리의 메시지마다 DB를 조회하지 않게 하는 용도다.
+        """
         self._known_categories = {c for c, _ in self.list_regular_meetings()}
 
     def _to_meeting(self, row: dict) -> Meeting:
+        """조회한 DB 행을 lifecycle이 쓰는 dict로 바꾼다 (ID는 int, 시각은 KST, host_id는 resolver 결과)."""
         return {
             "recruit_id": row["recruit_id"],
             "host_id": self.get_host_discord_id(row["recruit_id"]),
@@ -353,6 +406,11 @@ class PostgresMeetingRepository:
         }
 
     def list_regular_meetings(self) -> list[tuple[int, Meeting]]:
+        """관리 중인 모든 regular 모임을 (카테고리 ID, 상태 dict) 목록으로 돌려준다.
+
+        조건: SUCCESS, discord_deleted_at 없음, 카테고리 ID 있음, recruit_mode='regular'.
+        카테고리 ID가 잘못된 행은 로그만 남기고 건너뛴다.
+        """
         rows = self._execute(self._LIFECYCLE_SELECT, fetch="all")
         meetings = []
         for row in rows:
@@ -364,6 +422,10 @@ class PostgresMeetingRepository:
         return meetings
 
     def get_regular_meeting(self, category_id: int) -> Meeting | None:
+        """카테고리 ID로 관리 중인 regular 모임 하나를 읽는다. 없으면 None.
+
+        관리 대상으로 알려진 카테고리가 아니면 DB를 조회하지 않고 바로 None을 돌려준다.
+        """
         if self._known_categories is not None and category_id not in self._known_categories:
             return None
         row = self._execute(
@@ -373,10 +435,10 @@ class PostgresMeetingRepository:
         return self._to_meeting(row) if row else None
 
     def save_regular_meeting(self, category_id: int, meeting: Meeting) -> None:
-        """Whole-record save kept for the MeetingRepository protocol.
+        """모임 상태 전체를 저장한다 (MeetingRepository 인터페이스 호환용).
 
-        Lifecycle and activity code does NOT use it (use the conditional
-        operations below). last_activity_at still only moves forward.
+        lifecycle과 활동 기록 코드는 이 메서드를 쓰지 않고 아래의 조건부 연산을 쓴다.
+        그래도 last_activity_at은 앞으로만 움직인다 (GREATEST).
         """
         self._execute(
             f"""
@@ -391,12 +453,16 @@ class PostgresMeetingRepository:
              str(category_id)),
         )
 
-    # -- conditional lifecycle operations ---------------------------------------
+    # -- 조건부 lifecycle 연산 ---------------------------------------
     _LIVE = ("rc.discord_category_id = %s AND rc.sync_status = 'SUCCESS' "
              "AND rc.discord_deleted_at IS NULL")
 
     def record_activity(self, category_id: int, now: datetime) -> bool:
-        """Activity wins: stamp it and cancel any warning/deletion schedule."""
+        """활동을 기록하고, 진행 중인 비활성 경고와 삭제 예약을 취소한다. 반영되었으면 True.
+
+        활동이 항상 우선한다. last_activity_at은 GREATEST로 갱신해서 더 오래된 값으로
+        되돌아가지 않으며, 삭제 완료된 모임과 regular가 아닌 모임에는 적용되지 않는다.
+        """
         return bool(self._execute(
             f"""
             UPDATE recruit_discord_channels rc
@@ -411,7 +477,11 @@ class PostgresMeetingRepository:
     def record_warning(self, category_id: int, warned_at: datetime,
                        scheduled_at: datetime,
                        expected_last_activity: datetime | None) -> bool:
-        """Store warning + schedule only if nothing changed since the snapshot."""
+        """경고 시각과 삭제 예약 시각을 저장한다. 저장되었으면 True.
+
+        읽어 둔 상태(경고/예약 없음, last_activity_at이 expected와 같음)가 그대로일 때만 저장한다.
+        DM을 보내는 동안 새 활동이 있었다면 저장하지 않으므로 오래된 경고가 활동을 덮어쓰지 못한다.
+        """
         return bool(self._execute(
             f"""
             UPDATE recruit_discord_channels rc
@@ -424,6 +494,7 @@ class PostgresMeetingRepository:
         ))
 
     def cancel_schedule(self, category_id: int) -> bool:
+        """경고 이후 활동이 있었던 모임의 경고/삭제 예약을 취소한다. 취소했으면 True."""
         return bool(self._execute(
             f"""
             UPDATE recruit_discord_channels rc
@@ -437,13 +508,12 @@ class PostgresMeetingRepository:
         ))
 
     def is_delete_due(self, category_id: int, now: datetime) -> bool:
-        """Read-only last check right before the Discord deletion: the schedule
-        is due and no activity happened after the warning.
+        """지금 삭제해도 되는 모임인지 읽기 전용으로 확인한다.
 
-        Nothing is written here. discord_deleted_at is stored only by
-        mark_deleted AFTER Discord confirmed the deletion, so a failed or
-        unclear deletion never leaves a "deleted" state behind and activity
-        recorded during the attempt is never rejected.
+        조건: 삭제 예약 시각이 지났고, 경고 이후 활동이 없다.
+        아무것도 쓰지 않는다. discord_deleted_at은 Discord에서 삭제가 확인된 뒤에
+        mark_deleted로만 기록하므로, 삭제가 실패하거나 불명확해도 "삭제됨" 상태가 남지 않고
+        삭제 시도 중 들어온 활동도 거부되지 않는다.
         """
         row = self._execute(
             f"""
@@ -473,26 +543,25 @@ class PostgresMeetingRepository:
     lock_timeout_ms = DB_LOCK_TIMEOUT_MS
 
     def regular_lock(self, recruit_id: int):
-        """Async context manager serializing a Discord side effect with mode changes.
+        """Discord 부수효과와 모임 모드 변경을 직렬화하는 비동기 context manager를 돌려준다.
 
-        Opens a DEDICATED connection and a transaction, takes
-        `SELECT ... FROM recruits ... FOR SHARE` after verifying the recruit is
-        regular and its Discord space is live (SUCCESS, not deleted), and keeps
-        that lock until the block ends (COMMIT on success, ROLLBACK on error).
-        A backend `UPDATE recruits SET recruit_mode='short'` therefore waits
-        for the Discord work, and a short change that committed first makes
-        entering the block raise GuardRejected before any Discord call.
+        전용 DB 연결과 트랜잭션을 열고, 모임이 regular이고 Discord 공간이 살아 있는지(SUCCESS,
+        미삭제) 확인한 뒤 `recruits` 행에 `SELECT ... FOR SHARE` 락을 잡고, 블록이 끝날 때까지
+        유지한다 (정상 종료면 COMMIT, 오류면 ROLLBACK).
+        Backend의 `UPDATE recruits SET recruit_mode='short'`는 이 작업이 끝날 때까지 대기한다.
+        short 변경이 먼저 commit되었다면 블록에 들어갈 때 GuardRejected가 발생해
+        Discord 호출이 한 번도 실행되지 않는다. 락 대기가 길어지면 RegularLockUnavailable.
         """
         return _PostgresRegularLock(self, recruit_id)
 
     def is_regular(self, recruit_id: int) -> bool:
-        """Current recruit_mode check used right before Discord side effects."""
+        """모임이 현재도 recruit_mode='regular'인지 확인한다."""
         return self._execute(
             "SELECT 1 AS ok FROM recruits WHERE recruit_id = %s AND recruit_mode = 'regular'",
             (recruit_id,), fetch="one",
         ) is not None
 
-    # -- provisioning: regular recruit -> Discord space ---------------------
+    # -- 생성(provisioning): regular 모임 -> Discord 공간 ---------------------
     _CLAIMABLE_RECRUIT = """
         EXISTS (SELECT 1 FROM recruits r JOIN posts p ON p.post_id = r.post_id
                  WHERE r.recruit_id = %s AND r.recruit_mode = 'regular'
@@ -508,11 +577,11 @@ class PostgresMeetingRepository:
     """
 
     def list_provisionable_recruits(self) -> list[dict]:
-        """Regular, non-deleted recruits that still need a Discord space.
+        """Discord 공간을 새로 만들어야 하는 regular 모임 목록(recruit_id, title)을 돌려준다.
 
-        No recruit_discord_channels row yet, or a FAILED row that never got
-        Discord IDs, is not flagged MANUAL and is past the retry delay.
-        recruits.state is intentionally ignored (it is recruiting status).
+        대상: 삭제되지 않은 regular 모임 중, recruit_discord_channels 행이 아직 없거나
+        재시도 가능한 FAILED 행(Discord ID 없음, MANUAL/ABORTED 아님, 재시도 대기 시간 경과)인 것.
+        recruits.state(모집 상태)는 일부러 보지 않는다.
         """
         return self._execute(
             f"""
@@ -529,10 +598,12 @@ class PostgresMeetingRepository:
         )
 
     def claim_provisioning(self, recruit_id: int) -> bool:
-        """Atomically take the creation slot; True only for a single winner.
+        """모임의 생성 권한을 선점한다. 선점에 성공한 단 한 곳에서만 True.
 
-        The recruit is re-validated (regular, not deleted) inside the same
-        statement, so a candidate that changed after listing is never claimed.
+        행이 없으면 PENDING 행을 INSERT하고(recruit_id PK 충돌은 무시), 재시도 가능한 FAILED 행은
+        PENDING으로 되돌린다. 모임이 아직 regular이고 삭제되지 않았는지도 같은 SQL 안에서
+        다시 확인하므로, 후보 조회 뒤에 short로 바뀐 모임은 선점되지 않는다.
+        이 선점이 Bot 재시작/중복 실행에서 Discord 공간이 중복 생성되는 것을 막는다.
         """
         if self._execute(
             f"""
@@ -558,19 +629,20 @@ class PostgresMeetingRepository:
     def complete_provisioning(self, recruit_id: int, category_id: int,
                               text_channel_id: int, voice_channel_id: int | None,
                               now: datetime) -> None:
-        """Save the created IDs, tolerating a lost response.
+        """생성한 Discord 공간의 ID를 저장하고 SUCCESS로 확정한다 (응답 유실을 견딘다).
 
-        Returns normally when the IDs are (now) stored. Raises
-        ProvisioningUnconfirmed when the outcome cannot be established; any
-        other exception means the UPDATE definitely did not apply.
+        정상 반환: ID가 저장되었다 (이미 같은 ID로 SUCCESS인 경우 포함).
+        ProvisioningUnconfirmed: 저장 결과를 확인할 수 없다. 호출자는 공간을 지우지 말고 MANUAL로 남긴다.
+        그 밖의 예외: UPDATE가 적용되지 않은 것이 확실하다. 호출자가 공간을 정리한다.
+        처음 활동 기준 시각을 생성 시각으로 저장해서, 아무도 채팅하지 않는 모임도 30일 정책 대상이 된다.
         """
         import psycopg
 
         ids = (str(category_id), str(text_channel_id),
                None if voice_channel_id is None else str(voice_channel_id))
         try:
-            # The first activity baseline is the creation time, so a meeting
-            # nobody ever talks in still enters the 30-day inactivity policy.
+            # 처음 활동 기준 시각을 생성 시각으로 둔다. 아무도 채팅하지 않는 모임도
+            # 30일 비활성 정책의 대상이 되게 하기 위해서다.
             updated = self._complete_atomically(
                 """
                 UPDATE recruit_discord_channels
@@ -591,14 +663,12 @@ class PostgresMeetingRepository:
             self._known_categories.add(category_id)
 
     def _complete_atomically(self, sql: str, params: tuple, recruit_id: int) -> int:
-        """SUCCESS confirmation consistent with recruit_mode, in ONE transaction.
+        """모임 모드와 일관되게 SUCCESS를 확정한다 (한 트랜잭션).
 
-        The recruits row is locked FOR SHARE and re-read first: a concurrent
-        regular->short UPDATE (made by the backend through another connection)
-        either committed before we look (we see 'short' and refuse) or blocks
-        until our transaction ends. An uncommitted mode change can therefore
-        never cross with the SUCCESS UPDATE. Needs a DB role that may
-        SELECT ... FOR SHARE on recruits (UPDATE privilege), like the backend's.
+        recruits 행을 FOR SHARE로 잠그고 regular인지 다시 읽은 뒤 SUCCESS UPDATE를 실행한다.
+        다른 연결(Backend)의 regular→short 변경이 아직 commit 전이면 그 변경이 끝날 때까지 기다리고,
+        먼저 commit되었다면 short를 보고 SUCCESS를 거부(0행)한다. 그래서 short 모임이 SUCCESS로
+        남지 않는다. 필요한 DB 권한: recruits에 대한 SELECT ... FOR SHARE (UPDATE 권한).
         """
         import psycopg
 
@@ -623,6 +693,10 @@ class PostgresMeetingRepository:
                 raise
 
     def _verify_provisioned(self, recruit_id: int, ids: tuple) -> None:
+        """저장 결과가 불명확할 때 DB를 다시 읽어, SUCCESS이고 세 ID가 방금 만든 것과 모두 같은지 확인한다.
+
+        같지 않거나 읽을 수 없으면 ProvisioningUnconfirmed를 올린다. 이때 공간을 자동 삭제하지 않는다.
+        """
         try:
             row = self._execute(
                 """
@@ -643,6 +717,10 @@ class PostgresMeetingRepository:
                 f"status={None if row is None else row['sync_status']}")
 
     def fail_provisioning(self, recruit_id: int, error: str) -> None:
+        """PENDING 행을 FAILED로 바꾸고 사유(sync_error)를 기록한다.
+
+        'MANUAL:' 또는 'ABORTED:'로 시작하는 사유는 자동 재시도하지 않는다. 사유는 1000자까지만 저장한다.
+        """
         self._execute(
             """
             UPDATE recruit_discord_channels
@@ -653,7 +731,11 @@ class PostgresMeetingRepository:
         )
 
     def fail_stale_pending(self) -> int:
-        """A claim that never finished may have left an orphan Discord space."""
+        """오래 PENDING으로 남은 행을 'MANUAL:' FAILED로 바꾸고 바꾼 행 수를 돌려준다.
+
+        생성 도중 Bot이 중단되면 Discord에 추적되지 않는 공간이 남았을 수 있으므로 자동 재시도하지 않고
+        사람이 확인하게 한다.
+        """
         return self._execute(
             """
             UPDATE recruit_discord_channels
@@ -665,13 +747,12 @@ class PostgresMeetingRepository:
             (SYNC_STALE_PENDING_SECONDS,),
         )
 
-    # -- participants -------------------------------------------------------
+    # -- 참여자 -------------------------------------------------------
     def list_participant_states(self) -> list[dict]:
-        """JOINED/CANCELED members of live regular Discord meetings.
+        """라이브 regular 모임의 JOINED/CANCELED 참여자 상태를 돌려준다.
 
-        Skipped: member_id=-1 (dev flow), members without a numeric discord_id,
-        and role='HOST' rows (HOST overwrites are managed separately and must
-        not be replaced by participant overwrites).
+        제외: member_id=-1(개발용), discord_id가 없거나 숫자가 아닌 회원, role='HOST' 행
+        (HOST 권한은 따로 관리하며 참여자 권한으로 덮어쓰면 안 된다).
         """
         rows = self._execute(
             f"""
@@ -703,7 +784,7 @@ class PostgresMeetingRepository:
         return states
 
     def list_joined_discord_ids(self, recruit_id: int) -> list[int]:
-        """JOINED participants' Discord ids for one regular meeting."""
+        """한 regular 모임에서 JOINED 상태인 참여자의 Discord ID 목록을 돌려준다 (공간 생성 때 사용)."""
         rows = self._execute(
             """
             SELECT m.discord_id
@@ -721,24 +802,22 @@ class PostgresMeetingRepository:
 
 
 class _PostgresRegularLock:
-    """See PostgresMeetingRepository.regular_lock. Holds one connection per use.
+    """`PostgresMeetingRepository.regular_lock`의 구현. 사용 한 번마다 DB 연결 하나를 전용으로 쓴다.
 
-    Ownership of the DB session (connection + transaction + row lock) is decided
-    under `_state` between exactly two parties, so it is always released once:
+    세션(연결 + 트랜잭션 + 행 락)의 소유권은 `_state` 락 아래에서 두 당사자 중 한쪽에만 넘어가므로
+    세션은 정확히 한 번만 해제된다.
 
-    - normal path: the worker finishes acquiring and marks the session owned; the
-      context manager's __aexit__ releases it.
-    - caller cancelled while the worker was still acquiring: the caller marks the
-      lock ABANDONED. A worker that acquires the lock later sees the flag under
-      `_state`, releases (rollback + close) itself and never hands the session
-      to anybody. A worker that had already finished is released by the caller.
+    - 정상 경로: worker가 락 획득을 끝내고 세션을 "소유됨"으로 표시하면, context manager의
+      `__aexit__`가 해제한다.
+    - 획득 중에 호출자가 취소된 경우: 호출자가 "포기(abandoned)" 표시를 한다. 나중에 락을 얻은
+      worker는 표시를 보고 스스로 ROLLBACK/close 하며 세션을 아무에게도 넘기지 않는다.
+      worker가 이미 끝났다면 호출자가 해제한다. (취소된 코루틴이 받지 못한 락이 남아
+      Backend의 UPDATE를 막는 일을 없애기 위한 구조다.)
 
-    `mark_deleted` is executed on THIS session, inside this transaction, and only
-    COMMITs when the whole `async with` block ended without error. On timeout,
-    cancellation or any failure the in-flight statement is cancelled on the server
-    (cancel_safe), the session waits until the worker thread has really finished
-    that statement, and only then rolls back and closes. A statement that is still
-    waiting for a lock can therefore never commit later.
+    mark_deleted는 이 세션의 같은 트랜잭션에서 실행되고, `async with` 블록이 오류 없이 끝날 때만
+    COMMIT된다. timeout, 취소, 오류가 나면 진행 중인 SQL을 서버에서 취소(cancel_safe)하고,
+    worker thread가 그 SQL을 실제로 끝낸 것을 확인한 뒤에야 ROLLBACK/close 한다.
+    그래서 락을 기다리던 UPDATE가 나중에 살아나 뒤늦게 COMMIT되는 일이 없다.
     """
 
     def __init__(self, repository: PostgresMeetingRepository, recruit_id: int):
@@ -756,8 +835,13 @@ class _PostgresRegularLock:
         self._tx = None
 
     async def __aenter__(self):
+        """worker thread에서 락 획득을 시작하고 결과를 기다린다.
+
+        기다리는 도중 취소되면 `_abandon()`으로 세션 정리 책임을 넘기고 취소를 그대로 전파한다.
+        (asyncio.shield: 취소가 worker의 획득 자체를 중간에 끊지 않게 하고, 결과는 worker가 정리한다.)
+        """
         acquiring = asyncio.get_running_loop().run_in_executor(None, self._acquire)
-        # A worker failing after the caller was cancelled must not log "never retrieved".
+        # 호출자가 취소된 뒤 worker가 실패해도 "예외를 가져가지 않음" 경고가 뜨지 않게 한다.
         acquiring.add_done_callback(lambda f: f.cancelled() or f.exception())
         try:
             await asyncio.shield(acquiring)
@@ -767,16 +851,23 @@ class _PostgresRegularLock:
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        # Shielded so a cancelled Discord call still ends the session; the
-        # server-side idle_in_transaction timeout is only the last safety net.
+        # shield: 이미 취소된 작업에서도 세션 정리가 끝까지 실행되게 한다.
+        # 서버의 idle_in_transaction 타임아웃은 정상 경로가 아니라 마지막 안전망이다.
+        """블록이 끝났을 때 세션을 정리한다. 오류 없이 끝났으면 COMMIT, 아니면 ROLLBACK.
+
+        shield로 감싸서, 이미 취소된 작업에서도 정리가 끝까지 실행되게 한다. 서버의
+        idle_in_transaction 타임아웃은 정상 해제 경로가 아니라 마지막 안전망일 뿐이다.
+        """
         await asyncio.shield(asyncio.to_thread(self._finalize, exc_type is None))
         return False
 
     async def mark_deleted(self, category_id: int, now: datetime, timeout_seconds=None) -> bool:
-        """discord_deleted_at UPDATE inside this lock's transaction (committed with it).
+        """discord_deleted_at을 이 락의 트랜잭션 안에서 기록한다 (락과 함께 COMMIT됨). 기록했으면 True.
 
-        timeout_seconds is the time left in the caller's budget; it is applied as a
-        server-side `SET LOCAL statement_timeout` so the SQL cannot outlive it.
+        timeout_seconds는 호출자의 남은 시간 예산이며, 서버 `SET LOCAL statement_timeout`으로 적용해
+        이 SQL이 예산보다 오래 걸리지 않게 한다 (최소 1초). SQL은 worker thread에서 실행하며,
+        호출자가 취소되면 진행 중인 SQL을 서버에서 취소한 뒤 취소를 전파한다.
+        0행이면 모임이 regular가 아니거나 이미 기록된 것이다.
         """
         if self._conn is None:
             raise RuntimeError("lock session is not open")
@@ -791,6 +882,11 @@ class _PostgresRegularLock:
             raise
 
     def _run_write(self, sql: str, params: tuple, statement_timeout_ms) -> int:
+        """worker thread에서 쓰기 SQL 한 개를 실행하고 영향 받은 행 수를 돌려준다.
+
+        세션이 이미 정리 중이면 실행하지 않고 오류를 올린다. 실행 중임을 표시해 두어서
+        `_finalize`가 이 SQL을 취소하고 끝나기를 기다릴 수 있게 한다.
+        """
         with self._state:
             if self._closing or self._released:
                 raise RuntimeError("lock session already closed")
@@ -808,7 +904,10 @@ class _PostgresRegularLock:
                 self._stmt_idle.set()
 
     def _cancel_statement(self) -> None:
-        """Ask the server to abort the statement currently running on this session."""
+        """세션에서 실행 중인 SQL이 있으면 서버에 취소를 요청한다 (best-effort).
+
+        요청이 실패해도 서버 statement_timeout과 ROLLBACK이 뒤에서 막아 준다.
+        """
         with self._state:
             running = self._stmt_running
             conn = self._conn
@@ -819,17 +918,25 @@ class _PostgresRegularLock:
                 pass
 
     def _finalize(self, commit: bool) -> None:
-        """End the session. Never touches the connection while a statement runs on it."""
+        """세션을 종료한다. worker thread가 연결에서 SQL을 실행 중일 때는 연결을 건드리지 않는다.
+
+        순서: 새 SQL 실행 금지 표시 -> (롤백이면) 실행 중 SQL 취소 요청 -> worker가 끝나기를 대기
+        -> COMMIT 또는 ROLLBACK 후 연결 close. 같은 연결을 두 곳에서 동시에 쓰지 않는 것이 목적이다.
+        """
         with self._state:
             self._closing = True  # a worker that has not started yet will refuse to run
         if not commit:
             self._cancel_statement()
-        # Ownership stays here until the worker thread has really finished.
+        # worker thread가 SQL을 실제로 끝낼 때까지 연결의 소유권은 여기에 있다.
         self._stmt_idle.wait(timeout=30)
         self._finish(commit)
 
     def _abandon(self) -> None:
-        """Caller cancelled during acquisition: make sure the session gets released."""
+        """락을 얻는 중 호출자가 취소되었을 때 세션이 반드시 정리되게 한다.
+
+        포기 표시를 남기고, worker가 이미 획득을 끝내 소유권을 넘긴 상태라면 여기서 ROLLBACK/close 한다.
+        아직 획득 전이라면 worker가 나중에 표시를 보고 스스로 정리한다.
+        """
         with self._state:
             self._abandoned = True
             owned = self._owned
@@ -837,6 +944,14 @@ class _PostgresRegularLock:
             self._finish(False)
 
     def _acquire(self) -> None:
+        """worker thread에서 전용 연결을 열고 recruits 행에 FOR SHARE 락을 잡는다.
+
+        순서: 연결/트랜잭션 시작 -> lock_timeout, idle_in_transaction 타임아웃 설정 ->
+        regular이고 Discord 공간이 살아 있는 모임의 행을 FOR SHARE로 잠금.
+        모임이 조건에 맞지 않으면 GuardRejected, 락 대기 초과면 RegularLockUnavailable을 올린다.
+        락을 얻은 직후 `_state` 아래에서 "호출자가 그 사이 포기했는가"를 확인해, 포기했다면 즉시
+        ROLLBACK/close 하고 세션을 아무에게도 넘기지 않는다.
+        """
         import psycopg
 
         with self._state:
@@ -849,7 +964,10 @@ class _PostgresRegularLock:
             self._tx.__enter__()
             with conn.cursor() as cur:
                 cur.execute(f"SET LOCAL lock_timeout = {int(self._repository.lock_timeout_ms)}")
-                cur.execute(f"SET LOCAL idle_in_transaction_session_timeout = {int(DB_LOCK_IDLE_IN_TRANSACTION_MS)}")
+                cur.execute(
+                    "SET LOCAL idle_in_transaction_session_timeout = "
+                    f"{int(DB_LOCK_IDLE_IN_TRANSACTION_MS)}"
+                )
                 cur.execute(
                     """
                     SELECT 1 FROM recruits r
@@ -871,7 +989,7 @@ class _PostgresRegularLock:
         except BaseException:
             self._finish(False)
             raise
-        # The lock is held now: decide, atomically, who releases it.
+        # 락을 얻었다: 누가 해제할지(호출자 또는 worker 자신)를 원자적으로 정한다.
         with self._state:
             if self._abandoned:
                 abandoned = True
@@ -882,7 +1000,11 @@ class _PostgresRegularLock:
             self._finish(False)  # nobody is waiting for this session any more
 
     def _finish(self, commit: bool) -> None:
-        """End the transaction and close the dedicated connection (idempotent)."""
+        """트랜잭션을 끝내고 전용 연결을 닫는다 (여러 번 호출해도 한 번만 실행).
+
+        COMMIT이 실패하면 그 예외를 호출자에게 올린다 (기록이 안 된 것을 모르고 지나가면 안 되므로).
+        ROLLBACK이나 close 중 오류는 무시한다.
+        """
         with self._release_lock:
             if self._released:
                 return

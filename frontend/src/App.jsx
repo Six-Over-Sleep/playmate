@@ -11,6 +11,8 @@ export default function App() {
   const [authView, setAuthView] = useState('checking')
   const [section, setSection] = useState('board')
   const [boardKey, setBoardKey] = useState(0)
+  const [nickname, setNickname] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState(null)
 
   const enterService = useCallback(() => {
     setSection('board')
@@ -25,15 +27,21 @@ export default function App() {
       })
 
       if (data.signup_required) {
+        setNickname('')
+        setAvatarUrl(null)
         setAuthView('signup')
         return
       }
 
+      setNickname(data.member?.nickname || '')
+      setAvatarUrl(data.discord_user?.avatar_url || null)
       enterService()
     } catch (error) {
       if (error.status !== 401) {
         console.error(error)
       }
+      setNickname('')
+      setAvatarUrl(null)
       setAuthView('login')
     } finally {
       const url = new URL(window.location.href)
@@ -49,6 +57,24 @@ export default function App() {
       }
     }
   }, [enterService])
+
+  const handleLogout = async () => {
+    if (!window.confirm('정말 로그아웃 하시겠습니까?')) return
+
+    try {
+      await apiRequest('/logout', {
+        urlBuilder: getAuthUrl,
+        method: 'POST',
+        credentials: 'include',
+      })
+      setNickname('')
+      setAvatarUrl(null)
+      setAuthView('login')
+    } catch (error) {
+      console.error(error)
+      alert(error.message || '로그아웃 중 오류가 발생했습니다.')
+    }
+  }
 
   useEffect(() => {
     checkAuth()
@@ -74,7 +100,7 @@ export default function App() {
     return (
       <SignupPage
         onBack={() => setAuthView('login')}
-        onComplete={enterService}
+        onComplete={checkAuth}
       />
     )
   }
@@ -85,6 +111,9 @@ export default function App() {
         <Header
           activeSection={section}
           onNavigate={handleNavigate}
+          nickname={nickname}
+          avatarUrl={avatarUrl}
+          onLogout={handleLogout}
         />
 
         {section === 'board' && <BoardSection resetVersion={boardKey} />}

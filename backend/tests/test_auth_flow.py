@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-def test_login(existing_member=None):
+def _login_callback(existing_member=None):
+    """대역 OAuth 콜백의 리디렉션과 이후 회원 세션을 검증한다."""
     # 매번 새로운 브라우저 세션 생성
     with TestClient(app) as client:
 
@@ -55,10 +56,11 @@ def test_login(existing_member=None):
                     "code": "fake_code",
                     "state": state,
                 },
+                follow_redirects=False,
             )
 
-        assert response.status_code == 200
-        result = response.json()
+        assert response.status_code == 302
+        result = parse_qs(urlparse(response.headers["location"]).query)
 
         # 4. 로그인 상태 확인
         me_response = client.get("/auth/me")
@@ -68,13 +70,12 @@ def test_login(existing_member=None):
 
 
 # 신규 회원 테스트
-new_result, new_me = test_login()
-
-assert new_result["signup_required"] is True
-assert new_me["signup_required"] is True
-assert new_me["member"] is None
-
-print("신규 회원 구분 성공!")
+def test_new_member_login():
+    """신규 회원 리디렉션과 회원가입 필요 상태를 확인한다."""
+    new_result, new_me = _login_callback()
+    assert new_result["signup"] == ["required"]
+    assert new_me["signup_required"] is True
+    assert new_me["member"] is None
 
 
 # 기존 회원 테스트
@@ -87,11 +88,10 @@ fake_member = {
     "role_code": "USER",
 }
 
-existing_result, existing_me = test_login(fake_member)
 
-assert existing_result["signup_required"] is False
-assert existing_me["signup_required"] is False
-assert existing_me["member_id"] == 1
-
-print("기존 회원 자동 로그인 성공!")
-print("모든 인증 분기 테스트 통과!")
+def test_existing_member_login():
+    """기존 회원 리디렉션과 member_id 세션을 확인한다."""
+    existing_result, existing_me = _login_callback(fake_member)
+    assert existing_result["auth"] == ["success"]
+    assert existing_me["signup_required"] is False
+    assert existing_me["member_id"] == 1

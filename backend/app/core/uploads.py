@@ -6,9 +6,16 @@ from fastapi import HTTPException, UploadFile
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 UPLOAD_DIR = PROJECT_ROOT / "uploads" / "posts"
 MAX_IMAGE_SIZE = 5 * 1024 * 1024
-ALLOWED = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
+ALLOWED = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
 
 def _valid_signature(content_type: str, data: bytes) -> bool:
+    """허용 MIME 유형의 기본 파일 시그니처 일치 여부를 반환한다."""
     return {
         "image/jpeg": data.startswith(b"\xff\xd8\xff"),
         "image/png": data.startswith(b"\x89PNG\r\n\x1a\n"),
@@ -16,26 +23,61 @@ def _valid_signature(content_type: str, data: bytes) -> bool:
         "image/webp": len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP",
     }.get(content_type, False)
 
+
 async def save_images(files: list[UploadFile]) -> list[dict]:
-    if len(files) > 3: raise HTTPException(status_code=422, detail="이미지는 최대 3장까지 첨부할 수 있습니다.")
+    """최대 3개 업로드의 크기·시그니처를 검증하고 UUID 파일로 저장한다.
+
+    반환값은 DB 메타데이터와 정리용 경로이다. 검증·쓰기 실패 시 이번 요청이
+    만든 파일만 삭제한다. 부분 쓰기 실패도 정리하도록 쓰기 전에 경로를 기록한다.
+    """
+    if len(files) > 3:
+        raise HTTPException(
+            status_code=422, detail="이미지는 최대 3장까지 첨부할 수 있습니다."
+        )
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     saved = []
     try:
         for file in files:
             content_type = (file.content_type or "").lower()
-            if content_type not in ALLOWED: raise HTTPException(status_code=422, detail="JPG, PNG, GIF, WEBP 이미지만 첨부할 수 있습니다.")
+            if content_type not in ALLOWED:
+                raise HTTPException(
+                    status_code=422,
+                    detail="JPG, PNG, GIF, WEBP 이미지만 첨부할 수 있습니다.",
+                )
             data = await file.read(MAX_IMAGE_SIZE + 1)
-            if len(data) > MAX_IMAGE_SIZE: raise HTTPException(status_code=422, detail="이미지 한 장은 5MB를 넘을 수 없습니다.")
-            if not _valid_signature(content_type, data): raise HTTPException(status_code=422, detail="이미지 파일 내용과 형식이 일치하지 않습니다.")
+            if len(data) > MAX_IMAGE_SIZE:
+                raise HTTPException(
+                    status_code=422, detail="이미지 한 장은 5MB를 넘을 수 없습니다."
+                )
+            if not _valid_signature(content_type, data):
+                raise HTTPException(
+                    status_code=422,
+                    detail="이미지 파일 내용과 형식이 일치하지 않습니다.",
+                )
             stored_name = f"posts/{uuid4().hex}{ALLOWED[content_type]}"
             path = PROJECT_ROOT / "uploads" / stored_name
+            saved.append(
+                {
+                    "stored_name": stored_name.replace("\\", "/"),
+                    "original_name": Path(file.filename or "image").name[:255],
+                    "content_type": content_type,
+                    "file_size": len(data),
+                    "path": path,
+                }
+            )
             path.write_bytes(data)
-            saved.append({"stored_name": stored_name.replace('\\','/'), "original_name": Path(file.filename or "image").name[:255], "content_type": content_type, "file_size": len(data), "path": path})
         return saved
     except Exception:
         remove_saved_images(saved)
         raise
 
+
 def remove_saved_images(images: list[dict]) -> None:
+    """이번 요청의 저장 경로 중 업로드 디렉터리 내부 파일만 삭제한다."""
     for image in images:
-        image.get("path", Path("missing")).unlink(missing_ok=True)
+        path = image.get("path")
+        if path is None:
+            continue
+        path = Path(path).resolve()
+        if path.is_relative_to(UPLOAD_DIR.resolve()):
+            path.unlink(missing_ok=True)

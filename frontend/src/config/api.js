@@ -4,11 +4,18 @@
  * VITE_ 값은 공개되므로 토큰·비밀번호를 저장하지 않는다.
  */
 function getBackendOrigin() {
-  const origin = (import.meta.env.VITE_BACKEND_ORIGIN || '').trim().replace(/\/+$/, '')
+  const origin = (import.meta.env.VITE_BACKEND_ORIGIN || '')
+    .trim()
+    .replace(/\/+$/, '')
   if (origin) {
     const parsed = new URL(origin)
-    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== origin) {
-      throw new Error('VITE_BACKEND_ORIGIN에는 경로·인증정보 없는 http(s) 서버 주소만 설정해주세요.')
+    if (
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      parsed.origin !== origin
+    ) {
+      throw new Error(
+        'VITE_BACKEND_ORIGIN에는 경로·인증정보 없는 http(s) 서버 주소만 설정해주세요.',
+      )
     }
   }
   return origin

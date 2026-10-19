@@ -1,86 +1,55 @@
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api'
-
-const DEV_MEMBER_ID = import.meta.env.VITE_DEV_MEMBER_ID
-
-function getErrorMessage(data) {
-  const detail = data?.detail
-
-  if (typeof detail === 'string') {
-    return detail
-  }
-
-  if (Array.isArray(detail)) {
-    return detail
-      .map((item) => item?.msg || item?.message || JSON.stringify(item))
-      .join(' / ')
-  }
-
-  if (detail && typeof detail === 'object') {
-    return detail.message || detail.msg || JSON.stringify(detail)
-  }
-
-  return '요청 처리 중 오류가 발생했습니다.'
-}
-
-async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(DEV_MEMBER_ID && {
-        'X-Dev-Member-ID': DEV_MEMBER_ID,
-      }),
-      ...options.headers,
-    },
-    ...options,
-  })
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => null)
-    throw new Error(getErrorMessage(data))
-  }
-
-  if (response.status === 204) return null
-  return response.json()
-}
+import { apiRequest } from './apiClient'
 
 export const meetupApi = {
   list: () =>
-    request('/recruits'),
+    apiRequest('/recruits', {
+      credentials: 'include',
+    }),
 
   detail: (id) =>
-    request(`/recruits/${id}`),
+    apiRequest(`/recruits/${id}`, {
+      credentials: 'include',
+    }),
 
   create: (payload) =>
-    request('/recruits', {
+    apiRequest('/recruits', {
       method: 'POST',
+      credentials: 'include',
       body: JSON.stringify(payload),
     }),
 
   update: (id, payload) =>
-    request(`/recruits/${id}`, {
+    apiRequest(`/recruits/${id}`, {
       method: 'PATCH',
+      credentials: 'include',
       body: JSON.stringify(payload),
     }),
 
   remove: (id) =>
-    request(`/recruits/${id}`, {
+    apiRequest(`/recruits/${id}`, {
       method: 'DELETE',
+      credentials: 'include',
     }),
 
   join: (id) =>
-    request(`/recruits/${id}/join`, {
+    apiRequest(`/recruits/${id}/join`, {
       method: 'POST',
+      credentials: 'include',
     }),
 
   cancelJoin: (id) =>
-    request(`/recruits/${id}/join`, {
+    apiRequest(`/recruits/${id}/join`, {
       method: 'DELETE',
+      credentials: 'include',
     }),
 
   members: (id) =>
-    request(`/recruits/${id}/members`),
+    apiRequest(`/recruits/${id}/members`, {
+      credentials: 'include',
+    }),
 
   count: (id) =>
-    request(`/recruits/${id}/count`),
+    apiRequest(`/recruits/${id}/count`, {
+      credentials: 'include',
+    }),
 }

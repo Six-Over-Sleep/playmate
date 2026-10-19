@@ -1,10 +1,10 @@
 import '../../styles/auth.css'
 import logo from '../../assets/playmate-logo.png'
+import { getAuthUrl } from '../../config/api'
 
 export default function LoginPage({ onSignup, onDevEnter }) {
   const handleDiscordLogin = () => {
-    window.location.href =
-      'http://localhost:8000/auth/discord/login'
+    window.location.href = getAuthUrl('/discord/login')
   }
 
   return (

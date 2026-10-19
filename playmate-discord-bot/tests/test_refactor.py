@@ -115,8 +115,21 @@ async def run_lifecycle(
     fetch_failure=None,
 ):
     host = SimpleNamespace(send=AsyncMock(side_effect=dm_failure))
+    # The fake server keeps the space until a successful delete; deletion is only
+    # recorded after the API reports the resources NotFound.
+    space_gone = {"value": False}
+
+    async def fetch_channel(channel_id):
+        if space_gone["value"]:
+            raise discord_error("NotFound")
+        return SimpleNamespace(id=channel_id)
+
     guild = SimpleNamespace(
-        fetch_member=AsyncMock(return_value=host, side_effect=fetch_failure)
+        fetch_member=AsyncMock(return_value=host, side_effect=fetch_failure),
+        get_channel=Mock(
+            side_effect=lambda channel_id: None if space_gone["value"] else SimpleNamespace(id=channel_id)
+        ),
+        fetch_channel=fetch_channel,
     )
     client = SimpleNamespace(
         get_guild=Mock(return_value=None if missing_guild else guild)
@@ -124,7 +137,12 @@ async def run_lifecycle(
     repository = InMemoryMeetingRepository(
         regular_meetings={} if record is None else {100: record}
     )
-    delete = AsyncMock(return_value=delete_result)
+    async def delete_space(*args, **kwargs):
+        if delete_result:
+            space_gone["value"] = True
+        return delete_result
+
+    delete = AsyncMock(side_effect=delete_space)
     lifecycle.delete_meeting_space = delete
     await lifecycle.check_meeting_lifecycle(client, repository)
     return host, guild, delete

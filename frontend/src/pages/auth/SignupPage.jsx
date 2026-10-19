@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import '../../styles/auth.css'
 import logo from '../../assets/playmate-logo.png'
-
-const API_BASE_URL = 'http://localhost:8000'
+import { getAuthUrl } from '../../config/api'
+import { apiRequest } from '../../services/apiClient'
 
 export default function SignupPage({ onBack, onComplete }) {
   const [form, setForm] = useState({
@@ -18,20 +18,10 @@ export default function SignupPage({ onBack, onComplete }) {
   useEffect(() => {
     const checkDiscordSession = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        const data = await apiRequest('/me', {
+          urlBuilder: getAuthUrl,
           credentials: 'include',
         })
-
-        if (response.status === 401) {
-          setDiscordStatus('idle')
-          return
-        }
-
-        const data = await response.json()
-
-        if (!response.ok) {
-          throw new Error(data.detail || '인증 상태를 확인하지 못했습니다.')
-        }
 
         if (!data.signup_required) {
           onComplete?.()
@@ -48,7 +38,9 @@ export default function SignupPage({ onBack, onComplete }) {
 
         setDiscordStatus('verified')
       } catch (error) {
-        console.error(error)
+        if (error.status !== 401) {
+          console.error(error)
+        }
         setDiscordStatus('idle')
       }
     }
@@ -66,7 +58,7 @@ export default function SignupPage({ onBack, onComplete }) {
   }
 
   const handleDiscordAuth = () => {
-    window.location.href = `${API_BASE_URL}/auth/discord/login`
+    window.location.href = getAuthUrl('/discord/login')
   }
 
   const handleSubmit = async (event) => {
@@ -95,11 +87,9 @@ export default function SignupPage({ onBack, onComplete }) {
     setSubmitting(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/signup`, {
+      await apiRequest('/signup', {
+        urlBuilder: getAuthUrl,
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         credentials: 'include',
         body: JSON.stringify({
           nickname: form.nickname.trim(),
@@ -108,21 +98,15 @@ export default function SignupPage({ onBack, onComplete }) {
         }),
       })
 
-      const data = await response.json()
-
-      if (!response.ok) {
-        if (response.status === 409) {
-          alert(data.detail || '이미 가입된 회원입니다.')
-          onComplete?.()
-          return
-        }
-
-        throw new Error(data.detail || '회원가입에 실패했습니다.')
-      }
-
       alert('회원가입이 완료되었습니다.')
       onComplete?.()
     } catch (error) {
+      if (error.status === 409) {
+        alert(error.data?.detail || '이미 가입된 회원입니다.')
+        onComplete?.()
+        return
+      }
+
       console.error(error)
       alert(error.message || '서버와 통신할 수 없습니다.')
     } finally {

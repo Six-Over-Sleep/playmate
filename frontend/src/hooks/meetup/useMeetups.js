@@ -20,27 +20,8 @@ export default function useMeetups() {
     try {
       const data = await meetupApi.list()
 
-      const withCounts = await Promise.all(
-        data.map(async (meetup) => {
-          try {
-            const countData = await meetupApi.count(meetup.recruit_id)
-
-            return {
-              ...meetup,
-              participant_count: normalizeMemberCount(countData),
-            }
-          } catch (err) {
-            console.error(err)
-
-            return {
-              ...meetup,
-              participant_count: 0,
-            }
-          }
-        }),
-      )
-
-      setMeetups(withCounts)
+      // 목록 API의 참여 인원수를 사용하고 모임별 count 요청을 추가하지 않음.
+      setMeetups(data)
     } catch (err) {
       console.error(err)
       setError(err.message)

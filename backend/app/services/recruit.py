@@ -201,6 +201,7 @@ def get_recruits(db: Session):
             "body": post.body,
             "category": recruit.category,
             "capacity": recruit.capacity,
+            "participant_count": int(participant_count),
             "state": recruit.state,
             "view_count": post.view_count,
             "recruit_mode": recruit.recruit_mode,
@@ -211,7 +212,7 @@ def get_recruits(db: Session):
             "meeting_start": recruit.meeting_start,
             "meeting_end": recruit.meeting_end,
         }
-        for post, recruit in results
+        for post, recruit, participant_count in results
     ]
 
 

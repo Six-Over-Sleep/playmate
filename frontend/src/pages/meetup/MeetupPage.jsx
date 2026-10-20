@@ -7,6 +7,7 @@ import {
   normalizeCategory,
 } from '../../utils/meetup'
 
+// 카테고리별 모임 목록과 작성 버튼 표시
 export default function MeetupPage({
   meetups = [],
   loading = false,
@@ -15,6 +16,7 @@ export default function MeetupPage({
 }) {
   const [category, setCategory] = useState('all')
 
+  // 선택한 카테고리 기준 목록 필터링
   const visibleMeetups = useMemo(() => {
     const filtered =
       category === 'all'
@@ -23,7 +25,7 @@ export default function MeetupPage({
             (meetup) => normalizeCategory(meetup.category) === category,
           )
 
-    // 모집 가능한 모임을 먼저 보여주고, 마감된 모임은 아래쪽으로 보낸다.
+    // 모집 중인 모임 우선, 동일 상태에서는 모임 ID 내림차순 정렬
     return filtered.sort((a, b) => {
       const aClosed = isClosedMeetup(a)
       const bClosed = isClosedMeetup(b)
@@ -59,6 +61,7 @@ export default function MeetupPage({
         onChange={setCategory}
       />
 
+      {/* 로딩·빈 목록·카드 목록 분기 */}
       {loading ? (
         <div className="meetup-empty">모임을 불러오는 중이에요.</div>
       ) : visibleMeetups.length === 0 ? (

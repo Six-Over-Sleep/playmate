@@ -1,4 +1,4 @@
-/* PlayMate meetup mockup style - generated from current meetup.css structure */
+/* 모임 목록·상세·작성 화면 공통 스타일 */
 * {
   box-sizing: border-box;
 }
@@ -26,6 +26,7 @@ button {
   color: #9a1d1d;
 }
 
+/* 모임 목록 화면 배치 */
 .meetup-page {
   width: calc(100% - 80px);
   max-width: 1000px;
@@ -62,6 +63,7 @@ button {
   font-weight: 700;
 }
 
+/* 카테고리 탭 스타일 */
 .meetup-tabs {
   display: flex;
   align-items: center;
@@ -92,6 +94,7 @@ button {
   color: #fff;
 }
 
+/* 모임 카드 목록 배치 */
 .meetup-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -99,6 +102,7 @@ button {
   align-items: stretch;
 }
 
+/* 모임 카드 기본 스타일 */
 .meetup-card {
   position: relative;
   display: flex;
@@ -273,8 +277,7 @@ button {
 }
 
 /* =========================================================
-   Meetup Detail Page
-   이 블록으로 기존 meetup.css의 상세페이지 관련 스타일을 교체
+   모임 상세 페이지
    ========================================================= */
 
 .meetup-detail-page {
@@ -595,7 +598,7 @@ button {
   cursor: not-allowed;
 }
 
-/* ---------- Responsive ---------- */
+/* ---------- 반응형 배치 ---------- */
 
 @media (max-width: 900px) {
   .meetup-detail-page {
@@ -667,6 +670,7 @@ button {
   }
 }
 
+/* 모임 작성·수정 화면 배치 */
 .meetup-editor-page {
   width: calc(100% - 80px);
   max-width: 1000px;
@@ -1038,7 +1042,7 @@ button {
   }
 }
 
-/* ---------- Mockup card structure compatibility ---------- */
+/* ---------- 카드 구조별 호환 스타일 ---------- */
 
 .meetup-card-schedule {
   display: block !important;

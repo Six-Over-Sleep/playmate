@@ -2,12 +2,14 @@ import { EDITOR_CATEGORY_OPTIONS, WEEKDAYS } from '../../utils/meetup'
 
 import useMeetupEditor from '../../hooks/meetup/useMeetupEditor'
 
+// 모임 생성·수정 입력 화면
 export default function MeetupEditorPage({
   meetup = null,
   busy,
   onBack,
   onSubmit,
 }) {
+  // 편집 훅의 폼 상태와 이벤트 연결
   const {
     form,
     isEdit,
@@ -215,6 +217,7 @@ export default function MeetupEditorPage({
           </div>
         </div>
 
+        {/* 오프라인 장소 검색과 지도 */}
         {!form.is_online && (
           <div className="meetup-field meetup-place-picker">
             <span>
@@ -286,6 +289,7 @@ export default function MeetupEditorPage({
           </div>
         )}
 
+        {/* 정기 모임 시작일·요일·시간 입력 */}
         {!isGroupBuy && form.recruit_mode === 'regular' && (
           <div className="meetup-form-section regular-schedule-section">
             <div className="meetup-field-title">
@@ -327,6 +331,7 @@ export default function MeetupEditorPage({
           </div>
         )}
 
+        {/* 단기 모임 시작·종료 일시 입력 */}
         {!isGroupBuy && form.recruit_mode === 'short' && (
           <div className="meetup-form-grid two">
             <label className="meetup-field">
@@ -359,6 +364,7 @@ export default function MeetupEditorPage({
           </div>
         )}
 
+        {/* 선택한 카테고리별 추가 입력 항목 */}
         {form.category === 'sports' && (
           <div className="meetup-form-section compact">
             <label className="meetup-field">
@@ -497,6 +503,7 @@ export default function MeetupEditorPage({
           </div>
         )}
 
+        {/* 저장 상태에 따른 제출 버튼 표시 */}
         <div className="meetup-form-footer">
           <div className="meetup-form-actions">
             <button

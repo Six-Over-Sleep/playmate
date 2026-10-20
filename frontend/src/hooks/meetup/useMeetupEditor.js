@@ -13,6 +13,7 @@ import {
   searchKakaoPlaces,
 } from '../../utils/kakaoMap'
 
+// 기존 모임 정보를 폼 초기값으로 변환함.
 function makeInitialForm(meetup) {
   const categoryDetail = meetup?.detail || {}
 
@@ -74,6 +75,7 @@ function getCoordinate(value) {
   return Number(value)
 }
 
+// 모임 방식에 맞는 일정만 전송하고 나머지는 null로 처리함.
 function buildSchedulePayload(form, isGroupBuy) {
   return {
     regular_days:
@@ -101,6 +103,7 @@ function buildSchedulePayload(form, isGroupBuy) {
   }
 }
 
+// 카테고리별 상세 정보를 전송할 형태로 구성함.
 function buildCategoryPayload(form) {
   return {
     sport_name: form.category === 'sports' ? form.sport_name || null : null,
@@ -127,6 +130,7 @@ function buildCategoryPayload(form) {
   }
 }
 
+// 모임 작성·수정 폼과 장소 검색을 관리함.
 export default function useMeetupEditor({ meetup, onSubmit }) {
   const isEdit = Boolean(meetup)
 
@@ -142,12 +146,14 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
 
   const isGroupBuy = form.category === 'group_buy'
 
+  // 편집 대상이 바뀌면 폼과 장소 검색 상태를 초기화함.
   useEffect(() => {
     setForm(makeInitialForm(meetup))
     setPlaceResults([])
     setPlaceSearchStatus('')
   }, [meetup])
 
+  // 오프라인 모임의 지도를 준비하고 저장된 위치가 있으면 마커를 표시함.
   useEffect(() => {
     if (form.is_online || !mapContainerRef.current) {
       return
@@ -201,6 +207,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
     }))
   }
 
+  // 예상 가격에는 숫자만 입력되도록 처리함.
   const changePrice = (event) => {
     const onlyNumber = event.target.value.replace(/[^0-9]/g, '')
 
@@ -224,6 +231,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
     }))
   }
 
+  // 온라인으로 전환하면 오프라인 장소와 좌표를 비움.
   const setPlaceType = (isOnline) => {
     setForm((prev) => ({
       ...prev,
@@ -242,6 +250,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
     setPlaceSearchStatus('')
   }
 
+  // 선택한 요일을 추가하거나 해제함.
   const toggleRegularDay = (day) => {
     setForm((prev) => ({
       ...prev,
@@ -252,6 +261,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
     }))
   }
 
+  // 카카오 장소 검색 결과를 최대 7개까지 표시함.
   const searchPlace = async () => {
     const keyword = form.place.trim()
 
@@ -280,6 +290,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
     }
   }
 
+  // 선택한 장소를 폼에 저장하고 지도 마커를 이동함.
   const selectPlace = async (place) => {
     const latitude = place.y
     const longitude = place.x
@@ -310,6 +321,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
     }
   }
 
+  // 정기 모임 일정과 오프라인 장소의 필수 입력을 확인함.
   const validate = () => {
     if (
       !isGroupBuy &&
@@ -337,6 +349,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
     return true
   }
 
+  // 입력값을 API 요청 형태로 변환해 부모의 저장 함수에 전달함.
   const submit = (event) => {
     event.preventDefault()
 

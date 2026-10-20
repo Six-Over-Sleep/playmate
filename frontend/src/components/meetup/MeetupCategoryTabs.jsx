@@ -1,3 +1,4 @@
+// 선택 상태는 부모의 value로 받고, 클릭한 카테고리 값은 onChange로 전달함.
 export default function MeetupCategoryTabs({ categories, value, onChange }) {
   return (
     <div

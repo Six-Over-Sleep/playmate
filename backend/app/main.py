@@ -27,6 +27,9 @@ from app.routers.auth import router as auth_router  # noqa: E402
 from app.routers.board import router as board_router  # noqa: E402
 from backend.app.routers.recruit import router as recruit_router  # noqa: E402
 
+# 외래키가 참조하는 회원 테이블을 ORM에 등록함.
+from backend.app.models.member import Member  # noqa: E402, F401
+
 
 # FastAPI 애플리케이션 생성
 app = FastAPI(

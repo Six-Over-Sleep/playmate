@@ -1,3 +1,4 @@
+// 목록 카테고리 선택 항목
 export const CATEGORY_OPTIONS = [
   { value: 'all', label: '전체' },
   { value: 'sports', label: '🏃 운동' },
@@ -6,10 +7,12 @@ export const CATEGORY_OPTIONS = [
   { value: 'group_buy', label: '🛒 공동구매' },
 ]
 
+// 작성 화면 카테고리 선택 항목
 export const EDITOR_CATEGORY_OPTIONS = CATEGORY_OPTIONS.filter(
   (item) => item.value !== 'all',
 )
 
+// 정기 모임 요일 목록
 export const WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일']
 
 const CATEGORY_META = {
@@ -27,6 +30,7 @@ const CATEGORY_META = {
   purchase: { icon: '🛒', label: '공동구매' },
 }
 
+// 카테고리 별칭 통일
 export function normalizeCategory(value) {
   if (!value) return ''
 
@@ -51,6 +55,7 @@ export function normalizeCategory(value) {
   return category
 }
 
+// 카테고리 아이콘과 표시 이름
 export function getCategoryMeta(value) {
   const key = String(value ?? '').toLowerCase()
 
@@ -62,6 +67,7 @@ export function getCategoryMeta(value) {
   )
 }
 
+// 날짜·시간 표시 형식 변환
 export function formatDateTime(value, fallback = '') {
   if (!value) return fallback
 
@@ -82,6 +88,7 @@ export function formatDateTime(value, fallback = '') {
   return `${month}/${day} ${hour}:${minute}`
 }
 
+// 날짜 표시 형식 변환
 export function formatDateOnly(value) {
   if (!value) return ''
 
@@ -95,12 +102,14 @@ export function formatDateOnly(value) {
   return raw
 }
 
+// 시간 표시 형식 변환
 export function formatTime(value) {
   if (!value) return ''
 
   return String(value).slice(0, 5)
 }
 
+// 정기·단기 모임별 일정 문구
 export function getMeetingSchedule(meetup) {
   const mode = String(meetup?.recruit_mode ?? '').toLowerCase()
 
@@ -145,6 +154,7 @@ export function getMeetingSchedule(meetup) {
   return '일정 협의'
 }
 
+// 모임 방식 표시 이름
 export function getMeetingType(meetup) {
   const mode = String(meetup?.recruit_mode ?? '').toLowerCase()
 
@@ -155,6 +165,7 @@ export function getMeetingType(meetup) {
   return '정기 모임'
 }
 
+// 온라인 여부와 장소 표시 문구
 export function getPlace(meetup) {
   if (meetup?.is_online) {
     return '온라인'
@@ -175,6 +186,7 @@ export function getPlace(meetup) {
   return `${place} (오프라인)`
 }
 
+// 모임 상태·모집 마감·정원 기준 상태 판별
 export function getMeetupStatus(meetup, currentCount = null) {
   const raw = String(meetup?.state ?? meetup?.status ?? 'OPEN').toUpperCase()
 
@@ -223,10 +235,12 @@ export function getMeetupStatus(meetup, currentCount = null) {
   }
 }
 
+// 모집 종료 여부
 export function isClosedMeetup(meetup) {
   return getMeetupStatus(meetup).className !== 'open'
 }
 
+// 목록 카드의 일정·장소 표시 문구
 export function getCardSchedule(meetup) {
   const deadlineText = formatDateTime(
     meetup?.deadline_at || meetup?.recruit_end,
@@ -249,6 +263,7 @@ export function getCardSchedule(meetup) {
   return '일정 협의'
 }
 
+// 참여자 이름과 기본 표시 이름
 export function getMemberName(member, index) {
   return (
     member?.nickname ||
@@ -259,6 +274,7 @@ export function getMemberName(member, index) {
   )
 }
 
+// 배열·문자열 형태의 요일 목록 변환
 export function normalizeRegularDays(value) {
   if (Array.isArray(value)) {
     return value
@@ -282,18 +298,21 @@ export function normalizeRegularDays(value) {
   return []
 }
 
+// 날짜·시간 입력 필드 형식 변환
 export function toDateTimeLocal(value) {
   if (!value) return ''
 
   return String(value).slice(0, 16)
 }
 
+// 시간 입력 필드 형식 변환
 export function toTimeValue(value) {
   if (!value) return ''
 
   return String(value).slice(0, 5)
 }
 
+// API 응답별 참여 인원수 추출
 export function normalizeMemberCount(data) {
   if (typeof data === 'number') {
     return data

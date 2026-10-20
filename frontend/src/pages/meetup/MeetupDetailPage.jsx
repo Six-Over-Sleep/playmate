@@ -9,6 +9,7 @@ import {
   getPlace,
 } from '../../utils/meetup'
 
+// 모임 상세 정보와 참여·관리 버튼 표시
 export default function MeetupDetailPage({
   meetup,
   members = [],
@@ -35,6 +36,7 @@ export default function MeetupDetailPage({
   const category = getCategoryMeta(meetup.category)
   const detail = meetup?.detail || {}
 
+  // 별도로 조회한 참여 인원 우선 적용
   const currentCount =
     memberCount ??
     meetup.participant_count ??
@@ -50,6 +52,7 @@ export default function MeetupDetailPage({
   const ownerId =
     meetup.owner_id ?? meetup.member_id ?? meetup.created_by ?? meetup.writer_id
 
+  // 모집 상태와 정원 기준 참여 가능 여부
   const canJoin =
     status.className === 'open' && Number(currentCount) < Number(capacity)
 
@@ -109,6 +112,7 @@ export default function MeetupDetailPage({
           {meetup.body || '등록된 모임 설명이 없습니다.'}
         </div>
 
+        {/* 시작일과 카테고리별 상세 정보 */}
         <section className="meetup-extra-section">
           <h2>모임 상세 정보</h2>
 
@@ -221,6 +225,7 @@ export default function MeetupDetailPage({
           </div>
         </section>
 
+        {/* 참여 멤버 목록과 모임장 배지 */}
         <MeetupMemberList
           members={members}
           currentCount={currentCount}
@@ -231,6 +236,7 @@ export default function MeetupDetailPage({
           <div className="meetup-action-message">{actionMessage}</div>
         )}
 
+        {/* 수정·삭제 및 참여·취소 버튼 */}
         <footer className="meetup-detail-footer">
           {(onEdit || onDelete) && (
             <div className="meetup-owner-actions">

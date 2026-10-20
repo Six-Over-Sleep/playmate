@@ -29,10 +29,31 @@ def find_recruit_with_post(db: Session, recruit_id: int):
 
 
 def list_recruits_with_posts(db: Session):
-    """삭제되지 않은 모임과 게시글을 한 번의 쿼리로 조회함."""
+    """삭제되지 않은 모임과 JOINED 참여 인원수를 한 번의 쿼리로 조회함."""
+    # HOST도 JOINED 상태이면 포함하고, 취소한 참여자는 제외함.
+    joined_counts = (
+        db.query(
+            RecruitMember.recruit_id,
+            func.count(RecruitMember.member_id).label("participant_count"),
+        )
+        .filter(RecruitMember.status == "JOINED")
+        .group_by(RecruitMember.recruit_id)
+        .subquery()
+    )
+
     return (
-        db.query(Post, Recruit)
+        db.query(
+            Post,
+            Recruit,
+            func.coalesce(joined_counts.c.participant_count, 0).label(
+                "participant_count"
+            ),
+        )
         .join(Recruit, Post.post_id == Recruit.post_id)
+        .outerjoin(
+            joined_counts,
+            joined_counts.c.recruit_id == Recruit.recruit_id,
+        )
         .filter(
             or_(Post.post_status != "DELETED", Post.post_status.is_(None))
         )

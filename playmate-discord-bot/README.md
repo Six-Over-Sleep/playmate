@@ -39,15 +39,15 @@ PlayMate에서 생성되는 모임마다 Discord 공간을 아래처럼 구성�
 PlayMate 공식 Discord 서버
 
 📁 알고리즘 스터디
-├─ # 채팅
-└─ 🔊 음성
+├─ # ╔・채팅
+└─ 🔊 ╚・음성
 
 📁 LOL 내전
-├─ # 채팅
-└─ 🔊 음성
+├─ # ╔・채팅
+└─ 🔊 ╚・음성
 ```
 
-모임 하나당 Discord **카테고리 1개**를 만들고, 그 아래에 `채팅` 채널과 `음성` 채널을 생성합니다.
+모임 하나당 Discord **카테고리 1개**를 만들고, 그 아래에 `╔・채팅` 채널과 `╚・음성` 채널을 생성합니다.
 
 현재 구현된 핵심 기능은 다음과 같습니다.
 
@@ -122,21 +122,31 @@ playmate-discord-bot/
 │  ├─ meeting_space.py
 │  ├─ permissions.py
 │  ├─ lifecycle.py
-│  └─ db_sync.py
+│  ├─ db_sync.py
+│  ├─ notification_service.py
+│  ├─ hot_content_service.py
+│  └─ career_content_service.py
 │
 ├─ handlers/
 │  ├─ __init__.py
-│  └─ message_handler.py
+│  ├─ message_handler.py
+│  ├─ notification_command_handler.py
+│  └─ promotion_command_handler.py
 │
 ├─ repositories/
 │  ├─ __init__.py
-│  └─ meeting_repository.py
+│  ├─ meeting_repository.py
+│  ├─ db.py
+│  ├─ notification_repository.py
+│  ├─ content_repository.py
+│  └─ career_content_repository.py
 │
 ├─ tests/
 │  ├─ fixtures/
 │  │  └─ original_bot.py      (리팩터링 이전 원본 Bot. 참고용으로 보관하며 현재 테스트는 사용하지 않음)
 │  ├─ test_refactor.py
 │  ├─ test_safety.py
+│  ├─ test_notification_promotion.py
 │  └─ test_db_integration.py
 │
 ├─ .env.example
@@ -157,8 +167,13 @@ playmate-discord-bot/
 | `services/db_sync.py` | DB polling: regular 모임 Discord 생성, 참여자 권한 동기화 |
 | `handlers/message_handler.py` | Discord 사용자 활동 감지 및 활동 재개 처리 |
 | `repositories/meeting_repository.py` | 저장소 경계. 메모리 구현(DB 설정 없을 때)과 PostgreSQL 구현 |
+| `repositories/db.py` | 알림 / 공식 채널 기능 전용 DB 연결 (모임 저장소와 분리) |
+| `services/notification_service.py`, `handlers/notification_command_handler.py`, `repositories/notification_repository.py` | `/알림설정`, notifications polling (19절) |
+| `services/hot_content_service.py`, `handlers/promotion_command_handler.py`, `repositories/content_repository.py` | HOT PLAYMATE 자동 게시, `/게시글추천` (19절) |
+| `services/career_content_service.py`, `repositories/career_content_repository.py` | 취업 소식 포워딩 구조 (19절, 저장소 미연결) |
 | `tests/test_refactor.py` | 정책 회귀 테스트 (mock, Discord/DB 연결 없음) |
 | `tests/test_safety.py` | 운영 설정, 의존성, `.env` 제외 등 안전성 검증 |
+| `tests/test_notification_promotion.py` | 알림 설정 / polling, HOT 점수·선정, `/게시글추천` 권한, 취업 D-3·D-1 판정 (mock) |
 | `tests/test_db_integration.py` | 실제 일회용 PostgreSQL + 가짜 Discord 객체로 DB 연동·실패 복구·경쟁 조건 테스트 |
 
 ---
@@ -369,6 +384,12 @@ DB_SSLMODE=
 
 # DB ↔ Discord 동기화 주기(초), 기본 10
 PLAYMATE_SYNC_INTERVAL_SECONDS=
+
+# 선택: 알림 / 공식 채널 기능 (비우면 해당 기능만 꺼짐, 19절)
+PLAYMATE_ADMIN_ROLE_ID=
+PLAYMATE_HOT_CHANNEL_ID=
+PLAYMATE_CAREER_CHANNEL_ID=
+PLAYMATE_WEB_BASE_URL=
 ```
 
 ### 중요
@@ -485,6 +506,15 @@ python tests/test_refactor.py
 - 중복 Task 시작 방지
 
 현재 **46개 단언을 통과**한 상태입니다.
+
+### 알림 / 공식 채널 정책 테스트 (mock)
+
+```powershell
+python tests/test_notification_promotion.py
+```
+
+알림 동의 토글과 저장 실패 안내, notifications 테이블·SQL 미연결 시 건너뛰기, 알림 한 건 실패 격리,
+HOT 점수·최소 조건·13시/19시 선정, `/게시글추천` 권한, 취업 D-3/D-1 판정을 확인합니다.
 
 ### 안전성 테스트
 
@@ -721,3 +751,62 @@ PLAYMATE_TEST_MODE=false
 로 변경하세요.
 
 ---
+
+---
+
+## 19. 알림 / 공식 채널 기능 (구조 추가, 일부 미연결)
+
+모임 기능과 분리되어 있습니다. DB 연결 시에만 켜지며, 기존 동기화·lifecycle 작업을 **먼저** 시작한 뒤
+별도 task로 시작합니다. 새 기능이 실패해도 모임 기능에는 영향을 주지 않습니다.
+DB 연결은 모임 저장소와 따로 씁니다 (`repositories/db.py`).
+
+slash command는 `DISCORD_GUILD_ID` 서버에만 등록됩니다. Bot 초대 scope에 `applications.commands`가 필요합니다.
+
+### `/알림설정` — 구현됨
+
+- `members.discord_id`로 회원을 찾고 `members.external_dm_opt_in`을 보여 줍니다 (본인에게만 보이는 메시지).
+- `true`만 알림 허용, `false`/`NULL`은 미허용입니다. 버튼 1개로 켜고 끄며 같은 메시지를 갱신합니다.
+- 저장에는 **`members.external_dm_opt_in` UPDATE 권한**이 필요합니다. 권한이 없으면 해당 사용자에게
+  "알림 설정 저장에 실패했습니다"라고 안내하고 Bot은 계속 동작합니다.
+
+### notifications polling — 구현됨
+
+10초마다 실행되는 별도 루프입니다. `status='PENDING'` 알림을 오래된 순으로 20건씩 가져와
+(`idx_notifications_pending` 사용) 한 건씩 처리합니다. 알림이 0건이어도 정상이며,
+테이블이 없으면 로그를 한 번 남기고 건너뜁니다.
+
+| 상황 | 결과 |
+| --- | --- |
+| DM 전송 성공 | `SENT`, `sent_at` 기록 |
+| 본인 알림(actor = receiver), 게시글·댓글이 없거나 삭제됨, 미동의(`false`/`NULL`), `discord_id` 없음, Discord 사용자 없음 | `SKIPPED`, 사유는 `error_message` |
+| DM 전송 실패 (DM 차단 포함) | `retry_count + 1`, `last_attempt_at`·`error_message` 갱신. 총 3회 실패하면 `FAILED`, 그 전에는 `PENDING` 유지 후 60초 뒤 재시도 |
+
+- 상태 변경은 `status='PENDING'`인 행에만 적용됩니다. 시각은 DB의 `CURRENT_TIMESTAMP`를 쓰고,
+  `updated_at`은 DB trigger가 갱신하므로 Bot이 직접 바꾸지 않습니다.
+- 한 알림의 처리·저장 실패는 로그만 남기고 다음 알림과 루프는 계속됩니다.
+- 상수: `config.NOTIFICATION_MAX_ATTEMPTS = 3`, `NOTIFICATION_RETRY_DELAY_SECONDS = 60`, `NOTIFICATION_BATCH_SIZE = 20`.
+
+**제한 사항 (MVP에서 허용)**
+
+- `PROCESSING` 상태가 없어서, DM 전송 성공 직후 `SENT` 저장 전에 Bot이 죽거나 저장이 실패하면
+  다음 polling에서 **같은 DM이 다시 갈 수 있습니다.**
+- 행을 잠그지 않으므로 Bot은 **한 프로세스로만** 실행해야 합니다.
+- Backend가 댓글 저장 시 `notifications`에 행을 넣어야 실제 알림이 생깁니다.
+
+### HOT PLAYMATE — 수동 추천 구현됨, 자동 선정은 좋아요 스키마 대기
+
+- `/게시글추천 유형:<게시판|모임> id:<ID>`: `PLAYMATE_ADMIN_ROLE_ID` 역할만 실행할 수 있습니다.
+  최소 조건 없이 `PLAYMATE_HOT_CHANNEL_ID` 채널에 게시합니다. 중복 추천을 허용하고 이력은 저장하지 않습니다.
+  게시판은 `post_id`, 모임은 `recruit_id`를 입력합니다.
+- 자동 게시: 매일 13:00 / 19:00 (KST), 최근 24시간 후보.
+  게시판 = 좋아요×3 + 댓글×2 (좋아요 ≥ 2 AND 댓글 ≥ 2), 모임 = 좋아요×3 + 참여 멤버×4 (좋아요 ≥ 2 AND 멤버 ≥ 2).
+  19시 1위가 13시 게시물과 같으면 2위를 게시합니다. 13시 기록은 메모리에만 있습니다.
+- **좋아요 스키마가 아직 없어 자동 후보는 0건이며 게시하지 않는 것이 정상입니다.**
+  연결할 때 `PostgresContentRepository.list_*_candidates`가 `HotCandidate`를 돌려주게 구현합니다.
+- 자동/수동 모두 같은 `🔥 HOT PLAYMATE` 형식이며, 상세 링크 버튼은 프론트 route 확정 후 추가합니다.
+
+### 취업 소식 — 구조만
+
+- 채용공고는 신규 즉시 + 마감 D-3 / D-1 13:00 재노출, 면접후기·합격스펙·뉴스는 신규 1회입니다.
+- 취업 DB/API가 없어 `UnconnectedCareerContentRepository`(항상 빈 결과)를 쓰며, 이 동안 루프를 시작하지 않습니다.
+  스키마가 나오면 `CareerContentRepository`를 구현해 `bot.py`에서 바꿔 끼웁니다.

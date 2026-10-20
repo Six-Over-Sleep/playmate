@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -18,14 +19,15 @@ class MemberSignup(BaseModel):
     )
 
     # 3. 수강 트랙
-    track: str = Field(
-        min_length=1,
-        max_length=50,
-        description="수강 트랙명"
-    )
+    track: Literal[
+        "family-ai",
+        "multi-agent",
+        "data-engineering",
+        "data-ml",
+    ]
 
     # 공백 문자열 검사 및 제거
-    @field_validator("nickname", "track")
+    @field_validator("nickname")
     @classmethod
     def validate_text(cls, value: str) -> str:
         value = value.strip()

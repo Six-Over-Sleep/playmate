@@ -13,6 +13,7 @@ from fastapi.responses import RedirectResponse
 from app.core.config import (
     DISCORD_CLIENT_ID,
     DISCORD_REDIRECT_URI,
+    FRONTEND_URL,
 )
 from app.services.auth_service import (
     exchange_code_for_token,
@@ -145,13 +146,13 @@ async def discord_callback(
         request.session["member_id"] = member["member_id"]
 
         return RedirectResponse(
-            url="http://localhost:5173/?auth=success",
+            url=f"{FRONTEND_URL}/?auth=success",
             status_code=302,
         )
 
     # 신규 회원인 경우
     return RedirectResponse(
-        url="http://localhost:5173/?signup=required",
+        url=f"{FRONTEND_URL}/?signup=required",
         status_code=302,
     )
 
@@ -169,10 +170,21 @@ async def get_current_user(request: Request):
             detail="로그인이 필요합니다.",
         )
 
-    member_id = request.session.get("member_id")
+    # 세션에 저장된 member_id만 믿지 않고 Discord ID로 실제 회원 정보를 조회한다.
+    try:
+        member = await run_in_threadpool(
+            get_member,
+            discord_user["discord_id"],
+        )
+    except psycopg.Error as exc:
+        logger.exception("회원 정보 조회 실패")
+        raise HTTPException(
+            status_code=503,
+            detail="회원 정보를 조회하지 못했습니다.",
+        ) from exc
 
-    # 아직 PlayMate 회원가입을 완료하지 않은 경우
-    if member_id is None:
+    if member is None:
+        request.session.pop("member_id", None)
         return {
             "authenticated": True,
             "signup_required": True,
@@ -180,12 +192,23 @@ async def get_current_user(request: Request):
             "member": None,
         }
 
-    # 회원가입을 완료한 경우
+    request.session["member_id"] = member["member_id"]
+
+    avatar_hash = discord_user.get("avatar")
+    avatar_url = None
+    if avatar_hash:
+        extension = "gif" if avatar_hash.startswith("a_") else "png"
+        avatar_url = (
+            f"https://cdn.discordapp.com/avatars/"
+            f"{discord_user['discord_id']}/{avatar_hash}.{extension}"
+        )
+
     return {
         "authenticated": True,
         "signup_required": False,
-        "discord_user": discord_user,
-        "member_id": member_id,
+        "discord_user": {**discord_user, "avatar_url": avatar_url},
+        "member_id": member["member_id"],  # 기존 API 응답과 호환
+        "member": member,
     }
 
 

@@ -23,6 +23,8 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 DB_SSLMODE = os.getenv("DB_SSLMODE", "require")
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+
 # 4. 필수 설정값 확인
 if not all([
     DISCORD_CLIENT_ID,

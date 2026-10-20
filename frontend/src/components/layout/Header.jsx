@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import '../../styles/header.css'
 import logo from '../../assets/playmate-logo.png'
 
-export default function Header({ activeSection, onNavigate }) {
+export default function Header({ activeSection, onNavigate, nickname, avatarUrl, onLogout }) {
+  const [profileOpen, setProfileOpen] = useState(false)
   const go = (section) => {
     onNavigate?.(section)
   }
@@ -44,6 +46,52 @@ export default function Header({ activeSection, onNavigate }) {
 
         <span>마이페이지</span>
       </nav>
+
+      <div className="profile-container">
+        <button
+          type="button"
+          className="profile-avatar"
+          aria-label="프로필 메뉴"
+          aria-expanded={profileOpen}
+          aria-haspopup="menu"
+          onClick={() => setProfileOpen((open) => !open)}
+        >
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" className="profile-avatar-image" />
+          ) : (
+            nickname?.charAt(0) || 'U'
+          )}
+        </button>
+
+        {profileOpen && (
+          <div className="profile-dropdown">
+            <div className="profile-user-info">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Discord 프로필 사진" className="profile-user-avatar" />
+              ) : (
+                <div className="profile-user-avatar profile-user-fallback">
+                  {nickname?.charAt(0) || 'U'}
+                </div>
+              )}
+              <span className="profile-nickname">{nickname || '사용자'}</span>
+            </div>
+            <hr />
+            <button
+              type="button"
+              onClick={() => {
+                setProfileOpen(false)
+                onLogout?.()
+              }}
+            >
+              로그아웃
+            </button>
+            {/* 탈퇴 정책 협의 전: 기능이 없는 버튼은 비활성화 */}
+            <button type="button" className="withdraw-button" disabled title="회원 탈퇴 정책 협의 중">
+              회원 탈퇴 (준비 중)
+            </button>
+          </div>
+        )}
+      </div>
     </header>
   )
 }

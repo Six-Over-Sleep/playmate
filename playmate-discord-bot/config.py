@@ -1,5 +1,6 @@
 """환경변수 설정과 regular 모임의 시간 정책(비활성 기준, 점검/동기화 주기, timeout)을 모아 둔다."""
 import os
+from datetime import time
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -56,3 +57,40 @@ SYNC_STALE_PENDING_SECONDS = 600
 # PRIVATE 기능은 services/meeting_space.py, services/permissions.py에 그대로 구현되어 있고,
 # 값을 어디서 가져올지만 정해지지 않았다.
 DEFAULT_VISIBILITY = "PUBLIC"
+
+
+# -- 알림 / 공식 채널 기능 ------------------------------------------------------
+# 아래 값은 모두 선택 사항이다. 비어 있거나 숫자가 아니면 해당 기능만 꺼지고 Bot은 계속 동작한다.
+def _optional_id(name: str) -> int | None:
+    value = (os.getenv(name) or "").strip()
+    if not value:
+        return None
+    if not value.isdigit():
+        print(f"{name} 값이 숫자가 아니어서 무시합니다.")
+        return None
+    return int(value)
+
+
+# /게시글추천을 실행할 수 있는 Discord 역할. 없으면 아무도 실행할 수 없다.
+ADMIN_ROLE_ID = _optional_id("PLAYMATE_ADMIN_ROLE_ID")
+# #핫플레이메이트, #취업-소식 채널. 없으면 해당 채널 게시를 하지 않는다.
+HOT_CHANNEL_ID = _optional_id("PLAYMATE_HOT_CHANNEL_ID")
+CAREER_CHANNEL_ID = _optional_id("PLAYMATE_CAREER_CHANNEL_ID")
+# 프론트 웹 주소. 상세 route가 확정되기 전까지 링크 버튼에는 쓰지 않는다.
+WEB_BASE_URL = (os.getenv("PLAYMATE_WEB_BASE_URL") or "").strip().rstrip("/") or None
+
+# notifications PENDING 행을 확인하는 주기(초). 모임 DB 동기화 루프와는 별개다.
+NOTIFICATION_POLL_SECONDS = 10
+NOTIFICATION_BATCH_SIZE = 20
+# DM 전송 실패 시 총 시도 횟수 한도(도달하면 FAILED)와, 실패한 알림을 다시 시도하기까지의 간격(초).
+NOTIFICATION_MAX_ATTEMPTS = 3
+NOTIFICATION_RETRY_DELAY_SECONDS = 60
+
+# HOT PLAYMATE 자동 게시 시각과 후보 기간.
+HOT_POST_TIMES = (time(13, 0, tzinfo=KST), time(19, 0, tzinfo=KST))
+HOT_CANDIDATE_HOURS = 24
+
+# 취업 소식: 신규 콘텐츠 확인 주기와 채용공고 마감 재노출 규칙 (D-3, D-1 13:00).
+CAREER_POLL_SECONDS = 60
+CAREER_REMINDER_TIME = time(13, 0, tzinfo=KST)
+CAREER_REMINDER_DAYS = (3, 1)

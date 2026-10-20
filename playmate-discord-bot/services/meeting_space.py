@@ -34,8 +34,8 @@ async def create_meeting_space(
     구조:
 
     📁 모임명
-    ├─ # 채팅
-    └─ 🔊 음성
+    ├─ # ╔・채팅
+    └─ 🔊 ╚・음성
 
 
     원칙:
@@ -98,13 +98,13 @@ async def create_meeting_space(
     created = [category]
     try:
         text_channel = await guild.create_text_channel(
-            name='채팅', category=category, topic=f'[{visibility}] {meeting_name}'
+            name='╔・채팅', category=category, topic=f'[{visibility}] {meeting_name}'
         )
         created.append(text_channel)
         print(f'텍스트 채널 생성 완료: {text_channel.name} (ID: {text_channel.id})')
         voice_channel = None
         if create_voice_channel:
-            voice_channel = await guild.create_voice_channel(name='음성', category=category)
+            voice_channel = await guild.create_voice_channel(name='╚・음성', category=category)
             created.append(voice_channel)
             print(f'음성 채널 생성 완료: {voice_channel.name} (ID: {voice_channel.id})')
         else:

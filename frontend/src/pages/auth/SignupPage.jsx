@@ -214,7 +214,16 @@ export default function SignupPage({ onBack, onComplete }) {
                   교육 과정을 선택해주세요
                 </option>
                 <option value="family-ai">
-                  SKN Family AI 캠프
+                  SK네트웍스 Family AI 캠프
+                </option>
+                <option value="multi-agent">
+                  멀티 에이전트 AI 오케스트레이션 캠프
+                </option>
+                <option value="data-engineering">
+                  AI Ready 데이터 엔지니어링 캠프
+                </option>
+                <option value="data-ml">
+                  데이터 분석 &amp; AI 머신러닝 캠프
                 </option>
               </select>
             </label>

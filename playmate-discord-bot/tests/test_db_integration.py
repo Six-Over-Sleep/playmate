@@ -301,7 +301,7 @@ async def main():
     category = guild.get_channel(int(row["discord_category_id"]))
     check(row["sync_status"] == "SUCCESS" and row["sync_error"] is None, "SUCCESS 저장")
     check(category.name == "정기 모임", "카테고리 이름은 모임 제목")
-    check([c.name for c in category.channels] == ["채팅", "음성"], "채팅/음성 채널")
+    check([c.name for c in category.channels] == ["╔・채팅", "╚・음성"], "채팅/음성 채널")
     check(row["discord_text_channel_id"] == str(category.channels[0].id)
           and row["discord_voice_channel_id"] == str(category.channels[1].id)
           and row["discord_category_id"] == str(category.id), "채널 ID를 str로 DB 저장")

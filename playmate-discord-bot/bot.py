@@ -9,17 +9,41 @@
 주기 작업 (on_ready에서 시작):
     - DB 동기화(DB 연결 시): regular 모임의 Discord 공간 생성, 참여자 권한 반영
     - lifecycle 검사: 30일 비활성 경고, 7일 유예, 자동 삭제
+
+알림 / 공식 채널 기능 (DB 연결 시, 모임 기능과 분리):
+    - /알림설정, notifications polling (10초)
+    - /게시글추천, HOT PLAYMATE 자동 게시 (13:00, 19:00)
+    - 취업 소식 (취업 저장소가 연결된 경우에만)
+    기존 작업을 먼저 시작한 뒤 별도로 시작하며, 실패해도 기존 작업에 영향을 주지 않는다.
 """
 import discord
+from discord import app_commands
 
-from config import DB_CONFIGURED, GUILD_ID, TEST_MODE, TOKEN
+from config import (
+    ADMIN_ROLE_ID,
+    CAREER_CHANNEL_ID,
+    DB_CONFIGURED,
+    GUILD_ID,
+    HOT_CHANNEL_ID,
+    TEST_MODE,
+    TOKEN,
+)
 from handlers.message_handler import handle_message
+from handlers.notification_command_handler import build_notification_command
+from handlers.promotion_command_handler import build_promotion_command
+from repositories.career_content_repository import UnconnectedCareerContentRepository
+from repositories.content_repository import PostgresContentRepository
+from repositories.db import Database
 from repositories.meeting_repository import (
     InMemoryMeetingRepository,
     PostgresMeetingRepository,
 )
+from repositories.notification_repository import PostgresNotificationRepository
+from services.career_content_service import CareerContentService, create_career_tasks
 from services.db_sync import create_sync_task
+from services.hot_content_service import HotContentService, create_hot_task
 from services.lifecycle import create_lifecycle_task
+from services.notification_service import NotificationService, create_notification_task
 
 # 기본 intents만 사용한다. 메시지 본문(message content)은 필요하지도, 저장하지도 않는다.
 intents = discord.Intents.default()
@@ -33,6 +57,50 @@ else:
     repository = InMemoryMeetingRepository()
 check_meeting_lifecycle = create_lifecycle_task(client, repository)
 sync_db = create_sync_task(client, repository) if DB_CONFIGURED else None
+
+# -- 알림 / 공식 채널 기능 -------------------------------------------------------
+# 모임 저장소와 다른 DB 연결을 쓴다. 명령은 설정된 서버(GUILD_ID)에만 등록한다.
+tree = app_commands.CommandTree(client)
+guild_object = discord.Object(id=GUILD_ID)
+feature_tasks: list[tuple[str, object]] = []
+commands_synced = False
+if DB_CONFIGURED:
+    feature_db = Database.from_env()
+    notification_service = NotificationService(client, PostgresNotificationRepository(feature_db))
+    hot_service = HotContentService(client, PostgresContentRepository(feature_db), HOT_CHANNEL_ID)
+    tree.add_command(build_notification_command(notification_service), guild=guild_object)
+    tree.add_command(build_promotion_command(hot_service, ADMIN_ROLE_ID), guild=guild_object)
+    feature_tasks.append(("알림 polling (10초)", create_notification_task(client, notification_service)))
+    if HOT_CHANNEL_ID is not None:
+        feature_tasks.append(("HOT PLAYMATE 자동 게시 (13:00, 19:00)", create_hot_task(client, hot_service)))
+# TODO: 취업 담당자 스키마가 나오면 실제 CareerContentRepository 구현으로 바꾼다.
+career_repository = UnconnectedCareerContentRepository()
+if CAREER_CHANNEL_ID is not None and career_repository.connected:
+    career_service = CareerContentService(client, career_repository, CAREER_CHANNEL_ID)
+    career_new, career_reminder = create_career_tasks(client, career_service)
+    feature_tasks.append(("취업 소식 신규 포워딩", career_new))
+    feature_tasks.append(("취업 소식 마감 재노출 (13:00)", career_reminder))
+
+
+async def start_feature_tasks() -> None:
+    """알림 / 공식 채널 루프를 시작하고 slash command를 서버에 한 번 동기화한다.
+
+    on_ready는 재연결 때 다시 호출되므로 실행 중인 루프와 이미 끝난 동기화는 반복하지 않는다.
+    명령 동기화가 실패해도(초대 scope에 applications.commands 누락 등) 루프와 기존 기능은 계속 동작한다.
+    """
+    global commands_synced
+    for name, task in feature_tasks:
+        if not task.is_running():
+            task.start()
+            print(f'{name} 시작')
+    if commands_synced or not DB_CONFIGURED:
+        return
+    try:
+        synced = await tree.sync(guild=guild_object)
+        commands_synced = True
+        print(f'slash command 동기화 완료: {", ".join(command.name for command in synced)}')
+    except Exception as error:
+        print(f'slash command 동기화 실패: {error!r}')
 
 
 @client.event
@@ -72,6 +140,10 @@ async def on_ready():
             print('모임 라이프사이클 검사 시작 (테스트: 1분 주기)')
         else:
             print('모임 라이프사이클 검사 시작 (실서비스: 하루 1회)')
+    try:
+        await start_feature_tasks()
+    except Exception as error:
+        print(f'알림 / 공식 채널 기능 시작 실패: {error!r}')
 
 
 if __name__ == "__main__":

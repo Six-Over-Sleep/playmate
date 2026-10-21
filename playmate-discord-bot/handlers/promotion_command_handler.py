@@ -1,8 +1,4 @@
-"""/게시글추천: 운영자가 고른 게시판 글 또는 모임을 #핫플레이메이트에 게시한다.
-
-권한: PLAYMATE_ADMIN_ROLE_ID 역할을 가진 서버 멤버만 실행할 수 있다 (미설정이면 아무도 불가).
-최소 조건(좋아요/댓글/참여 수)은 적용하지 않고, 자동 HOT 선정과는 별개다.
-"""
+"""/게시글추천: PLAYMATE_ADMIN_ROLE_ID 역할만 실행 (미설정이면 아무도 불가). 최소 조건 없이 게시한다."""
 import discord
 from discord import app_commands
 

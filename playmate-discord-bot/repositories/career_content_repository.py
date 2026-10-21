@@ -1,9 +1,4 @@
-"""취업 소식 콘텐츠 저장소 경계.
-
-취업 카테고리의 DB/API가 아직 없어서 SQL은 작성하지 않는다. 취업 담당자 스키마가 나오면
-CareerContentRepository를 구현하는 클래스를 추가하고 bot.py에서 바꿔 끼우면 된다.
-그 전까지는 UnconnectedCareerContentRepository(항상 빈 결과)를 쓴다.
-"""
+"""취업 소식 저장소. 취업 DB/API가 없어 SQL은 없고, 스키마가 나오면 구현체를 bot.py에서 바꿔 끼운다."""
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol

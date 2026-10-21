@@ -1,20 +1,7 @@
-"""PlayMate Discord Bot 진입점: 클라이언트를 만들고 저장소, 이벤트, 주기 작업을 연결한다.
+"""PlayMate Discord Bot 진입점 (`python bot.py`).
 
-실행: `python bot.py`
-
-저장소 선택:
-    DB_* 환경변수가 모두 있으면 공용 PostgreSQL(recruit_discord_channels)을 사용하고,
-    없으면 메모리 저장소로 시작한다 (재시작하면 상태가 사라지고 DB 동기화도 하지 않는다).
-
-주기 작업 (on_ready에서 시작):
-    - DB 동기화(DB 연결 시): regular 모임의 Discord 공간 생성, 참여자 권한 반영
-    - lifecycle 검사: 30일 비활성 경고, 7일 유예, 자동 삭제
-
-알림 / 공식 채널 기능 (DB 연결 시, 모임 기능과 분리):
-    - /알림설정, notifications polling (10초)
-    - /게시글추천, HOT PLAYMATE 자동 게시 (13:00, 19:00)
-    - 취업 소식 (취업 저장소가 연결된 경우에만)
-    기존 작업을 먼저 시작한 뒤 별도로 시작하며, 실패해도 기존 작업에 영향을 주지 않는다.
+DB_* 환경변수가 있으면 공용 PostgreSQL, 없으면 메모리 저장소로 모임 기능을 실행한다.
+알림 / 공식 채널 기능은 DB 연결 시에만 켜지고, 모임 작업을 먼저 시작한 뒤 따로 시작한다.
 """
 import discord
 from discord import app_commands
@@ -48,8 +35,6 @@ from services.notification_service import NotificationService, create_notificati
 # 기본 intents만 사용한다. 메시지 본문(message content)은 필요하지도, 저장하지도 않는다.
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
-# 상태는 공용 PostgreSQL(recruit_discord_channels)에 저장한다.
-# DB 설정이 없으면 기존처럼 메모리 저장소로 동작한다.
 if DB_CONFIGURED:
     repository = PostgresMeetingRepository.from_env()
 else:
@@ -83,11 +68,7 @@ if CAREER_CHANNEL_ID is not None and career_repository.connected:
 
 
 async def start_feature_tasks() -> None:
-    """알림 / 공식 채널 루프를 시작하고 slash command를 서버에 한 번 동기화한다.
-
-    on_ready는 재연결 때 다시 호출되므로 실행 중인 루프와 이미 끝난 동기화는 반복하지 않는다.
-    명령 동기화가 실패해도(초대 scope에 applications.commands 누락 등) 루프와 기존 기능은 계속 동작한다.
-    """
+    """알림 / 공식 채널 루프를 시작하고 slash command를 한 번 동기화한다 (실패해도 기존 기능은 계속)."""
     global commands_synced
     for name, task in feature_tasks:
         if not task.is_running():
@@ -105,25 +86,13 @@ async def start_feature_tasks() -> None:
 
 @client.event
 async def on_message(message: discord.Message):
-    """서버에 메시지가 올라올 때마다 호출된다. regular 모임 채널의 활동을 기록하도록 넘긴다.
-
-    실제 판단(Bot 메시지 무시, 관리 중인 모임인지 확인, 활동 시각 갱신)은
-    `handlers.message_handler.handle_message`가 한다.
-    """
+    """regular 모임 채널의 활동 기록을 message_handler에 넘긴다."""
     await handle_message(message, repository)
 
 
 @client.event
 async def on_ready():
-    """Bot이 Discord에 로그인하고 서버 정보를 받은 뒤 호출되며, 주기 작업을 시작한다.
-
-    처리 순서:
-        1. 설정된 서버(GUILD_ID)를 찾는다. 찾지 못하면 주기 작업을 시작하지 않는다.
-        2. DB가 연결되어 있으면 DB 동기화 작업을 시작한다.
-        3. lifecycle 검사 작업을 시작한다 (운영: 하루 1회, 테스트 모드: 1분).
-
-    on_ready는 재연결 때 다시 호출될 수 있으므로, 이미 실행 중인 작업은 다시 시작하지 않는다.
-    """
+    """주기 작업을 시작한다. 재연결 때 다시 호출되므로 실행 중인 작업은 다시 시작하지 않는다."""
     print(f'\nBot 로그인 성공: {client.user}')
     guild = client.get_guild(GUILD_ID)
     if guild is None:

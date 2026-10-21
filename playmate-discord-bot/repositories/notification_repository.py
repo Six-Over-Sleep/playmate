@@ -1,16 +1,8 @@
-"""DM 알림 저장소 경계.
+"""DM 알림 저장소: members 수신 동의 조회/변경, notifications 상태 기록.
 
-- members.discord_id로 회원 찾기, members.external_dm_opt_in 조회 / 변경 (/알림설정)
-- notifications: PENDING 조회, SENT / SKIPPED 기록, 전송 실패 시 재시도 횟수 기록
-
-notifications 상태 규칙 (PROCESSING 상태는 없다):
-    PENDING --DM 성공--> SENT (sent_at 기록)
-    PENDING --보낼 대상 아님--> SKIPPED
-    PENDING --DM 실패--> retry_count + 1, 한도(총 시도 횟수) 미만이면 PENDING 유지, 도달하면 FAILED
-    모든 상태 변경은 status = 'PENDING'인 행에만 적용되어 이미 끝난 알림을 덮어쓰지 않는다.
-
-시각은 DB의 CURRENT_TIMESTAMP를 쓴다 (created_at과 같은 시계). updated_at은 DB trigger
-(trg_notifications_updated_at)가 갱신하므로 SQL에서 직접 SET하지 않는다.
+상태: PENDING -> SENT(sent_at 기록) / SKIPPED / 실패 시 retry_count + 1 후 한도 도달하면 FAILED.
+모든 상태 변경은 status = 'PENDING'인 행에만 적용되어 이미 끝난 알림을 덮어쓰지 않는다.
+시각은 DB의 CURRENT_TIMESTAMP를 쓰고, updated_at은 DB trigger가 갱신하므로 SET하지 않는다.
 """
 from typing import Any, Protocol, TypedDict
 

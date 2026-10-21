@@ -4,12 +4,21 @@
 """
 import discord
 
+# 참여자 권한. 카테고리와 모든 채널에 같은 세트를 적용한다 (db_sync가 목표 상태 확인에도 쓴다).
+PARTICIPANT_PERMISSIONS = dict(
+    view_channel=True, read_message_history=True,
+    send_messages=True, connect=True, speak=True,
+)
+
+
+def participant_overwrite() -> discord.PermissionOverwrite:
+    return discord.PermissionOverwrite(**PARTICIPANT_PERMISSIONS)
+
 
 class MeetingSpaceCleanupError(RuntimeError):
-    """공간 생성이 실패했고, 부분적으로 만들어진 리소스를 모두 지우지도 못했을 때 발생한다.
+    """생성 실패 후 부분 생성물을 다 지우지 못했다 (`remaining_ids`).
 
-    `remaining_ids`에는 서버에 남아 있을 수 있는 리소스 ID가 들어 있다. 호출자는 이 경우를
-    일반 실패처럼 자동 재시도하면 안 된다 (남은 공간 위에 새 공간이 만들어져 중복된다).
+    자동 재시도하면 남은 공간 위에 새 공간이 중복으로 만들어지므로 재시도하면 안 된다.
     """
 
     def __init__(self, cause: BaseException, remaining_ids: list[int]):
@@ -26,33 +35,10 @@ async def create_meeting_space(
     participant_ids: list[int] | None = None,
     create_voice_channel: bool = True,
 ):
-    """
-    PlayMate에서 생성 승인된 regular 모임의 Discord 공간을 생성한다.
+    """regular 모임의 공간(📁 모임명 / # ╔・채팅 / 🔊 ╚・음성)을 만든다. short는 만들지 않고 None.
 
-    short 모임은 Discord 공간을 만들지 않고 None을 반환한다.
-
-    구조:
-
-    📁 모임명
-    ├─ # ╔・채팅
-    └─ 🔊 ╚・음성
-
-
-    원칙:
-
-    - 모임명 중복 검사는 PlayMate 백엔드/DB 담당
-    - Bot은 모임명을 정규화하여
-      동일 모임 여부를 판단하지 않는다.
-    - 실제 서비스 중복 생성 방지는
-      recruit_id ↔ Discord resource ID 기준으로 처리한다.
-
-    반환:
-        (카테고리, 텍스트 채널, 음성 채널) 튜플. 음성 채널을 만들지 않으면 세 번째가 None이다.
-
-    실패 처리:
-        카테고리를 만든 뒤 하위 채널 생성이 실패하면, 만든 리소스를 역순으로 삭제하고
-        원래 예외를 다시 올린다. 추적되지 않는 반쪽짜리 공간을 남기지 않기 위해서다.
-        삭제까지 실패하면 남은 ID를 담은 MeetingSpaceCleanupError를 올린다.
+    반환: (카테고리, 텍스트, 음성 또는 None). 중간에 실패하면 만든 리소스를 역순으로 지우고
+    원래 예외를 올린다. 지우지도 못하면 MeetingSpaceCleanupError.
     """
     if recruit_mode == "short":
         print("short 모임은 Discord 공간을 생성하지 않습니다.")
@@ -89,10 +75,7 @@ async def create_meeting_space(
         except discord.Forbidden:
             print(f'참여자 조회 권한 없음: {participant_id}')
             continue
-        overwrites[member] = discord.PermissionOverwrite(
-            view_channel=True, read_message_history=True,
-            send_messages=True, connect=True, speak=True,
-        )
+        overwrites[member] = participant_overwrite()
     category = await guild.create_category(name=meeting_name, overwrites=overwrites)
     print(f'모임 카테고리 생성 완료: {category.name} (ID: {category.id})')
     created = [category]
@@ -126,14 +109,9 @@ async def create_meeting_space(
 
 
 async def resolve_channel(guild: discord.Guild, channel_id: int):
-    """채널을 캐시에서 찾고, 없으면 Discord API로 조회한다.
+    """캐시, 없으면 API로 채널을 찾는다: ("present", 채널) / ("gone", None) / ("unknown", None).
 
-    반환: ("present", 채널) / ("gone", None) / ("unknown", None)
-
-    업무 규칙:
-        API가 명시적으로 NotFound를 돌려준 경우만 "gone"(없음)이다.
-        캐시에 없다는 것만으로, 또는 Forbidden/HTTP 오류/타임아웃 같은 불명확한 응답으로는
-        절대 "삭제됨"으로 판단하지 않는다. 그 경우는 "unknown"이며 호출자가 재시도해야 한다.
+    API가 NotFound를 돌려준 경우만 "gone"이다. 캐시 미스나 불명확한 응답은 "unknown"(재시도 대상).
     """
     try:
         cached = guild.get_channel(channel_id)
@@ -147,22 +125,10 @@ async def resolve_channel(guild: discord.Guild, channel_id: int):
 
 
 async def resolve_space(guild: discord.Guild, category_id: int, channel_ids=()):
-    """DB에 저장된 ID를 기준으로 모임 공간의 카테고리와 채널을 찾는다.
+    """저장된 ID 기준으로 공간을 찾는다: (카테고리 상태, 대상 목록, 불명확 여부).
 
-    입력:
-        category_id: 저장된 카테고리 ID
-        channel_ids: 저장된 텍스트/음성 채널 ID (None은 무시)
-
-    반환: (카테고리 상태, 대상 목록, 불명확 여부)
-        - 카테고리 상태: "present" / "gone" / "unknown"
-        - 대상 목록: 카테고리가 먼저, 이어서 카테고리 하위 채널(캐시 기준)과 저장된 ID의
-          채널을 중복 없이 나열한다.
-        - 불명확 여부: 조회가 불명확한 리소스가 하나라도 있으면 True.
-          NotFound는 "그 리소스는 없음"일 뿐이므로 불명확으로 보지 않는다.
-
-    업무 규칙:
-        채널 위치가 바뀌어도 저장된 ID가 기준이다. 캐시에 없거나 다른 카테고리로 옮겨진
-        채널도 ID로 조회해서 대상에 포함한다. 권한 부여/회수가 이런 채널을 놓치지 않게 하기 위해서다.
+    대상은 카테고리, 그 하위 채널, 저장된 채널 ID 순서(중복 없음)다. 다른 카테고리로 옮겨진
+    채널도 ID로 찾아 권한 변경이 놓치지 않게 한다. NotFound는 불명확으로 보지 않는다.
     """
     category_state, category = await resolve_channel(guild, category_id)
     unresolved = category_state == "unknown"
@@ -192,21 +158,10 @@ async def delete_meeting_space(
     category_id: int,
     extra_channel_ids=(),
 ) -> bool:
-    """
-    모임 Discord 공간 삭제.
+    """모임 공간을 삭제한다. Discord는 카테고리를 지워도 하위 채널을 지우지 않는다.
 
-    Discord는 카테고리를 지워도 하위 채널을 자동 삭제하지 않는다.
-    그래서 카테고리 하위 채널과, DB에 저장된 text/voice 채널 ID(extra_channel_ids)를
-    각각 삭제한 뒤 카테고리를 삭제한다. 캐시에 없으면 API로 조회하고,
-    API가 NotFound를 돌려준 리소스만 이미 삭제된 것으로 본다.
-
-    순서:
-
-    1. 하위 채널 삭제 (실패해도 나머지 채널은 계속 시도)
-    2. 모든 하위 채널이 확실히 사라진 경우에만 카테고리 삭제
-
-    반환값 True는 카테고리까지 삭제된 경우에만이다. False이면 호출자가
-    세 리소스가 실제로 모두 사라졌는지 API로 따로 확인해야 한다.
+    하위 채널과 저장된 채널(extra_channel_ids)을 지운 뒤, 모두 확실히 사라졌을 때만 카테고리를 지운다.
+    True는 카테고리까지 삭제된 경우뿐이며, False면 호출자가 API로 따로 확인해야 한다.
     """
     complete = True
     category_state, category = await resolve_channel(guild, category_id)
@@ -235,10 +190,8 @@ async def delete_meeting_space(
     print(f'\n모임 Discord 공간 삭제 시작: category_id={category_id}')
     for channel in targets:
         try:
-            channel_name = channel.name
-            channel_id = channel.id
             await channel.delete(reason='PlayMate 모임 종료')
-            print(f'채널 삭제 완료: {channel_name} (ID: {channel_id})')
+            print(f'채널 삭제 완료: {channel.name} (ID: {channel.id})')
         except discord.NotFound:
             print(f'채널이 이미 삭제됨: {channel.id}')
         except discord.Forbidden:
@@ -250,10 +203,8 @@ async def delete_meeting_space(
     if category is None or not complete:
         return False
     try:
-        category_name = category.name
-        category_id_value = category.id
         await category.delete(reason='PlayMate 모임 종료')
-        print(f'카테고리 삭제 완료: {category_name} (ID: {category_id_value})')
+        print(f'카테고리 삭제 완료: {category.name} (ID: {category.id})')
         return True
     except discord.NotFound:
         print(f'카테고리가 이미 삭제됨: {category.id}')

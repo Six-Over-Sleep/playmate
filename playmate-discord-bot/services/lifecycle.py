@@ -1,17 +1,7 @@
-"""regular 모임의 비활성 정책(30일 경고, 7일 유예, 자동 삭제)을 실행한다.
+"""regular 모임 비활성 정책: 30일 무활동이면 HOST에게 DM 경고 + 7일 뒤 삭제 예약, 유예 중 활동하면 취소.
 
-정책 요약:
-    - 마지막 활동 후 30일이 지나면 HOST에게 DM으로 경고하고 7일 뒤 삭제를 예약한다.
-    - 유예 중 활동이 생기면 예약이 취소된다 (메시지 핸들러가 DB에서 처리).
-    - 유예가 끝나도 활동이 없으면 Discord 공간(카테고리/텍스트/음성)을 삭제한다.
-
-상태 변경 원칙:
-    - 모임 전체를 한 번에 덮어쓰는 저장은 쓰지 않는다. 경고 기록, 예약 취소, 삭제 기록처럼
-      목적별 조건부 UPDATE만 사용하므로, Discord나 DB를 기다리는 동안 들어온 새 활동이
-      오래된 값으로 덮어써지지 않는다.
-    - discord_deleted_at은 Discord에서 세 리소스가 실제로 사라진 것을 확인한 뒤에만 기록한다.
-      삭제가 실패하거나 결과가 불명확하면 아무것도 저장하지 않고, 다음 주기(또는 재시작 후)에
-      DB 상태를 기준으로 다시 판단한다.
+목적별 조건부 UPDATE만 쓰므로 기다리는 동안 들어온 새 활동이 오래된 값으로 덮어써지지 않는다.
+discord_deleted_at은 세 리소스가 실제로 사라진 것을 API로 확인한 뒤에만 기록한다.
 """
 import asyncio
 from collections import defaultdict
@@ -43,21 +33,7 @@ _category_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 async def check_meeting_lifecycle(
     client: discord.Client, repository: MeetingRepository
 ):
-    """저장소에 있는 regular 모임을 모두 검사해 경고 또는 삭제를 진행한다.
-
-    입력:
-        client: 로그인된 Discord 클라이언트
-        repository: 모임 상태 저장소 (PostgreSQL 또는 메모리)
-
-    처리 순서:
-        1. 대상 서버(guild)를 찾는다. 없으면 이번 검사는 건너뛴다.
-        2. 저장소의 regular 모임 목록을 읽는다.
-        3. 모임별로 카테고리 락을 잡고 `_check_meeting`을 실행한다.
-
-    실패 처리:
-        한 모임의 검사가 실패해도 로그만 남기고 다음 모임을 계속 검사한다.
-        목록 조회 자체가 실패하면 예외가 호출자(`create_lifecycle_task`)로 올라간다.
-    """
+    """모든 regular 모임을 카테고리 락 아래에서 검사한다. 한 모임의 실패는 다음 모임을 막지 않는다."""
     now = datetime.now(KST)
     print(f"\n[regular 모임 라이프사이클 검사] {now:%Y-%m-%d %H:%M:%S}")
     guild = client.get_guild(GUILD_ID)
@@ -71,18 +47,11 @@ async def check_meeting_lifecycle(
                 await _check_meeting(guild, repository, category_id, meeting, now)
             except Exception as error:
                 # 모임 하나의 오류가 다른 모임의 검사를 막지 않도록 한다.
-                print(
-                    f"[regular 모임] 검사 실패 recruit_id={meeting.get('recruit_id')}: "
-                    f"{error!r}"
-                )
+                print(f"[regular 모임] 검사 실패 recruit_id={meeting.get('recruit_id')}: {error!r}")
 
 
 def _resource_ids(category_id: int, meeting: dict) -> list[int]:
-    """모임이 관리하는 Discord 리소스 ID를 [카테고리, 텍스트, 음성] 순서로 돌려준다.
-
-    텍스트/음성 ID가 없으면(NULL이거나 잘못된 값) 그 항목은 목록에서 빠진다.
-    카테고리는 항상 첫 번째 원소이므로 `ids[1:]`이 하위 채널이다.
-    """
+    """[카테고리, 텍스트, 음성] ID (없는 채널은 빠짐). `ids[1:]`이 하위 채널이다."""
     return [category_id] + [
         meeting[key] for key in ("text_channel_id", "voice_channel_id")
         if meeting.get(key) is not None
@@ -90,24 +59,10 @@ def _resource_ids(category_id: int, meeting: dict) -> list[int]:
 
 
 async def _space_gone(guild, resource_ids: list[int], trust_cache: bool = False) -> bool:
-    """관리 대상 Discord 리소스가 모두 사라졌는지 Discord API로 확인한다.
+    """모든 리소스에서 API가 NotFound를 돌려줄 때만 True (카테고리 하나나 캐시만 보고 판단하지 않는다).
 
-    입력:
-        resource_ids: 카테고리/텍스트/음성 ID 목록
-        trust_cache: True이면 캐시에 있는 채널을 "아직 존재함"의 증거로 인정한다
-            (매 주기 실행하는 가벼운 확인용). 삭제 기록 직전의 최종 확인은 항상 API만 쓴다.
-
-    반환:
-        모든 리소스에서 API가 NotFound를 돌려준 경우에만 True.
-
-    업무 규칙:
-        Discord는 카테고리를 지워도 하위 채널을 자동으로 지우지 않고, 캐시에 없다는 것이
-        "없음"을 뜻하지도 않는다. 그래서 카테고리 하나만, 또는 캐시만 보고 삭제 완료로
-        판단하지 않는다.
-
-    실패 처리:
-        Forbidden, HTTP 오류, 타임아웃 등 불명확한 응답은 "아직 있을 수 있음"(False)으로
-        취급한다. 살아 있는 공간이 삭제 완료로 기록되는 것보다 한 번 더 확인하는 편이 안전하다.
+    trust_cache=True면 캐시에 있는 채널을 "존재함" 증거로 쓴다 (매 주기 가벼운 확인용).
+    불명확한 응답(Forbidden/HTTP/timeout)은 "아직 있을 수 있음"(False)이다.
     """
     try:
         for resource_id in resource_ids:
@@ -124,26 +79,13 @@ async def _space_gone(guild, resource_ids: list[int], trust_cache: bool = False)
 
 
 async def _delete_under_lock(guild, repository, lock, recruit_id, category_id, resource_ids, now):
-    """row lock을 잡은 상태에서 Discord 공간을 삭제하고 삭제 완료를 기록한다.
+    """`regular_lock` 블록 안에서만 호출: 읽기 전용 최종 확인 -> 삭제 -> API로 확인 -> 기록.
 
-    호출 조건:
-        `repository.regular_lock(...)` 블록 안에서만 호출한다. 이 락 덕분에 삭제하는 동안
-        Backend가 모임을 short로 바꾸는 UPDATE는 끝날 때까지 대기한다.
-
-    처리 순서:
-        1. 삭제 시점이 되었고 경고 이후 활동이 없는지 읽기 전용으로 마지막 확인 (아직 쓰기 없음)
-        2. Discord 채널/카테고리 삭제
-        3. 세 리소스가 모두 사라졌는지 API로 확인
-        4. 같은 락의 트랜잭션 안에서 discord_deleted_at 기록 (블록이 정상 종료될 때 COMMIT)
-
-    실패 처리:
-        2~3에서 실패하거나 결과가 불명확하면 아무것도 기록하지 않고 돌아간다(다음 주기에 재시도).
-        4의 UPDATE에는 남은 시간 예산만큼의 서버 statement_timeout이 걸리며, timeout이나
-        취소가 나면 상위 `async with`가 트랜잭션 전체를 ROLLBACK한다.
-        그래서 timeout된 작업의 기록이 나중에 뒤늦게 COMMIT되는 일이 없다.
+    삭제가 실패하거나 불명확하면 아무것도 기록하지 않는다 (다음 주기 재시도).
+    기록은 락과 같은 연결/트랜잭션에서 남은 시간 예산만큼의 statement_timeout으로 실행된다.
+    별도 연결에서 쓰면 timeout 뒤에 뒤늦게 COMMIT될 수 있기 때문이다.
     """
     deadline = asyncio.get_running_loop().time() + DISCORD_LOCK_HOLD_SECONDS
-    # 삭제 직전 마지막 확인은 읽기 전용이다. 이 시점까지 DB에는 아무것도 쓰지 않는다.
     if not await call(repository.is_delete_due, category_id, now):
         print(f"삭제 직전 상태 변경, 삭제 취소: recruit_id={recruit_id}")
         return
@@ -156,8 +98,6 @@ async def _delete_under_lock(guild, repository, lock, recruit_id, category_id, r
     if not await _space_gone(guild, resource_ids):
         print(f"Discord 삭제 실패/불명, 다음 주기에 재시도: recruit_id={recruit_id}")
         return
-    # 삭제 기록은 락을 잡고 있는 같은 DB 연결/트랜잭션에서만 쓴다.
-    # 별도 연결에서 쓰면 timeout 이후에 뒤늦게 COMMIT될 수 있기 때문이다.
     remaining = max(1.0, deadline - asyncio.get_running_loop().time())
     if await lock.mark_deleted(category_id, now, remaining):
         print(
@@ -167,39 +107,17 @@ async def _delete_under_lock(guild, repository, lock, recruit_id, category_id, r
         )
     else:
         still_regular = await call(repository.is_regular, recruit_id)
-        reason = (
-            "regular가 아님(short로 변경됨)"
-            if still_regular is False
-            else "이미 기록되었거나 대상 아님"
-        )
+        reason = "regular가 아님(short로 변경됨)" if still_regular is False else "이미 기록되었거나 대상 아님"
         print(f"삭제 기록 0행, 기록하지 않음: recruit_id={recruit_id} ({reason})")
 
 
 async def _check_meeting(guild, repository, category_id, meeting, now):
-    """모임 하나에 대해 필요한 lifecycle 단계를 한 가지만 실행한다.
+    """모임 하나에 해당하는 첫 번째 단계만 실행한다.
 
-    입력:
-        meeting: 저장소가 돌려준 상태 (last_activity_at, inactivity_warned_at,
-            scheduled_delete_at, discord_deleted_at, host_id 등)
-        now: 이번 검사의 기준 시각 (KST)
-
-    처리 순서 (위에서부터 해당하는 첫 번째 단계만 실행하고 끝낸다):
-        1. 이미 삭제 완료로 기록된 모임이면 건너뛴다.
-        2. DB는 살아 있다고 하지만 Discord 공간이 이미 없으면 삭제 완료로 기록한다.
-           (이전 실행에서 삭제 후 기록만 실패했거나, 관리자가 직접 지운 경우)
-        3. 삭제가 예약되어 있으면: 예약 시각 전이면 대기, 경고 이후 활동이 있으면 예약 취소,
-           아니면 row lock을 잡고 삭제 (`_delete_under_lock`)
-        4. 예약이 없으면: 마지막 활동 후 INACTIVITY_DAYS가 지났을 때 HOST에게 DM을 보내고
-           INACTIVITY_GRACE_DAYS 뒤 삭제를 예약
-
-    업무 규칙:
-        - recruits.state(모집 상태)와 meeting_end는 어떤 단계에서도 사용하지 않는다.
-        - HOST를 알 수 없으면(Backend가 아직 HOST를 저장하지 않음) 경고와 예약을 하지 않는다.
-        - 경고는 DM이 실제로 전송된 뒤에만, 그리고 그 사이 새 활동이 없었을 때만 저장한다.
-
-    실패 처리:
-        DM 실패(NotFound/Forbidden/HTTP)는 경고를 저장하지 않고 다음 주기에 다시 시도한다.
-        삭제 단계의 락 대기 초과, short 전환, 전체 timeout도 기록 없이 다음 주기로 넘긴다.
+    1. 이미 삭제 기록됨 -> 건너뜀  2. Discord 공간이 이미 없음 -> 삭제 기록
+    3. 삭제 예약 있음 -> 대기 / 경고 후 활동 있으면 취소 / 아니면 락 아래에서 삭제
+    4. INACTIVITY_DAYS 무활동 -> HOST DM 후 예약 (HOST를 모르면 하지 않음)
+    recruits.state와 meeting_end는 쓰지 않는다. 경고는 DM 전송 후, 그 사이 새 활동이 없을 때만 저장한다.
     """
     recruit_id = meeting["recruit_id"]
     host_id = meeting.get("host_id")
@@ -218,10 +136,7 @@ async def _check_meeting(guild, repository, category_id, meeting, now):
         return
 
     if scheduled_delete_at is not None:
-        print(
-            f"[regular 모임] recruit_id={recruit_id} | "
-            f"삭제예정={scheduled_delete_at:%Y-%m-%d %H:%M:%S}"
-        )
+        print(f"[regular 모임] recruit_id={recruit_id} | 삭제예정={scheduled_delete_at:%Y-%m-%d %H:%M:%S}")
         if now < scheduled_delete_at:
             return
 
@@ -269,27 +184,22 @@ async def _check_meeting(guild, repository, category_id, meeting, now):
         except RegularLockUnavailable:
             print(f"recruits 행 잠금 대기 초과, 다음 주기에 재시도: recruit_id={recruit_id}")
         except asyncio.TimeoutError:
-            print(
-                f"Discord 삭제/확인이 {DISCORD_LOCK_HOLD_SECONDS}초 안에 끝나지 않아 중단, "
-                f"락 해제 후 다음 주기에 재시도: recruit_id={recruit_id}"
-            )
+            print(f"Discord 삭제/확인이 {DISCORD_LOCK_HOLD_SECONDS}초 안에 끝나지 않아 중단, "
+                  f"락 해제 후 다음 주기에 재시도: recruit_id={recruit_id}")
         return
 
     if last_activity_at is None:
         return
 
     inactive_duration = now - last_activity_at
-    print(
-        f"[regular 모임] recruit_id={recruit_id} | "
-        f"비활성 기간={inactive_duration.days}일"
-    )
+    print(f"[regular 모임] recruit_id={recruit_id} | 비활성 기간={inactive_duration.days}일")
     if inactive_duration < timedelta(days=INACTIVITY_DAYS):
         return
     if inactivity_warned_at is not None:
         return
 
     if host_id is None:
-        # HOST를 알 수 없으면(Backend가 아직 저장하지 않음) DM도, 삭제 예약도 하지 않는다.
+        # HOST를 알 수 없으면(host_resolver 미연결) DM도, 삭제 예약도 하지 않는다.
         print(f"HOST 정보 없음, 경고 건너뜀: recruit_id={recruit_id}")
         return
 
@@ -333,11 +243,7 @@ def create_lifecycle_task(
     client: discord.Client,
     repository: MeetingRepository,
 ):
-    """주기적으로 lifecycle 검사를 실행하는 discord.ext.tasks 루프를 만든다.
-
-    주기는 config의 CHECK_INTERVAL_SECONDS(운영 하루 1회, 테스트 모드 1분)를 따른다.
-    루프는 Bot이 Discord에 완전히 연결된 뒤(`wait_until_ready`)에 시작한다.
-    """
+    """CHECK_INTERVAL_SECONDS(운영 하루 1회, 테스트 모드 1분)마다 lifecycle 검사를 실행하는 루프."""
 
     @tasks.loop(seconds=CHECK_INTERVAL_SECONDS)
     async def lifecycle_task():

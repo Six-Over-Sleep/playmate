@@ -5,7 +5,7 @@ PlayMate의 **모임 기능과 Discord를 연결하기 위한 Bot 모듈**입니
 Discord 기능은 독립적으로 구현·검증되어 있고, 이 브랜치(`feature/13-discord-bot`)에서
 **공용 PostgreSQL(`recruit_discord_channels`)과 DB polling 방식으로 연결**했습니다.
 Backend / Frontend / Auth 코드는 수정하지 않고, Bot이 DB를 주기적으로 읽어 Discord에 반영합니다.
-HOST 식별, PUBLIC/PRIVATE 저장 위치, 실제 로그인 사용자 연동은 아직 미완료입니다.
+HOST 연결(Bot의 `host_resolver`), PUBLIC/PRIVATE 저장 위치, 실제 로그인 사용자 연동은 아직 미완료입니다.
 무엇이 구현되었고 무엇이 실환경에서 확인되었는지는 "2. 현재 개발 상태"와
 "13. 실환경에서 확인된 내용"을 참고하세요.
 
@@ -20,7 +20,7 @@ Discord 기능 구현 / 모듈화 / 실제 Discord 검증     완료
 ↓
 공용 DB 연동 (DB polling, regular 모임만)          구현 완료, 실환경 확인은 일부 (13절 참고)
 ↓
-HOST 식별 · PUBLIC/PRIVATE 저장 · 실제 사용자      Backend 협의 후 연결 (미완료)
+HOST 연결 · PUBLIC/PRIVATE 저장 · 실제 사용자      연결 작업 남음 (미완료)
 ```
 
 정책 요약:
@@ -97,13 +97,15 @@ PlayMate 공식 Discord 서버
   `members.discord_id` 기반 JOINED 참여자 권한 부여, 실제 메시지로 `last_activity_at` 갱신,
   CANCELED 감지와 PUBLIC 읽기 전용 처리 로직 실행, short 모임에 채널과 DB 행이 생기지 않음.
 - 확인하지 못함: 일반 사용자 계정의 실제 쓰기·음성 차단 (테스트 계정이 서버 Owner라서),
-  HOST 권한과 HOST DM (Backend가 HOST를 저장하지 않음), 그 밖의 아래 미확인 항목.
+  HOST 권한과 HOST DM (Bot의 `host_resolver` 미연결), 그 밖의 아래 미확인 항목.
 
 ### 아직 하지 않은 것 (미완료)
 
-- **HOST 식별**: Backend가 모임 생성자를 `recruit_members.role='HOST'`로 저장하지 않습니다.
-  HOST를 알 수 없으므로 HOST 권한 부여와 비활성 HOST DM은 **지금 동작하지 않으며**,
-  HOST를 모르는 모임은 경고/유예 예약도 하지 않습니다 (`host_resolver` 연결 지점만 준비됨).
+- **HOST 연결**: Backend는 모임 생성자를 `recruit_members.role='HOST'`로 저장하지만,
+  Bot은 아직 `host_resolver`를 연결하지 않았습니다. 그래서 HOST 권한 부여와 비활성 HOST DM은
+  **지금 동작하지 않으며**, HOST를 모르는 모임은 경고/유예 예약도 하지 않습니다.
+  참여자 권한 동기화도 HOST 행을 제외하므로(HOST 권한을 덮어쓰지 않기 위해), 연결 전까지는
+  모임 생성자에게 Discord 쓰기 권한이 자동으로 주어지지 않습니다.
 - **PUBLIC / PRIVATE 저장 위치**: 미확정입니다. `config.DEFAULT_VISIBILITY="PUBLIC"` 임시 정책을 사용합니다.
 - **실제 로그인 사용자 기반 참여/취소**: Backend가 `member_id=-1`로 고정되어 있어
   `member_id=-1`, `discord_id`가 없거나 숫자가 아닌 회원은 권한 동기화에서 제외합니다.
@@ -280,7 +282,7 @@ HOST에게 DM 경고 → inactivity_warned_at 기록, scheduled_delete_at = 7일
   SQL에는 남은 시간 예산만큼의 서버 `statement_timeout`도 설정합니다.
   (Discord 공간이 이미 사라졌는데 기록만 실패한 경우는 다음 주기에 "이미 없음"으로 기록됩니다.)
 - 삭제 시도 중 들어온 활동은 거부되지 않고 기록되며, 삭제가 실패하면 최신 활동 기준으로 다시 계산됩니다.
-- HOST를 알 수 없는 모임은 경고/유예 예약을 하지 않습니다 (HOST 미연동, 위 "아직 하지 않은 것" 참고).
+- HOST를 알 수 없는 모임은 경고/유예 예약을 하지 않습니다 (`host_resolver` 미연결, 위 "아직 하지 않은 것" 참고).
 
 ---
 
@@ -564,7 +566,7 @@ python tests/test_db_integration.py
 **확인하지 못한 항목**
 
 - 일반 사용자 계정의 실제 쓰기·음성 차단: 테스트 계정이 서버 Owner라서 권한 제한을 받지 않아 최종 확인하지 못했습니다.
-- HOST 권한과 HOST DM: Backend가 `recruit_members.role='HOST'`를 만들지 않아 확인하지 못했습니다.
+- HOST 권한과 HOST DM: Bot의 `host_resolver`가 연결되지 않아 확인하지 못했습니다 (Backend는 HOST를 저장함).
 - 30일 비활성 경고, 7일 유예, 자동 삭제를 DB 연동 상태의 실제 서버에서 끝까지 돌려 본 결과는 아직 없습니다.
 - PRIVATE 모임, `MANUAL:` / `ABORTED:` 상태의 실제 운영 시나리오, 실제 로그인 사용자 기반 참여/취소도 확인하지 못했습니다.
 
@@ -660,7 +662,7 @@ Discord resource ID는 `recruit_discord_channels`에 `varchar`로 저장하고(`
 
 Backend 담당자와 협의 후 진행할 항목:
 
-1. 모임 생성 시 생성자를 `recruit_members.role='HOST'`로 저장 → `host_resolver` 연결
+1. `host_resolver` 연결 (Backend는 생성자를 `recruit_members.role='HOST'`로 저장함)
 2. PUBLIC/PRIVATE 저장 위치 결정 → `DEFAULT_VISIBILITY` 대체
 3. 참여/취소가 실제 로그인 사용자(`member_id`)를 쓰도록 변경
 4. 필요하면 DB polling을 Backend → Bot 내부 API 호출로 교체

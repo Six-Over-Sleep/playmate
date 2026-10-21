@@ -199,7 +199,7 @@ async def _check_meeting(guild, repository, category_id, meeting, now):
         return
 
     if host_id is None:
-        # HOST를 알 수 없으면(host_resolver 미연결) DM도, 삭제 예약도 하지 않는다.
+        # HOST를 알 수 없으면(HOST 행이나 discord_id 없음) DM도, 삭제 예약도 하지 않는다.
         print(f"HOST 정보 없음, 경고 건너뜀: recruit_id={recruit_id}")
         return
 

@@ -10,7 +10,7 @@
     - 저장 결과 불명 / ID 불일치           -> 'MANUAL:' (공간 유지, 자동 삭제/재생성 안 함)
     - 저장이 확실히 실패                  -> 공간 삭제 후 FAILED
 
-TODO: HOST resolver가 아직 연결되지 않아 HOST 권한을 부여하지 않는다 (meeting_repository 참고).
+HOST 권한은 공간 생성 직후 한 번만 부여한다 (TODO: 기존 공간 소급, 실패 시 재시도, regular_lock 적용).
 공개 범위는 임시로 DEFAULT_VISIBILITY(PUBLIC)를 쓴다.
 """
 import asyncio
@@ -198,9 +198,15 @@ class DbSync:
                 continue
 
             print(f"[Discord 동기화] 생성 완료 recruit_id={recruit_id} category_id={category.id}")
-            host_id = repo.get_host_discord_id(recruit_id)
-            if host_id is not None:
-                await grant_host_permissions(guild, category.id, host_id)
+            try:
+                host_id = await call(repo.get_host_discord_id, recruit_id)
+                if host_id is None:
+                    print(f"[Discord 동기화] HOST 없음, HOST 권한 건너뜀 recruit_id={recruit_id}")
+                else:
+                    await grant_host_permissions(guild, category.id, host_id)
+            except Exception as error:
+                # 공간은 이미 SUCCESS로 저장됐다. HOST 권한 실패가 다른 모임 처리를 막지 않게 로그만 남긴다.
+                print(f"[Discord 동기화] HOST 권한 부여 실패 recruit_id={recruit_id}: {error!r}")
 
     async def _record_failure(self, recruit_id: int, message: str) -> None:
         """생성 실패를 기록한다. 기록이 실패해도 남은 PENDING은 나중에 fail_stale_pending이 MANUAL로 표시한다."""

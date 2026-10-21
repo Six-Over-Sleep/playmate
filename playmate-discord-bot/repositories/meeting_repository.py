@@ -170,9 +170,8 @@ class _InMemoryRegularLock:
 # PostgreSQL 구현 (공용 PlayMate DB의 recruit_discord_channels 테이블)
 # ---------------------------------------------------------------------------
 
-# 선택 훅: recruit_id -> HOST의 Discord 사용자 ID (모르면 None).
-# TODO: Backend는 모임 생성자를 recruit_members.role='HOST'로 저장하지만 Bot은 아직 resolver를
-#       연결하지 않았다. 연결 전까지 HOST 권한 부여와 비활성 HOST DM은 동작하지 않는다.
+# 테스트용 override 훅: recruit_id -> HOST의 Discord 사용자 ID (모르면 None).
+# 운영에서는 넣지 않으며, 저장소가 recruit_members(role='HOST', status='JOINED')를 직접 조회한다.
 HostResolver = Callable[[int], "int | None"]
 
 PING_AFTER_IDLE_SECONDS = 30
@@ -200,6 +199,21 @@ def _regular(alias: str) -> str:
             " AND r.recruit_mode = 'regular')")
 
 
+def _host_discord_id_sql(recruit_ref: str) -> str:
+    """모임 HOST의 discord_id를 고르는 서브쿼리 (JOINED, 개발용 -1 제외).
+
+    Backend 정책상 HOST는 1명이지만, 여러 명이어도 member_id가 가장 작은 한 명으로 결정적으로 고른다.
+    """
+    return f"""(SELECT m.discord_id
+                  FROM recruit_members rm
+                  JOIN members m ON m.member_id = rm.member_id
+                 WHERE rm.recruit_id = {recruit_ref}
+                   AND rm.role = 'HOST' AND rm.status = 'JOINED'
+                   AND m.member_id <> -1 AND m.discord_id IS NOT NULL
+                 ORDER BY rm.member_id
+                 LIMIT 1)"""
+
+
 # discord_deleted_at은 살아 있는 regular 모임에만 기록한다. 일반 저장소 메서드와
 # 락 트랜잭션 안의 기록이 같은 SQL을 쓰도록 한 곳에 둔다.
 _MARK_DELETED_SQL = f"""
@@ -223,7 +237,8 @@ class PostgresMeetingRepository:
         SELECT rc.recruit_id, rc.discord_category_id, rc.discord_text_channel_id,
                rc.discord_voice_channel_id, rc.last_activity_at,
                rc.inactivity_warned_at, rc.scheduled_delete_at,
-               rc.discord_deleted_at
+               rc.discord_deleted_at,
+               {_host_discord_id_sql('rc.recruit_id')} AS host_discord_id
           FROM recruit_discord_channels rc
          WHERE rc.sync_status = 'SUCCESS'
            AND rc.discord_deleted_at IS NULL
@@ -304,20 +319,27 @@ class PostgresMeetingRepository:
 
     # -- MeetingRepository 구현 (lifecycle / 활동) --------------------------
     def get_host_discord_id(self, recruit_id: int) -> int | None:
-        """모임의 HOST Discord ID. host_resolver가 연결되지 않았으면 None (HostResolver TODO 참고)."""
-        if self._host_resolver is None:
-            return None
-        return self._host_resolver(recruit_id)
+        """모임 HOST의 Discord ID. host_resolver(테스트용)가 있으면 그것을, 없으면 DB를 조회한다."""
+        if self._host_resolver is not None:
+            return self._host_resolver(recruit_id)
+        row = self._execute(
+            f"SELECT {_host_discord_id_sql('%s')} AS host_discord_id", (recruit_id,), fetch="one",
+        )
+        return _to_int(row["host_discord_id"]) if row else None
 
     def refresh_known_categories(self) -> None:
         """관리 중인 카테고리 ID 집합을 다시 읽는다."""
         self._known_categories = {c for c, _ in self.list_regular_meetings()}
 
     def _to_meeting(self, row: dict) -> Meeting:
-        """DB 행을 lifecycle이 쓰는 dict로 바꾼다 (ID는 int, 시각은 KST)."""
+        """DB 행을 lifecycle이 쓰는 dict로 바꾼다 (ID는 int, 시각은 KST, HOST는 같은 조회 결과)."""
+        if self._host_resolver is not None:
+            host_id = self._host_resolver(row["recruit_id"])
+        else:
+            host_id = _to_int(row["host_discord_id"])
         return {
             "recruit_id": row["recruit_id"],
-            "host_id": self.get_host_discord_id(row["recruit_id"]),
+            "host_id": host_id,
             "text_channel_id": _to_int(row["discord_text_channel_id"]),
             "voice_channel_id": _to_int(row["discord_voice_channel_id"]),
             "last_activity_at": _aware(row["last_activity_at"]),

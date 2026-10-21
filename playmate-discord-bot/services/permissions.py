@@ -1,7 +1,7 @@
 """모임 참여자와 HOST의 Discord 권한 정책을 적용한다.
 
 참여자 권한은 카테고리와 그 안의 모든 채널(텍스트/음성)에 같은 overwrite를 적용한다.
-HOST 권한은 참여자 권한에 manage_channels를 더한 것이다.
+HOST 권한은 참여자 권한과 같다 (채널 구조를 바꾸는 manage_channels / manage_messages는 주지 않는다).
 """
 import discord
 
@@ -93,10 +93,11 @@ async def remove_participant_permissions(
 
 
 async def grant_host_permissions(guild: discord.Guild, category_id: int, host_id: int):
-    """recruit_members.role='HOST'인 사용자에게 Discord HOST 권한을 준다.
+    """recruit_members.role='HOST'인 사용자에게 모임 공간 사용 권한(채팅/음성)을 준다.
 
-    현재 임시 정책: manage_channels = True, manage_messages = 미설정(None) (False로 막지 않고 상속을 따름).
-    manage_channels 유지 여부는 팀 회의에서 최종 결정 예정.
+    확정 정책: manage_channels = 미부여, manage_messages = 미설정(None).
+    HOST가 채널/카테고리를 삭제하거나 옮기면 Bot이 일부 삭제 상태를 복구하지 못하고
+    활동 감지가 끊기거나 다른 모임으로 기록될 수 있어서 채널 관리 권한은 주지 않는다.
     """
     category = guild.get_channel(category_id)
     if category is None:
@@ -113,7 +114,6 @@ async def grant_host_permissions(guild: discord.Guild, category_id: int, host_id
     host_overwrite = discord.PermissionOverwrite(
         view_channel=True, read_message_history=True,
         send_messages=True, connect=True, speak=True,
-        manage_channels=True,
     )
     await category.set_permissions(host, overwrite=host_overwrite)
     for channel in category.channels:

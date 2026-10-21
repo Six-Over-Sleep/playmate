@@ -1576,7 +1576,117 @@ async def main():
     conn.close()
     admin.execute("DROP SCHEMA bot_test CASCADE")
     admin.close()
+
+
+HOST_FIXTURE = """
+SET search_path = bot_test;
+INSERT INTO members (member_id, discord_id) OVERRIDING SYSTEM VALUE VALUES
+  (20,'2020'),(21,NULL),(23,'2023'),(25,'2025'),(26,'2026');
+INSERT INTO posts (post_id,title,post_status) OVERRIDING SYSTEM VALUE VALUES
+  (20,'HOST 모임',NULL),(21,'HOST discord 없음',NULL),(22,'HOST가 -1',NULL),
+  (23,'HOST 취소',NULL),(24,'HOST 행 없음',NULL),(25,'HOST 두 명',NULL);
+INSERT INTO recruits (recruit_id,post_id,recruit_mode,state) OVERRIDING SYSTEM VALUE VALUES
+  (20,20,'regular','OPEN'),(21,21,'regular','OPEN'),(22,22,'regular','OPEN'),
+  (23,23,'regular','OPEN'),(24,24,'regular','OPEN'),(25,25,'regular','OPEN');
+INSERT INTO recruit_members VALUES
+  (20,20,'HOST','JOINED'),(20,1,'MEMBER','JOINED'),
+  (21,21,'HOST','JOINED'),(22,-1,'HOST','JOINED'),(23,23,'HOST','CANCELED'),
+  (24,1,'MEMBER','JOINED'),(25,26,'HOST','JOINED'),(25,25,'HOST','JOINED');
+"""
+
+
+async def host_flow():
+    """HOST를 resolver 없이 실제 DB에서 조회하는 운영 경로 (권한 부여, 참여자 동기화, lifecycle DM)."""
+    admin = psycopg.connect(DSN, autocommit=True)
+    admin.execute(SCHEMA)
+    admin.execute(HOST_FIXTURE)
+    conn = connect()
+    guild = FakeGuild()
+    client = SimpleNamespace(get_guild=lambda guild_id: guild)
+    repo = PostgresMeetingRepository(connect)  # 운영과 같이 resolver 없음
+    sync = DbSync(client, repo)
+
+    # A/B: 저장소가 recruit_members + members에서 직접 조회한다.
+    check(repo.get_host_discord_id(20) == 2020, "HOST: resolver 없이 실제 discord_id 조회")
+    check(repo.get_host_discord_id(21) is None, "HOST discord_id NULL -> None")
+    check(repo.get_host_discord_id(22) is None, "HOST member_id=-1 -> None")
+    check(repo.get_host_discord_id(23) is None, "HOST status != JOINED -> None")
+    check(repo.get_host_discord_id(24) is None, "HOST 행 없음 -> None")
+    check(repo.get_host_discord_id(25) == 2025, "HOST가 여러 명이면 member_id가 가장 작은 한 명 (결정적)")
+
+    # H: from_env()로 만든 운영 저장소도 resolver 없이 같은 SQL 경로를 쓴다.
+    prod = PostgresMeetingRepository.from_env()
+    prod._connect = connect  # 공용 DB 대신 테스트 DB에 연결
+    check(prod._host_resolver is None and prod.get_host_discord_id(20) == 2020,
+          "from_env() 저장소: resolver 없이 SQL로 HOST 조회")
+
+    # C: 공간 생성 직후 HOST 권한 = 참여자와 같은 사용 권한, 채널 관리 권한은 없음.
+    await sync.run_once()
+    category_id = int(rc_row(conn, 20)[1])
+    category = guild.get_channel(category_id)
+    host_key = FakeMember(2020)
+    locations = [category, *category.channels]
+    host_overwrites = [location.overwrites.get(host_key) for location in locations]
+    check(len(locations) == 3 and all(o is not None for o in host_overwrites),
+          "HOST overwrite가 카테고리/채팅/음성 모두에 적용")
+    check(all(o.view_channel and o.read_message_history and o.send_messages and o.connect and o.speak
+              for o in host_overwrites), "HOST 보기/읽기/쓰기/음성 연결/발언 허용")
+    check(all(o.manage_channels is not True and o.manage_messages is not True for o in host_overwrites),
+          "HOST에게 manage_channels / manage_messages 없음")
+    no_host = guild.get_channel(int(rc_row(conn, 24)[1]))
+    check(all(getattr(t, "id", None) in (0, 1001) for t in no_host.overwrites),
+          "HOST 행 없는 모임은 공간만 만들고 HOST 권한은 건너뜀")
+
+    # D: 참여자 동기화를 반복해도 HOST overwrite를 바꾸지 않는다 (role='HOST' 제외).
+    for _ in range(2):
+        await sync.run_once()
+    check([location.overwrites.get(host_key) for location in locations] == host_overwrites
+          and all(location.overwrites.get(host_key) is o for location, o in zip(locations, host_overwrites)),
+          "참여자 동기화 반복 후에도 HOST overwrite 그대로")
+
+    # N+1 없음: lifecycle 목록 조회는 SQL 한 번으로 HOST까지 가져온다.
+    executed = []
+    counting = PostgresMeetingRepository(connect)
+    real_execute = counting._execute
+    counting._execute = lambda *a, **k: executed.append(a[0]) or real_execute(*a, **k)
+    listed = dict(counting.list_regular_meetings())
+    check(len(executed) == 1 and listed[category_id]["host_id"] == 2020,
+          "lifecycle 목록 조회 1회로 host_id 포함 (모임별 추가 조회 없음)")
+
+    # E/G: 30일 무활동 -> HOST DM 1회 + 경고/삭제 예약. HOST를 모르면 기존처럼 건너뜀.
+    conn.execute("UPDATE recruit_discord_channels SET last_activity_at=now()-interval '31 days' "
+                 "WHERE recruit_id IN (20, 21, 24)")
+    host = FakeMember(2020)
+    plain_fetch = guild.fetch_member
+
+    async def fetch(member_id):
+        return host if member_id == 2020 else await plain_fetch(member_id)
+
+    guild.fetch_member = fetch
+    await lifecycle.check_meeting_lifecycle(client, PostgresMeetingRepository(connect))
+    warned = conn.execute("SELECT recruit_id, inactivity_warned_at, scheduled_delete_at "
+                          "FROM recruit_discord_channels WHERE recruit_id IN (20, 21, 24) "
+                          "ORDER BY recruit_id").fetchall()
+    check(host.send.await_count == 1, "resolver 없이 30일 무활동 HOST DM 1회")
+    check(warned[0][1] is not None and warned[0][2] is not None
+          and timedelta(days=6, hours=23) < warned[0][2] - warned[0][1] < timedelta(days=7, hours=1),
+          "경고 저장 + 7일 뒤 삭제 예약")
+    check(all(w is None and d is None for _, w, d in warned[1:]),
+          "HOST discord_id 없음 / HOST 행 없음: 경고·예약 건너뜀")
+
+    # F: 재시작(새 저장소)해도 같은 경고 DM을 다시 보내지 않는다.
+    await lifecycle.check_meeting_lifecycle(client, PostgresMeetingRepository(connect))
+    check(host.send.await_count == 1, "재시작 후 HOST DM 중복 없음")
+
+    conn.close()
+    admin.execute("DROP SCHEMA bot_test CASCADE")
+    admin.close()
+
+
+async def run_all():
+    await main()
+    await host_flow()
     print(f"PASS: {checks} DB integration assertions passed.")
 
 
-asyncio.run(main())
+asyncio.run(run_all())

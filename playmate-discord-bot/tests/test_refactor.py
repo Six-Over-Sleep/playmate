@@ -301,10 +301,41 @@ async def test_wiring():
     check(loop.seconds == 60.0, "테스트 검사 주기 60초")
 
 
+def test_host_wiring():
+    """운영 경로의 HOST 조회 연결 (DB 없이). host_id/resolver를 직접 넣는 테스트로는 이 누락을 잡지 못한다."""
+    import ast
+    from repositories.meeting_repository import PostgresMeetingRepository
+
+    source = ast.parse((ROOT / "bot.py").read_text(encoding="utf-8"))
+    from_env = [node for node in ast.walk(source) if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute) and node.func.attr == "from_env"
+                and getattr(node.func.value, "id", None) == "PostgresMeetingRepository"]
+    check(len(from_env) == 1 and not from_env[0].args and not from_env[0].keywords,
+          "bot.py는 resolver 없이 저장소를 만든다 (HOST는 저장소 SQL로 조회)")
+
+    repo = PostgresMeetingRepository.from_env()
+    calls = []
+
+    def fake_execute(sql, params=(), *, fetch=None):
+        calls.append((" ".join(sql.split()), params))
+        return {"host_discord_id": "2020"}
+
+    repo._execute = fake_execute
+    check(repo._host_resolver is None and repo.get_host_discord_id(20) == 2020,
+          "resolver가 없으면 SQL로 HOST discord_id를 조회")
+    sql, params = calls[-1]
+    check("rm.role = 'HOST' AND rm.status = 'JOINED'" in sql and "m.member_id <> -1" in sql
+          and "m.discord_id IS NOT NULL" in sql and "ORDER BY rm.member_id LIMIT 1" in sql
+          and params == (20,), "HOST 조회 조건: HOST, JOINED, -1 제외, discord_id 있음, 결정적 1명")
+    check("AS host_discord_id" in PostgresMeetingRepository._LIFECYCLE_SELECT,
+          "lifecycle 조회 한 번에 HOST도 함께 가져온다 (N+1 없음)")
+
+
 async def main():
     await test_creation_policy()
     await test_regular_lifecycle()
     await test_activity_tracking()
+    test_host_wiring()
     await test_wiring()
     print(f"PASS: {checks} policy and regression assertions passed.")
 

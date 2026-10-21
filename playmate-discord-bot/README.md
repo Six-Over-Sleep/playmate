@@ -5,7 +5,8 @@ PlayMate의 **모임 기능과 Discord를 연결하기 위한 Bot 모듈**입니
 Discord 기능은 독립적으로 구현·검증되어 있고, 이 브랜치(`feature/13-discord-bot`)에서
 **공용 PostgreSQL(`recruit_discord_channels`)과 DB polling 방식으로 연결**했습니다.
 Backend / Frontend / Auth 코드는 수정하지 않고, Bot이 DB를 주기적으로 읽어 Discord에 반영합니다.
-HOST 연결(Bot의 `host_resolver`), PUBLIC/PRIVATE 저장 위치, 실제 로그인 사용자 연동은 아직 미완료입니다.
+HOST는 DB(`recruit_members.role='HOST'`)에서 조회해 새 공간에 권한을 주고 비활성 DM을 보냅니다.
+기존 공간 HOST 권한 소급·실패 재시도, PUBLIC/PRIVATE 저장 위치, 실제 로그인 사용자 연동은 아직 미완료입니다.
 무엇이 구현되었고 무엇이 실환경에서 확인되었는지는 "2. 현재 개발 상태"와
 "13. 실환경에서 확인된 내용"을 참고하세요.
 
@@ -20,7 +21,9 @@ Discord 기능 구현 / 모듈화 / 실제 Discord 검증     완료
 ↓
 공용 DB 연동 (DB polling, regular 모임만)          구현 완료, 실환경 확인은 일부 (13절 참고)
 ↓
-HOST 연결 · PUBLIC/PRIVATE 저장 · 실제 사용자      연결 작업 남음 (미완료)
+HOST 조회 연결                                     구현 완료 (새 공간 권한 + 비활성 DM, 실서버 미확인)
+↓
+HOST 소급/재시도 · PUBLIC/PRIVATE 저장 · 실제 사용자  미완료
 ```
 
 정책 요약:
@@ -80,6 +83,8 @@ PlayMate 공식 Discord 서버
 - PUBLIC / PRIVATE 권한 정책 (코드 유지, 현재 DB 연동은 임시로 PUBLIC)
 - 참여자 권한 부여 / 회수 (`members.discord_id` 기반, 카테고리·텍스트·음성 전체 위치 검증)
 - 활동 감지 → `last_activity_at` 갱신
+- HOST 조회: `recruit_members`(role='HOST', status='JOINED') + `members.discord_id`를 저장소가 직접 조회
+  (lifecycle 목록 조회 한 번에 함께 가져옴), 새 공간 생성 직후 HOST 사용 권한 부여
 - regular 모임 라이프사이클 (30일 → HOST DM → 7일 유예 → 삭제), 상태는 DB에 저장되어 재시작 후에도 유지
 - 실패 복구: 생성 실패 정리, `FAILED` / `MANUAL` / `ABORTED` 구분, row lock, timeout, 취소 안전성
 
@@ -97,15 +102,17 @@ PlayMate 공식 Discord 서버
   `members.discord_id` 기반 JOINED 참여자 권한 부여, 실제 메시지로 `last_activity_at` 갱신,
   CANCELED 감지와 PUBLIC 읽기 전용 처리 로직 실행, short 모임에 채널과 DB 행이 생기지 않음.
 - 확인하지 못함: 일반 사용자 계정의 실제 쓰기·음성 차단 (테스트 계정이 서버 Owner라서),
-  HOST 권한과 HOST DM (Bot의 `host_resolver` 미연결), 그 밖의 아래 미확인 항목.
+  HOST 권한과 HOST DM (DB 조회 연결 후 실서버에서는 아직 확인하지 않음), 그 밖의 아래 미확인 항목.
 
 ### 아직 하지 않은 것 (미완료)
 
-- **HOST 연결**: Backend는 모임 생성자를 `recruit_members.role='HOST'`로 저장하지만,
-  Bot은 아직 `host_resolver`를 연결하지 않았습니다. 그래서 HOST 권한 부여와 비활성 HOST DM은
-  **지금 동작하지 않으며**, HOST를 모르는 모임은 경고/유예 예약도 하지 않습니다.
-  참여자 권한 동기화도 HOST 행을 제외하므로(HOST 권한을 덮어쓰지 않기 위해), 연결 전까지는
-  모임 생성자에게 Discord 쓰기 권한이 자동으로 주어지지 않습니다.
+- **HOST 권한의 범위**: HOST 권한은 **새 공간을 만든 직후 한 번만** 부여합니다.
+  - 이미 만들어진 공간에는 소급 적용하지 않습니다.
+  - 그 순간 HOST가 서버에 없거나 Discord 호출이 실패하면 다시 시도하지 않습니다.
+    참여자 권한 동기화는 HOST 권한을 덮어쓰지 않도록 HOST 행을 제외하기 때문입니다.
+  - HOST 권한 부여는 아직 `regular_lock` 밖에서 실행됩니다.
+- **HOST 행이 없는 과거 모임**(Backend가 HOST를 저장하기 전에 만든 모임)은 HOST를 알 수 없어
+  경고/유예 예약을 하지 않습니다.
 - **PUBLIC / PRIVATE 저장 위치**: 미확정입니다. `config.DEFAULT_VISIBILITY="PUBLIC"` 임시 정책을 사용합니다.
 - **실제 로그인 사용자 기반 참여/취소**: Backend가 `member_id=-1`로 고정되어 있어
   `member_id=-1`, `discord_id`가 없거나 숫자가 아닌 회원은 권한 동기화에서 제외합니다.
@@ -204,19 +211,20 @@ playmate-discord-bot/
 
 ### HOST 권한
 
-현재 HOST에게는 다음 권한을 부여합니다.
+HOST는 참여자와 같은 사용 권한만 받습니다 (확정 정책).
 
 ```text
-manage_channels = True
+view_channel / read_message_history / send_messages / connect / speak = True
+manage_channels = 미부여
 manage_messages = 미설정(None)
 ```
 
-`manage_messages=False`가 아닙니다.
+`None`은 이 overwrite에서 허용도 거부도 하지 않고 상위 Discord 권한 설정을 따른다는 뜻입니다.
 
-`None`은 해당 권한을 이 overwrite에서 명시적으로 허용하거나 거부하지 않고,
-상위 Discord 권한 설정을 따르게 한다는 의미입니다.
-
-`manage_channels=True`는 현재 정책이며, 실제 서비스 적용 전에 팀에서 최종 논의할 수 있습니다.
+채널 관리 권한(`manage_channels`)을 주지 않는 이유:
+Bot은 세 리소스(카테고리·채팅·음성)가 모두 사라져야 공간 삭제로 판단하고, 일부 삭제는 복구하거나 다시 만들지 않습니다.
+HOST가 채팅 채널이나 카테고리만 지우거나 채널을 다른 카테고리로 옮기면 활동 감지가 끊기거나
+다른 모임의 활동으로 기록될 수 있습니다.
 
 ---
 
@@ -282,7 +290,8 @@ HOST에게 DM 경고 → inactivity_warned_at 기록, scheduled_delete_at = 7일
   SQL에는 남은 시간 예산만큼의 서버 `statement_timeout`도 설정합니다.
   (Discord 공간이 이미 사라졌는데 기록만 실패한 경우는 다음 주기에 "이미 없음"으로 기록됩니다.)
 - 삭제 시도 중 들어온 활동은 거부되지 않고 기록되며, 삭제가 실패하면 최신 활동 기준으로 다시 계산됩니다.
-- HOST를 알 수 없는 모임은 경고/유예 예약을 하지 않습니다 (`host_resolver` 미연결, 위 "아직 하지 않은 것" 참고).
+- HOST를 알 수 없는 모임(HOST 행이나 `discord_id` 없음)은 경고/유예 예약을 하지 않습니다.
+  HOST가 서버에 없거나 DM이 막히면 경고를 저장하지 않고 다음 주기에 다시 시도합니다.
 
 ---
 
@@ -504,10 +513,11 @@ python tests/test_refactor.py
 - 삭제 성공 / 실패
 - 활동 재개
 - HOST 조회 / DM 오류
+- 운영 저장소의 HOST 조회 연결 (`bot.py`가 resolver 없이 만들고, 저장소가 SQL로 조회)
 - Bot 메시지 / DM / 미등록 채널 무시
 - 중복 Task 시작 방지
 
-현재 **46개 단언을 통과**한 상태입니다.
+현재 **50개 단언을 통과**한 상태입니다.
 
 ### 알림 / 공식 채널 정책 테스트 (mock)
 
@@ -566,7 +576,7 @@ python tests/test_db_integration.py
 **확인하지 못한 항목**
 
 - 일반 사용자 계정의 실제 쓰기·음성 차단: 테스트 계정이 서버 Owner라서 권한 제한을 받지 않아 최종 확인하지 못했습니다.
-- HOST 권한과 HOST DM: Bot의 `host_resolver`가 연결되지 않아 확인하지 못했습니다 (Backend는 HOST를 저장함).
+- HOST 권한과 HOST DM: DB 조회 연결 후 DB 통합 테스트로는 확인했지만, 실제 Discord 서버에서는 아직 확인하지 않았습니다.
 - 30일 비활성 경고, 7일 유예, 자동 삭제를 DB 연동 상태의 실제 서버에서 끝까지 돌려 본 결과는 아직 없습니다.
 - PRIVATE 모임, `MANUAL:` / `ABORTED:` 상태의 실제 운영 시나리오, 실제 로그인 사용자 기반 참여/취소도 확인하지 못했습니다.
 
@@ -662,7 +672,7 @@ Discord resource ID는 `recruit_discord_channels`에 `varchar`로 저장하고(`
 
 Backend 담당자와 협의 후 진행할 항목:
 
-1. `host_resolver` 연결 (Backend는 생성자를 `recruit_members.role='HOST'`로 저장함)
+1. 기존 공간 HOST 권한 소급, HOST 권한 실패 재시도, HOST 권한 부여를 `regular_lock` 안에서 처리
 2. PUBLIC/PRIVATE 저장 위치 결정 → `DEFAULT_VISIBILITY` 대체
 3. 참여/취소가 실제 로그인 사용자(`member_id`)를 쓰도록 변경
 4. 필요하면 DB polling을 Backend → Bot 내부 API 호출로 교체

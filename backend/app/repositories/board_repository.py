@@ -1,17 +1,25 @@
 """게시판 SQL과 결과 매핑. 연결·권한·트랜잭션은 Service에서 관리한다."""
 
+# Any : 게시글/댓글 조회 결과에 여러 데이터 타입이 들어올 수 있음을 나타냄
 from typing import Any
 
 
+# 게시글 여러 개에 첨부된 이미지를 한 번의 SQL 조회로 가져오는 함수
 def images_by_post(cursor, post_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
     """게시글 ID들을 한 번에 조회하여 표시 순서대로 이미지를 묶는다.
 
     이미지가 없는 게시글은 빈 목록이다. 빈 ID 목록은 SQL을 실행하지 않는다.
     내부 매핑용 post_id는 이미지 응답에 포함하지 않는다.
     """
+    # 게시글별 이미지 목록을 저장할 딕셔너리 생성
+    # 이미지가 없어도 해당 post_id의 값은 빈 리스트([])로 유지함
     images = {post_id: [] for post_id in post_ids}
+    # 조회할 게시글이 없으면 DB에 쿼리하지 않고 바로 반환함
     if not post_ids:
         return images
+    # ANY(%s) : 전달한 게시글 ID 목록 중 하나라도 일치하는 이미지를 조회함
+    # ORDER BY : 게시글별로 이미지 표시 순서를 유지함
+    # AS : DB 컬럼 이름을 프론트엔드 응답용 키(id, url)로 변경함
     cursor.execute(
         """
         SELECT
@@ -25,17 +33,24 @@ def images_by_post(cursor, post_ids: list[int]) -> dict[int, list[dict[str, Any]
         """,
         (post_ids,),
     )
+    # fetchall() : 쿼리 결과 전체 조회
+    # pop("post_id") : 내부 매핑에만 쓰는 ID를 이미지 응답에서 제거함
     for image in cursor.fetchall():
         post_id = image.pop("post_id")
         images[post_id].append(image)
     return images
 
 
+# 일반 게시판 글을 구분하는 고정된 post_type 값
 BOARD_POST_TYPE = "BOARD"
 
 
+# 삭제된 게시글과 모임 모집에 연결된 게시글을 제외하기 위한 공통 조건
 def _board_post_guard(alias: str = "p") -> str:
     """내부 SQL 별칭으로 삭제·모임 게시글 제외 조건을 구성한다."""
+    # deleted_at IS NULL : 삭제 처리되지 않은 글만 허용함
+    # NOT EXISTS : recruits 테이블에 연결된 모임 게시글을 제외함
+    # alias : 게시글 테이블의 SQL 별칭(p 등), 내부 코드에서만 전달함
     return f"""
         {alias}.deleted_at IS NULL
         AND NOT EXISTS (
@@ -46,8 +61,10 @@ def _board_post_guard(alias: str = "p") -> str:
     """
 
 
+# 전체 게시판 목록 조회
 def list_boards(cursor) -> list[dict[str, Any]]:
     """기본 게시판 우선·생성 시간·ID 순으로 게시판 응답 목록을 조회한다."""
+    # is_default가 True인 기본 게시판을 먼저 표시하고 이후 생성 시간순 정렬함
     cursor.execute("""
         SELECT
             board_id AS id,
@@ -63,6 +80,7 @@ def list_boards(cursor) -> list[dict[str, Any]]:
     return list(cursor.fetchall())
 
 
+# 새 게시판을 등록하고 생성된 게시판 ID를 반환함
 def create_board(
     cursor,
     name: str,
@@ -71,6 +89,9 @@ def create_board(
     member_id: int,
 ) -> int:
     """게시판 입력값을 저장하고 생성 ID를 반환한다. 커밋은 호출자가 수행한다."""
+    # INSERT : 게시판 이름, 설명, 생성 이유, 생성자 회원 ID 저장
+    # %s : SQL에 전달할 값을 안전하게 바인딩하는 자리표시자
+    # RETURNING : 새로 저장된 board_id를 바로 반환받음
     cursor.execute(
         """
         INSERT INTO boards (
@@ -81,12 +102,15 @@ def create_board(
         """,
         (name, description or None, creation_reason or None, member_id),
     )
+    # fetchone() : RETURNING으로 반환된 게시판 ID 한 건을 조회함
     board_id = cursor.fetchone()["board_id"]
     return board_id
 
 
+# 게시판 번호로 특정 게시판의 기본 정보를 조회함
 def get_board(cursor, board_id: int) -> dict[str, Any] | None:
     """게시판 ID로 응답 필드를 조회한다. 없으면 None을 반환한다."""
+    # WHERE board_id = %s : 요청한 게시판 번호와 일치하는 한 건만 조회함
     cursor.execute(
         """
         SELECT
@@ -99,19 +123,35 @@ def get_board(cursor, board_id: int) -> dict[str, Any] | None:
         """,
         (board_id,),
     )
+    # 해당 게시판이 없으면 fetchone() 결과는 None임
     row = cursor.fetchone()
     return row
 
 
+# 특정 게시판의 게시글 목록과 댓글 수, 첨부 이미지를 조회함
 def list_posts(
     cursor, board_id: int, search: str, member_id: int
 ) -> list[dict[str, Any]]:
     """검색 조건으로 게시글을 조회하고 이미지를 일괄 매핑한다. 정렬·댓글 집계를 보존한다."""
+    # SQL에서 사용하는 %s 자리표시자 순서대로 조회 인자를 준비함
+    # member_id는 본인 작성 여부(is_owner), board_id는 게시판 필터에 사용함
     params: list[Any] = [member_id, board_id]
     condition = ""
+    # 검색어가 있을 때만 제목·본문 검색 조건을 추가함
+    # ILIKE : PostgreSQL에서 대소문자 구분 없이 문자열 검색
+    # %검색어% : 검색어가 포함된 글을 찾는 패턴
     if search:
         condition = " AND (p.title ILIKE %s OR p.body ILIKE %s)"
         params += [f"%{search}%", f"%{search}%"]
+    # JOIN members : 작성자의 닉네임 조회
+    # LEFT JOIN comments : 댓글이 없어도 게시글은 목록에 포함
+    # COUNT ... FILTER : 삭제되지 않은 댓글만 집계
+    # COALESCE/NULLIF : 닉네임이 없거나 빈 문자열이면 "익명" 사용
+    # GROUP BY : 게시글별 댓글 수를 계산하기 위한 그룹화
+    # 최신 게시글부터 조회하고 모임 모집글/삭제된 글은 제외함
+    # 서브쿼리 COUNT(*) : 삭제되지 않은 댓글 개수를 계산함
+    # (작성자 ID = 요청자 ID) : 글 수정/삭제 UI에 활용할 is_owner 값
+    # _board_post_guard() : 삭제된 글과 모임 모집글은 조회 대상에서 제외함
     cursor.execute(
         f"""
         SELECT
@@ -145,13 +185,16 @@ def list_posts(
         """,
         params,
     )
+    # 게시글 전체 조회 후, N번 조회하지 않도록 이미지 목록을 일괄 조회함
     rows = list(cursor.fetchall())
     images = images_by_post(cursor, [row["id"] for row in rows])
+    # 게시글 한 건마다 해당 이미지 목록(images)을 붙여 반환함
     for row in rows:
         row["images"] = images[row["id"]]
     return rows
 
 
+# 게시글을 생성하고 필요하면 첨부 이미지 메타데이터도 저장함
 def create_post(
     cursor,
     board_id: int,
@@ -161,6 +204,9 @@ def create_post(
     images: list[dict[str, Any]] | None = None,
 ) -> int:
     """게시글과 이미지 메타데이터를 주어진 커서로 저장하고 게시글 ID를 반환한다."""
+    # 게시글 작성자, 제목, 본문을 저장함
+    # post_type=BOARD / source_type=USER / post_status=PUBLISHED로 저장함
+    # CURRENT_TIMESTAMP : 게시글 공개 시간을 DB 현재 시간으로 기록함
     cursor.execute(
         """
         INSERT INTO posts (
@@ -172,7 +218,10 @@ def create_post(
         """,
         (board_id, member_id, BOARD_POST_TYPE, title, body),
     )
+    # INSERT 결과로 생성된 게시글 번호를 가져옴
     post_id = cursor.fetchone()["post_id"]
+    # 이미지는 파일 자체가 아닌 저장 이름·파일 크기 등의 정보를 DB에 기록함
+    # enumerate() : 첨부 순서(display_order)를 0부터 지정함
     for order, image in enumerate(images or []):
         cursor.execute(
             """
@@ -194,6 +243,7 @@ def create_post(
     return post_id
 
 
+# 단일 게시글의 내용, 작성자, 댓글 수, 첨부 이미지를 조회함
 def get_post(
     cursor, board_id: int, post_id: int, member_id: int
 ) -> dict[str, Any] | None:
@@ -224,16 +274,20 @@ def get_post(
         """,
         (member_id, board_id, post_id),
     )
+    # 조회한 글이 있을 때만 이미지 정보를 함께 추가함
     row = cursor.fetchone()
     if row is not None:
         row["images"] = images_by_post(cursor, [post_id])[post_id]
     return row
 
 
+# 게시글 작성자만 제목과 본문을 수정할 수 있도록 제한함
 def update_post(
     cursor, board_id: int, post_id: int, title: str, body: str, member_id: int
 ) -> bool:
     """작성자·삭제·모임 조건으로 게시글을 수정하고 변경 여부를 반환한다."""
+    # UPDATE : 제목, 본문, 마지막 수정 시간을 변경함
+    # WHERE : 같은 게시판의 글 + 작성자 본인 + 미삭제 + 비모임 게시글
     cursor.execute(
         f"""
         UPDATE posts AS p
@@ -247,11 +301,15 @@ def update_post(
         """,
         (title, body, board_id, post_id, member_id),
     )
+    # rowcount : 실제 변경된 행 수, 한 건 이상이면 수정 성공(True)
     return cursor.rowcount > 0
 
 
+# 게시글을 물리적으로 지우지 않고 삭제 일시를 기록함
 def delete_post(cursor, board_id: int, post_id: int, member_id: int) -> bool:
     """작성자·삭제·모임 조건으로 게시글을 논리 삭제하고 변경 여부를 반환한다."""
+    # 논리 삭제(Soft Delete) : deleted_at에 시간만 기록하여 데이터 보존
+    # 작성자 본인 글이고 아직 삭제되지 않았으며 모임 글이 아닐 때만 처리함
     cursor.execute(
         f"""
         UPDATE posts AS p
@@ -264,11 +322,15 @@ def delete_post(cursor, board_id: int, post_id: int, member_id: int) -> bool:
         """,
         (board_id, post_id, member_id),
     )
+    # 처리한 글이 있으면 True, 없으면 False 반환
     return cursor.rowcount > 0
 
 
+# 게시글 존재 여부만 확인하여 불필요한 데이터 조회를 줄임
 def post_exists(cursor, board_id: int, post_id: int) -> bool:
     """게시판과 게시글 ID로 유효한 글 존재 여부만 조회한다."""
+    # SELECT 1 : 데이터 내용은 가져오지 않고 존재 여부만 확인함
+    # 삭제·모임 제외 조건은 게시글 상세 조회와 동일하게 적용함
     cursor.execute(
         f"""
         SELECT
@@ -283,14 +345,23 @@ def post_exists(cursor, board_id: int, post_id: int) -> bool:
     return cursor.fetchone() is not None
 
 
+# 게시글에 달린 댓글 목록을 작성 시간 순서로 조회함
 def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
     """삭제되지 않은 댓글을 작성 시간·ID 순서로 반환한다."""
+    # JOIN members : 작성자의 닉네임과 작성자 ID를 함께 조회함
+    # is_owner : 로그인한 회원이 해당 댓글 작성자인지 비교함
+    # deleted_at IS NULL : 삭제되지 않은 댓글만 조회함
+    # 요청자와 작성자를 비교하여 is_owner 값을 포함함
+    # 삭제된 댓글은 조회 대상에서 제외함
     cursor.execute(
         """
+
         SELECT
             c.comment_id AS id,
             c.post_id,
+            c.parent_comment_id,
             c.body,
+
             c.author_member_id AS author_id,
             COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,
             c.created_at,
@@ -309,20 +380,35 @@ def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
     return list(cursor.fetchall())
 
 
-def create_comment(cursor, post_id: int, body: str, member_id: int) -> int:
-    """게시글 ID·작성자·본문으로 댓글을 저장하고 생성 ID를 반환한다."""
+
+# 댓글 및 대댓글 저장
+def create_comment(
+    cursor,
+    post_id: int,
+    body: str,
+    member_id: int,
+    parent_comment_id: int | None = None
+) -> int:
+
     cursor.execute(
         """
-        INSERT INTO comments (post_id, author_member_id, body)
-        VALUES (%s, %s, %s)
+        INSERT INTO comments (
+            post_id,
+            author_member_id,
+            body,
+            parent_comment_id
+        )
+        VALUES (%s, %s, %s, %s)
         RETURNING comment_id
         """,
-        (post_id, member_id, body),
+        (post_id, member_id, body, parent_comment_id)
     )
-    comment_id = cursor.fetchone()["comment_id"]
-    return comment_id
+
+    return cursor.fetchone()["comment_id"]
 
 
+
+# 댓글 ID에 해당하는 댓글 한 건을 조회함
 def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | None:
     """댓글 ID로 응답 필드를 조회한다. 없거나 삭제되었으면 None이다."""
     cursor.execute(
@@ -330,6 +416,7 @@ def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | Non
         SELECT
             c.comment_id AS id,
             c.post_id,
+            c.parent_comment_id,
             c.body,
             c.author_member_id AS author_id,
             COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,
@@ -347,8 +434,11 @@ def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | Non
     return row
 
 
+# 댓글 작성자만 본문을 수정할 수 있도록 처리함
 def update_comment(cursor, comment_id: int, body: str, member_id: int) -> bool:
     """댓글 ID·작성자 조건으로 본문을 수정하고 변경 여부를 반환한다."""
+    # UPDATE : 댓글 내용과 마지막 수정 시간 갱신
+    # WHERE : 댓글 번호와 작성자가 일치하며 아직 삭제되지 않은 댓글만 허용
     cursor.execute(
         """
         UPDATE comments
@@ -363,8 +453,11 @@ def update_comment(cursor, comment_id: int, body: str, member_id: int) -> bool:
     return cursor.rowcount > 0
 
 
+# 댓글 내용을 즉시 삭제하지 않고 삭제 시간을 기록함
 def delete_comment(cursor, comment_id: int, member_id: int) -> bool:
     """댓글 ID·작성자 조건으로 논리 삭제하고 변경 여부를 반환한다."""
+    # 논리 삭제 : deleted_at을 기록하여 댓글을 목록/상세에서 제외함
+    # 다른 회원의 댓글이나 이미 삭제된 댓글은 변경하지 않음
     cursor.execute(
         """
         UPDATE comments
@@ -379,8 +472,10 @@ def delete_comment(cursor, comment_id: int, member_id: int) -> bool:
     return cursor.rowcount > 0
 
 
+# 댓글이 존재하고 삭제되지 않았는지 빠르게 확인함
 def comment_exists(cursor, comment_id: int) -> bool:
     """삭제되지 않은 댓글 존재 여부를 반환하여 서비스의 403/404 판단을 돕는다."""
+    # SELECT 1 : 행의 전체 데이터를 읽지 않고 존재 여부만 확인함
     cursor.execute(
         """
         SELECT

@@ -27,6 +27,9 @@ from backend.app.schemas.mypage import MyPostResponse
 from backend.app.schemas.mypage import MyCommentResponse
 from backend.app.schemas.mypage import MyScrapResponse
 from backend.app.schemas.mypage import MyMeetupResponse
+from fastapi import Query
+from backend.app.schemas.mypage import MyPostPageResponse
+from backend.app.schemas.mypage import MyCommentPageResponse
 
 router = APIRouter(prefix="/mypage", tags=["마이페이지"])
 
@@ -470,39 +473,103 @@ def get_my_skill_accuracy(
             return cursor.fetchall()
 
 
+
 # 내가 작성한 게시글 조회
 @router.get("/posts", response_model=list[MyPostResponse])
+
+# 내가 작성한 게시글 조회 (페이지네이션)
+@router.get("/posts", response_model=MyPostPageResponse)
 def get_my_posts(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
     member_id: int = Depends(get_current_member_id)
 ):
+    offset = (page - 1) * page_size
+
     with get_db_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
+
+            # 전체 게시글 수
             cursor.execute(
                 """
-                SELECT
-                    post_id,
-                    board_id,
-                    COALESCE(title, '제목 없음') AS title,
-                    created_at
+                SELECT COUNT(*) AS total
                 FROM posts
                 WHERE author_member_id = %s
-                    AND deleted_at IS NULL
-                ORDER BY created_at DESC NULLS LAST, post_id DESC
-                LIMIT 20
+                  AND deleted_at IS NULL
                 """,
                 (member_id,)
             )
 
-            return cursor.fetchall()
+            total = cursor.fetchone()["total"]
+
+            # 현재 페이지의 게시글 조회
+            cursor.execute(
+                """
+                SELECT
+                    p.post_id,
+                    p.board_id,
+                    CASE
+                        WHEN b.board_name IS NOT NULL
+                            THEN b.board_name
+                        WHEN p.post_type = 'RECRUIT'
+                            THEN '모임'
+                        ELSE '기타 게시글'
+                    END AS board_name,
+                    COALESCE(p.title, '제목 없음') AS title,
+                    p.created_at
+                FROM posts p
+                LEFT JOIN boards b
+                    ON p.board_id = b.board_id
+                WHERE p.author_member_id = %s
+                  AND p.deleted_at IS NULL
+                ORDER BY
+                    p.created_at DESC NULLS LAST,
+                    p.post_id DESC
+                LIMIT %s OFFSET %s
+                """,
+                (member_id, page_size, offset)
+            )
+
+            items = cursor.fetchall()
+
+            return {
+                "items": items,
+                "total": total,
+                "page": page,
+                "page_size": page_size
+            }
+
 
 
 # 내가 작성한 댓글 및 대댓글 조회
 @router.get("/comments", response_model=list[MyCommentResponse])
+
+@router.get("/comments", response_model=MyCommentPageResponse)
 def get_my_comments(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
     member_id: int = Depends(get_current_member_id)
 ):
+    offset = (page - 1) * page_size
+
     with get_db_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
+
+            # 전체 댓글 수
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM comments c
+                JOIN posts p ON c.post_id = p.post_id
+                WHERE c.author_member_id = %s
+                  AND c.deleted_at IS NULL
+                  AND p.deleted_at IS NULL
+                """,
+                (member_id,)
+            )
+            total = cursor.fetchone()["total"]
+
+            # 현재 페이지 댓글 조회
             cursor.execute(
                 """
                 SELECT
@@ -514,20 +581,24 @@ def get_my_comments(
                     c.parent_comment_id,
                     c.created_at
                 FROM comments c
-                JOIN posts p
-                    ON c.post_id = p.post_id
+                JOIN posts p ON c.post_id = p.post_id
                 WHERE c.author_member_id = %s
-                    AND c.deleted_at IS NULL
-                    AND p.deleted_at IS NULL
+                  AND c.deleted_at IS NULL
+                  AND p.deleted_at IS NULL
                 ORDER BY
                     c.created_at DESC NULLS LAST,
                     c.comment_id DESC
-                LIMIT 20
+                LIMIT %s OFFSET %s
                 """,
-                (member_id,)
+                (member_id, page_size, offset)
             )
 
-            return cursor.fetchall()
+            return {
+                "items": cursor.fetchall(),
+                "total": total,
+                "page": page,
+                "page_size": page_size
+            }
 
 
 # 내가 스크랩한 게시글 조회

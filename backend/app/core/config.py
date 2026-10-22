@@ -13,7 +13,8 @@ load_dotenv(BASE_DIR / ".env")
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI")
-
+# Discord API 기본 주소
+DISCORD_API_URL = os.getenv("DISCORD_API_URL", "https://discord.com/api/v10")
 SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
 
 DB_HOST = os.getenv("DB_HOST")

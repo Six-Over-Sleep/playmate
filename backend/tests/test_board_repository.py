@@ -596,6 +596,194 @@ def test_real_auth_rejects_unauthenticated_scrap(monkeypatch, method):
     assert response.status_code == 401
 
 
+def comment_row(comment_id=5, parent_comment_id=3, **changes):
+    return dict(
+        dict(
+            id=comment_id,
+            post_id=2,
+            parent_comment_id=parent_comment_id,
+            body="답글",
+            author_id=1,
+            author_name="닉네임",
+            created_at=NOW,
+            updated_at=NOW,
+            is_owner=True,
+        ),
+        **changes,
+    )
+
+
+def test_create_top_level_comment_skips_parent_check(database):
+    """일반 댓글은 부모 조회 없이 parent_comment_id NULL로 저장한다."""
+    row = comment_row(3, None, body="댓글")
+    cursor, connection, _ = database([{"exists": 1}, {"comment_id": 3}, row])
+    assert service.create_comment(1, 2, "댓글", 1) == row
+    assert len(cursor.queries) == 3
+    sql, params = cursor.queries[1]
+    assert "INSERT INTO comments (post_id, author_member_id, body, parent_comment_id)" in sql
+    assert params == (2, 1, "댓글", None)
+    connection.commit.assert_called_once()
+
+
+def test_create_reply_validates_parent_in_same_transaction(database):
+    cursor, connection, factory = database(
+        [
+            {"exists": 1},
+            {"post_id": 2, "parent_comment_id": None},
+            {"comment_id": 5},
+            comment_row(),
+        ]
+    )
+    assert service.create_comment(1, 2, "답글", 1, 3)["parent_comment_id"] == 3
+    sql, params = cursor.queries[1]
+    assert "FROM comments WHERE comment_id = %s AND deleted_at IS NULL" in sql
+    assert params == (3,)
+    assert cursor.queries[2][1] == (2, 1, "답글", 3)
+    factory.assert_called_once()
+    connection.commit.assert_called_once()
+    connection.rollback.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "parent,status",
+    [
+        (None, 404),
+        ({"post_id": 9, "parent_comment_id": None}, 404),
+        ({"post_id": 2, "parent_comment_id": 1}, 422),
+    ],
+    ids=["missing_or_deleted_parent", "other_post_parent", "reply_to_reply"],
+)
+def test_invalid_reply_parent_rolls_back(database, parent, status):
+    """없는·삭제된·다른 글의 부모와 대댓글의 대댓글은 저장하지 않는다."""
+    cursor, connection, _ = database([{"exists": 1}, parent])
+    with pytest.raises(HTTPException) as error:
+        service.create_comment(1, 2, "답글", 1, 3)
+    assert error.value.status_code == status
+    assert len(cursor.queries) == 2
+    assert all("INSERT INTO comments" not in sql for sql, _ in cursor.queries)
+    connection.commit.assert_not_called()
+    connection.rollback.assert_called_once()
+
+
+def test_list_comments_keeps_deleted_parent_with_replies(database):
+    """삭제된 부모는 살아 있는 대댓글이 있을 때만 본문·작성자를 비운 행으로 남긴다."""
+    rows = [
+        comment_row(
+            3, None, body="", author_id=None, author_name="", is_owner=False,
+            is_deleted=True,
+        ),
+        comment_row(5, 3),
+    ]
+    cursor, _, _ = database([{"exists": 1}, rows])
+    assert service.list_comments(1, 2, 1) == rows
+    sql, params = cursor.queries[1]
+    assert params == (1, 2)
+    assert "CASE WHEN c.deleted_at IS NULL THEN c.body ELSE '' END AS body" in sql
+    assert "(c.deleted_at IS NULL AND c.author_member_id = %s) AS is_owner" in sql
+    assert "r.parent_comment_id = c.comment_id AND r.deleted_at IS NULL" in sql
+    assert (
+        "ORDER BY COALESCE(parent.created_at, c.created_at), "
+        "COALESCE(parent.comment_id, c.comment_id), "
+        "c.parent_comment_id IS NOT NULL, c.created_at, c.comment_id"
+    ) in sql
+
+
+def test_delete_parent_comment_does_not_touch_replies(database):
+    """부모 삭제는 기존처럼 해당 댓글 한 건만 논리 삭제한다."""
+    cursor, connection, _ = database([None])
+    service.delete_comment(3, 1)
+    sql, params = cursor.queries[0]
+    assert "SET deleted_at = CURRENT_TIMESTAMP" in sql
+    assert "WHERE comment_id = %s AND author_member_id = %s" in sql
+    assert "parent_comment_id" not in sql and params == (3, 1)
+    connection.commit.assert_called_once()
+
+
+def test_comment_count_includes_replies(database):
+    """댓글 수는 기존처럼 삭제되지 않은 댓글·대댓글을 모두 센다."""
+    cursor, _, _ = database([dict(post_row(2), comment_count=5), []])
+    assert service.get_post(1, 2, 1)["comment_count"] == 5
+    sql, _ = cursor.queries[0]
+    assert "FROM comments AS c WHERE c.post_id = p.post_id AND c.deleted_at IS NULL" in sql
+    assert "parent_comment_id" not in sql
+
+
+@pytest.mark.parametrize(
+    "method,payload,results,status",
+    [
+        (
+            "post",
+            {"body": "답글", "parent_comment_id": 3},
+            [{"exists": 1}, {"post_id": 2, "parent_comment_id": None},
+             {"comment_id": 5}, "reply"],
+            201,
+        ),
+        (
+            "post",
+            {"body": "답글", "parent_comment_id": 5},
+            [{"exists": 1}, {"post_id": 2, "parent_comment_id": 3}],
+            422,
+        ),
+        ("patch", {"body": "수정 답글"}, [None, "reply"], 200),
+        ("patch", {"body": "수정", "parent_comment_id": 3}, [], 422),
+        ("delete", None, [None], 204),
+    ],
+    ids=["create_reply", "reply_to_reply", "update_reply", "move_reply", "delete_reply"],
+)
+def test_http_reply_service_repository(client, database, method, payload, results, status):
+    """대댓글 작성·수정·삭제가 기존 댓글 HTTP 계약과 권한 흐름을 따른다."""
+    results = [comment_row() if row == "reply" else row for row in results]
+    _, connection, _ = database(results)
+    url = "/api/boards/1/posts/2/comments" if method == "post" else "/api/comments/5"
+    response = client.request(
+        method.upper(), url, **({"json": payload} if payload else {})
+    )
+    assert response.status_code == status
+    if status in {200, 201}:
+        assert response.json()["parent_comment_id"] == 3
+        assert response.json()["is_deleted"] is False
+    if status < 400:
+        connection.commit.assert_called_once()
+    else:
+        connection.commit.assert_not_called()
+
+
+def test_http_reply_owner_failure_returns_403(client, database):
+    """다른 회원의 대댓글 수정은 기존 작성자 권한 규칙대로 403이다."""
+    _, connection, _ = database([None, {"exists": 1}], rowcount=0)
+    response = client.patch("/api/comments/5", json={"body": "남의 답글"})
+    assert response.status_code == 403
+    connection.rollback.assert_called_once()
+
+
+def test_http_list_deleted_parent_placeholder(client, database):
+    rows = [
+        comment_row(
+            3, None, body="", author_id=None, author_name="", is_owner=False,
+            is_deleted=True,
+        ),
+        comment_row(5, 3),
+    ]
+    database([{"exists": 1}, rows])
+    response = client.get("/api/boards/1/posts/2/comments")
+    assert response.status_code == 200
+    parent, reply = response.json()
+    assert parent["is_deleted"] is True and parent["body"] == ""
+    assert parent["author_id"] is None and parent["is_owner"] is False
+    assert reply["parent_comment_id"] == 3 and reply["is_deleted"] is False
+
+
+@pytest.mark.parametrize("method", ["POST", "PATCH", "DELETE"])
+def test_real_auth_rejects_unauthenticated_reply(monkeypatch, method):
+    monkeypatch.setenv("APP_ENV", "production")
+    url = "/api/boards/1/posts/2/comments" if method == "POST" else "/api/comments/5"
+    with TestClient(app) as client:
+        response = client.request(
+            method, url, json={"body": "답글", "parent_comment_id": 3}
+        )
+    assert response.status_code == 401
+
+
 def test_http_duplicate_board_rolls_back(client, database):
     from psycopg2.errors import UniqueViolation
 

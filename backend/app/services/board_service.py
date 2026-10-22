@@ -183,13 +183,35 @@ def list_comments(board_id: int, post_id: int, member_id: int) -> list[dict[str,
         return repository.list_comments(cursor, post_id, member_id)
 
 
+def _require_parent_comment(cursor, post_id: int, parent_comment_id: int) -> None:
+    """대댓글의 부모가 같은 글의 삭제되지 않은 최상위 댓글인지 검증한다.
+
+    없거나 삭제되었거나 다른 글의 댓글이면 404, 대댓글에 다시 답글을 달면 422이다.
+    """
+    parent = repository.get_parent_comment(cursor, parent_comment_id)
+    if parent is None or parent["post_id"] != post_id:
+        raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
+    if parent["parent_comment_id"] is not None:
+        raise HTTPException(
+            status_code=422, detail="대댓글에는 답글을 달 수 없습니다."
+        )
+
+
 def create_comment(
-    board_id: int, post_id: int, body: str, member_id: int
+    board_id: int,
+    post_id: int,
+    body: str,
+    member_id: int,
+    parent_comment_id: int | None = None,
 ) -> dict[str, Any]:
-    """게시글 확인·댓글 저장·응답 조회를 한 트랜잭션에서 수행한다."""
+    """게시글·부모 댓글 확인, 댓글 저장, 응답 조회를 한 트랜잭션에서 수행한다."""
     with db_cursor(commit=True) as cursor:
         _require_post(cursor, board_id, post_id)
-        comment_id = repository.create_comment(cursor, post_id, body, member_id)
+        if parent_comment_id is not None:
+            _require_parent_comment(cursor, post_id, parent_comment_id)
+        comment_id = repository.create_comment(
+            cursor, post_id, body, member_id, parent_comment_id
+        )
         return _comment_detail(cursor, comment_id, member_id)
 
 

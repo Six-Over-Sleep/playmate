@@ -171,7 +171,9 @@ def create_comment(
     payload: CommentWrite,
     member_id: int = Depends(get_current_member_id),
 ):
-    return board_service.create_comment(board_id, post_id, payload.body, member_id)
+    return board_service.create_comment(
+        board_id, post_id, payload.body, member_id, payload.parent_comment_id
+    )
 
 
 @router.patch("/comments/{comment_id}", response_model=CommentResponse)
@@ -180,6 +182,8 @@ def update_comment(
     payload: CommentWrite,
     member_id: int = Depends(get_current_member_id),
 ):
+    if payload.parent_comment_id is not None:
+        raise HTTPException(status_code=422, detail="댓글 위치는 수정할 수 없습니다.")
     return board_service.update_comment(comment_id, payload.body, member_id)
 
 

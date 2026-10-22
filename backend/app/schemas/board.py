@@ -60,14 +60,17 @@ class PostScrapResponse(BaseModel):
 
 class CommentWrite(StrictModel):
     body: str = Field(min_length=1, max_length=2000)
+    parent_comment_id: int | None = None
 
 
 class CommentResponse(BaseModel):
     id: int
     post_id: int
+    parent_comment_id: int | None = None
     body: str
-    author_id: int
+    author_id: int | None
     author_name: str
     created_at: datetime
     updated_at: datetime
     is_owner: bool = False
+    is_deleted: bool = False

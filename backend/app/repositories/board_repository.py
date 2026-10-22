@@ -396,23 +396,48 @@ def get_post_scrap(cursor, post_id: int, member_id: int) -> dict[str, Any]:
 
 
 def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
-    """삭제되지 않은 댓글을 작성 시간·ID 순서로 반환한다."""
+    """삭제되지 않은 댓글을 부모 댓글 작성 순서로, 대댓글은 부모 바로 뒤에 반환한다.
+
+    삭제된 최상위 댓글은 살아 있는 대댓글이 있을 때만 본문·작성자를 비운
+    삭제 표시 행으로 포함한다.
+    """
     cursor.execute(
         """
         SELECT
             c.comment_id AS id,
             c.post_id,
-            c.body,
-            c.author_member_id AS author_id,
-            COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,
+            c.parent_comment_id,
+            CASE WHEN c.deleted_at IS NULL THEN c.body ELSE '' END AS body,
+            CASE WHEN c.deleted_at IS NULL THEN c.author_member_id END AS author_id,
+            CASE
+                WHEN c.deleted_at IS NULL
+                THEN COALESCE(NULLIF(m.nickname, ''), '익명')
+                ELSE ''
+            END AS author_name,
             c.created_at,
             c.updated_at,
-            (c.author_member_id = %s) AS is_owner
+            (c.deleted_at IS NULL AND c.author_member_id = %s) AS is_owner,
+            (c.deleted_at IS NOT NULL) AS is_deleted
         FROM comments AS c
         JOIN members AS m ON m.member_id = c.author_member_id
+        LEFT JOIN comments AS parent ON parent.comment_id = c.parent_comment_id
         WHERE c.post_id = %s
-            AND c.deleted_at IS NULL
+            AND (
+                c.deleted_at IS NULL
+                OR (
+                    c.parent_comment_id IS NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM comments AS r
+                        WHERE r.parent_comment_id = c.comment_id
+                              AND r.deleted_at IS NULL
+                    )
+                )
+            )
         ORDER BY
+            COALESCE(parent.created_at, c.created_at),
+            COALESCE(parent.comment_id, c.comment_id),
+            c.parent_comment_id IS NOT NULL,
             c.created_at,
             c.comment_id
         """,
@@ -421,18 +446,44 @@ def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
     return list(cursor.fetchall())
 
 
-def create_comment(cursor, post_id: int, body: str, member_id: int) -> int:
-    """게시글 ID·작성자·본문으로 댓글을 저장하고 생성 ID를 반환한다."""
+def create_comment(
+    cursor,
+    post_id: int,
+    body: str,
+    member_id: int,
+    parent_comment_id: int | None = None,
+) -> int:
+    """게시글 ID·작성자·본문·부모 댓글 ID로 댓글을 저장하고 생성 ID를 반환한다."""
     cursor.execute(
         """
-        INSERT INTO comments (post_id, author_member_id, body)
-        VALUES (%s, %s, %s)
+        INSERT INTO comments (post_id, author_member_id, body, parent_comment_id)
+        VALUES (%s, %s, %s, %s)
         RETURNING comment_id
         """,
-        (post_id, member_id, body),
+        (post_id, member_id, body, parent_comment_id),
     )
     comment_id = cursor.fetchone()["comment_id"]
     return comment_id
+
+
+def get_parent_comment(cursor, comment_id: int) -> dict[str, Any] | None:
+    """대댓글 검증에 필요한 부모 댓글의 게시글·상위 댓글 ID를 조회한다.
+
+    없거나 삭제된 댓글은 None이다.
+    """
+    cursor.execute(
+        """
+        SELECT
+            post_id,
+            parent_comment_id
+        FROM comments
+        WHERE comment_id = %s
+            AND deleted_at IS NULL
+        """,
+        (comment_id,),
+    )
+    row = cursor.fetchone()
+    return row
 
 
 def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | None:
@@ -442,6 +493,7 @@ def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | Non
         SELECT
             c.comment_id AS id,
             c.post_id,
+            c.parent_comment_id,
             c.body,
             c.author_member_id AS author_id,
             COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,

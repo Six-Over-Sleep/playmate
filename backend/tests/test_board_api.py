@@ -79,6 +79,19 @@ def test_comment_crud(monkeypatch):
     assert routes.update_comment(1, CommentWrite(body="수정 댓글"), 1)["body"] == "수정 댓글"
     assert routes.delete_comment(1, 1).status_code == 204
 
+def test_reply_forwards_parent_comment_id(monkeypatch):
+    seen = {}
+    def fake(board_id, post_id, body, member_id, parent_comment_id):
+        seen.update(parent_comment_id=parent_comment_id); return {**comment(5), "parent_comment_id": parent_comment_id}
+    monkeypatch.setattr(board_service, "create_comment", fake)
+    assert routes.create_comment(1, 1, CommentWrite(body="답글", parent_comment_id=3), 1)["parent_comment_id"] == 3
+    assert seen == {"parent_comment_id": 3}
+
+def test_update_comment_rejects_parent_change(monkeypatch):
+    monkeypatch.setattr(board_service, "update_comment", lambda *args: comment())
+    with pytest.raises(HTTPException) as error: routes.update_comment(1, CommentWrite(body="수정", parent_comment_id=3), 1)
+    assert error.value.status_code == 422
+
 def test_comment_permission_denied(monkeypatch):
     def denied(*_): raise HTTPException(status_code=403, detail="권한 없음")
     monkeypatch.setattr(board_service, "delete_comment", denied)

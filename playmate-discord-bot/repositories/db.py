@@ -1,14 +1,26 @@
-"""알림 / 공식 채널 기능 저장소가 함께 쓰는 PostgreSQL 연결.
+"""PostgreSQL 연결 설정과, 알림 / 공식 채널 기능 저장소가 함께 쓰는 연결.
 
-모임 저장소(PostgresMeetingRepository)와 연결을 공유하지 않는다. 새 기능의 쿼리가 느리거나
-실패해도 모임 동기화·lifecycle 쪽 연결과 락에 영향을 주지 않게 하기 위해서다.
-연결 설정(autocommit, 서울 시간대, statement_timeout)은 모임 저장소와 같다.
-
-저장소 메서드는 동기 함수다. 비동기 코드에서는 `repositories.meeting_repository.call()`로
-worker thread에서 실행한다.
+새 기능은 모임 저장소(PostgresMeetingRepository)와 연결을 공유하지 않는다. 새 기능의 쿼리가
+느리거나 실패해도 모임 동기화·lifecycle 쪽 연결과 락에 영향을 주지 않게 하기 위해서다.
 """
 import threading
 from typing import Any, Callable
+
+
+def connect_from_env():
+    """환경변수(DB_*)로 연결한다: autocommit, 서울 시간대, 서버 statement_timeout. 두 저장소가 함께 쓴다."""
+    import psycopg
+    import config
+
+    return psycopg.connect(
+        host=config.DB_HOST, port=int(config.DB_PORT), user=config.DB_USER,
+        password=config.DB_PASSWORD, dbname=config.DB_NAME,
+        sslmode=config.DB_SSLMODE, connect_timeout=10, autocommit=True,
+        options=(
+            "-c TimeZone=Asia/Seoul "
+            f"-c statement_timeout={config.DB_STATEMENT_TIMEOUT_MS}"
+        ),
+    )
 
 
 class Database:
@@ -21,22 +33,8 @@ class Database:
 
     @classmethod
     def from_env(cls):
-        """환경변수(DB_*)로 연결 정보를 만든다. 실제 연결은 첫 쿼리 때 연다."""
-        import psycopg
-        import config
-
-        def connect():
-            return psycopg.connect(
-                host=config.DB_HOST, port=int(config.DB_PORT), user=config.DB_USER,
-                password=config.DB_PASSWORD, dbname=config.DB_NAME,
-                sslmode=config.DB_SSLMODE, connect_timeout=10, autocommit=True,
-                options=(
-                    "-c TimeZone=Asia/Seoul "
-                    f"-c statement_timeout={config.DB_STATEMENT_TIMEOUT_MS}"
-                ),
-            )
-
-        return cls(connect)
+        """실제 연결은 첫 쿼리 때 연다."""
+        return cls(connect_from_env)
 
     def _reset(self) -> None:
         try:

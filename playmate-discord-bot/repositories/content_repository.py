@@ -1,14 +1,7 @@
-"""HOT PLAYMATE 콘텐츠 저장소 경계.
+"""HOT PLAYMATE 콘텐츠 저장소.
 
-구현된 것 (실제 테이블만 사용):
-    - 게시판 글 1건 조회: posts + boards + comments 개수.
-      Backend 게시판 API와 같은 기준이다: 삭제되지 않았고 recruits에 연결되지 않은 글.
-    - 모임 1건 조회: recruits + posts + JOINED 참여자 수 (Backend /count와 같은 기준).
-
-아직 연결하지 않은 것:
-    - 자동 HOT 후보 조회. 점수와 최소 조건에 좋아요 수가 필요한데 좋아요 스키마가 아직 없다.
-      좋아요 테이블/컬럼을 가정하지 않고, 연결 전까지는 후보 없음([])을 돌려준다.
-      연결할 때는 hot_content_service.HotCandidate 모양으로 돌려주면 된다.
+게시판 글 / 모임 1건 조회는 Backend API와 같은 기준이다 (삭제 안 됨, 모집글은 게시판에서 제외).
+자동 HOT 후보는 좋아요 스키마가 아직 없어 빈 목록을 돌려준다. 연결할 때 HotCandidate 모양으로 돌려준다.
 """
 from datetime import datetime
 from typing import Any, Protocol

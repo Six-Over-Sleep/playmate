@@ -1,21 +1,11 @@
-"""Discord DM 알림: 수신 동의(/알림설정)와 notifications polling.
+"""Discord DM 알림: 수신 동의(/알림설정)와 notifications polling (10초, 모임 동기화와 별도 task).
 
-동의 정책:
-    members.external_dm_opt_in = true 일 때만 DM을 보낸다. false 또는 NULL은 미허용이다.
+동의: external_dm_opt_in = true일 때만 보낸다 (false/NULL은 미허용).
+처리: 보낼 대상이 아니면 SKIPPED, 성공 SENT, 실패는 retry_count + 1 후 총 3회 실패 시 FAILED
+(그 전에는 PENDING으로 남아 재시도). 한 건의 실패가 다른 알림이나 루프를 멈추지 않는다.
 
-polling 흐름 (10초마다, 모임 동기화 루프와 별도 task):
-    PENDING 알림을 오래된 순으로 가져와 한 건씩 처리한다.
-    - 본인 알림 / 대상(게시글·댓글) 없음 / 미동의 / discord_id 없음 / Discord 사용자 없음 -> SKIPPED
-    - DM 전송 성공 -> SENT
-    - DM 전송 실패 -> retry_count + 1. 총 NOTIFICATION_MAX_ATTEMPTS(3)회 실패하면 FAILED,
-      그 전까지는 PENDING으로 남아 NOTIFICATION_RETRY_DELAY_SECONDS 뒤 다시 시도한다.
-    한 건의 실패가 다른 알림이나 루프 전체를 멈추지 않는다.
-    notifications 테이블이 없으면 처음 한 번만 로그를 남기고 건너뛴다.
-
-제한 사항 (MVP에서 허용):
-    PROCESSING 상태가 없어서, DM 전송 성공 직후 SENT 저장 전에 Bot이 죽거나 저장이 실패하면
-    다음 polling에서 같은 알림을 다시 보낼 수 있다 (중복 DM).
-    Bot은 한 프로세스로만 실행한다는 전제다 (여러 Bot이 같은 PENDING 행을 동시에 처리하지 않음).
+제한 사항 (MVP에서 허용): PROCESSING 상태가 없어 DM 전송 직후 SENT 저장 전에 Bot이 죽으면
+같은 DM이 다시 갈 수 있다. Bot은 한 프로세스로만 실행한다는 전제다.
 """
 import discord
 from discord.ext import tasks

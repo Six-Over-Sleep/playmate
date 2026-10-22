@@ -40,13 +40,16 @@ assert "PLAYMATE_TEST_MODE=false" in (ROOT / ".env.example").read_text(encoding=
 tree = ast.parse((ROOT / "services" / "permissions.py").read_text(encoding="utf-8"))
 host = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef)
             and node.name == "grant_host_permissions")
+# HOST 정책 (확정): 참여자와 같은 채팅/음성 권한만, manage_channels / manage_messages는 주지 않는다.
 assert "manage_messages = 미설정(None)" in ast.get_docstring(host)
+assert "manage_channels = 미부여" in ast.get_docstring(host)
 overwrite = next(node for node in ast.walk(host)
                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                  and node.func.attr == "PermissionOverwrite")
-assert all(keyword.arg != "manage_messages" for keyword in overwrite.keywords)
-assert next(keyword.value.value for keyword in overwrite.keywords
-            if keyword.arg == "manage_channels") is True
+assert {keyword.arg: keyword.value.value for keyword in overwrite.keywords} == {
+    "view_channel": True, "read_message_history": True,
+    "send_messages": True, "connect": True, "speak": True,
+}
 
 # ZIP inspection is conditional so configuration checks work after extraction too.
 archive = ROOT / "outputs" / "PlayMate_Discord_Bot_refactored.zip"

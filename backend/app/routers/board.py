@@ -19,7 +19,9 @@ from app.schemas.board import (
     BoardResponse,
     CommentResponse,
     CommentWrite,
+    PostLikeResponse,
     PostResponse,
+    PostScrapResponse,
     PostWrite,
 )
 from app.services import board_service
@@ -113,6 +115,40 @@ def delete_post(
 ):
     board_service.delete_post(board_id, post_id, member_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/boards/{board_id}/posts/{post_id}/like", response_model=PostLikeResponse)
+def like_post(
+    board_id: int, post_id: int, member_id: int = Depends(get_current_member_id)
+):
+    return board_service.like_post(board_id, post_id, member_id)
+
+
+@router.delete(
+    "/boards/{board_id}/posts/{post_id}/like", response_model=PostLikeResponse
+)
+def unlike_post(
+    board_id: int, post_id: int, member_id: int = Depends(get_current_member_id)
+):
+    return board_service.unlike_post(board_id, post_id, member_id)
+
+
+@router.put(
+    "/boards/{board_id}/posts/{post_id}/scrap", response_model=PostScrapResponse
+)
+def scrap_post(
+    board_id: int, post_id: int, member_id: int = Depends(get_current_member_id)
+):
+    return board_service.scrap_post(board_id, post_id, member_id)
+
+
+@router.delete(
+    "/boards/{board_id}/posts/{post_id}/scrap", response_model=PostScrapResponse
+)
+def unscrap_post(
+    board_id: int, post_id: int, member_id: int = Depends(get_current_member_id)
+):
+    return board_service.unscrap_post(board_id, post_id, member_id)
 
 
 @router.get(

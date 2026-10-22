@@ -18,7 +18,7 @@ def _require_board(cursor, board_id: int) -> dict[str, Any]:
 
 
 def _require_post(cursor, board_id: int, post_id: int) -> None:
-    """댓글 처리에 필요한 게시글 존재 여부만 검증한다."""
+    """댓글·좋아요·스크랩 처리에 필요한 게시글 존재 여부만 검증한다."""
     if not repository.post_exists(cursor, board_id, post_id):
         raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
 
@@ -134,6 +134,46 @@ def delete_post(board_id: int, post_id: int, member_id: int) -> None:
     with db_cursor(commit=True) as cursor:
         if not repository.delete_post(cursor, board_id, post_id, member_id):
             _raise_post_permission(cursor, board_id, post_id)
+
+
+def like_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 확인·좋아요 저장·응답 조회를 한 트랜잭션에서 수행한다.
+
+    이미 좋아요한 글에 다시 요청해도 행을 추가하지 않고 현재 상태를 반환한다.
+    삭제·모임 게시글은 404이다.
+    """
+    with db_cursor(commit=True) as cursor:
+        _require_post(cursor, board_id, post_id)
+        repository.like_post(cursor, post_id, member_id)
+        return repository.get_post_like(cursor, post_id, member_id)
+
+
+def unlike_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 확인 후 좋아요를 취소하고 응답을 조회한다. 좋아요가 없어도 성공한다."""
+    with db_cursor(commit=True) as cursor:
+        _require_post(cursor, board_id, post_id)
+        repository.unlike_post(cursor, post_id, member_id)
+        return repository.get_post_like(cursor, post_id, member_id)
+
+
+def scrap_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 확인·스크랩 저장·응답 조회를 한 트랜잭션에서 수행한다.
+
+    이미 스크랩한 글에 다시 요청해도 행을 추가하지 않고 현재 상태를 반환한다.
+    삭제·모임 게시글은 404이다.
+    """
+    with db_cursor(commit=True) as cursor:
+        _require_post(cursor, board_id, post_id)
+        repository.scrap_post(cursor, post_id, member_id)
+        return repository.get_post_scrap(cursor, post_id, member_id)
+
+
+def unscrap_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 확인 후 스크랩을 취소하고 응답을 조회한다. 스크랩이 없어도 성공한다."""
+    with db_cursor(commit=True) as cursor:
+        _require_post(cursor, board_id, post_id)
+        repository.unscrap_post(cursor, post_id, member_id)
+        return repository.get_post_scrap(cursor, post_id, member_id)
 
 
 def list_comments(board_id: int, post_id: int, member_id: int) -> list[dict[str, Any]]:

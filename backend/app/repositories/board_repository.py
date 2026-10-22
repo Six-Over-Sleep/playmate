@@ -107,7 +107,7 @@ def list_posts(
     cursor, board_id: int, search: str, member_id: int
 ) -> list[dict[str, Any]]:
     """검색 조건으로 게시글을 조회하고 이미지를 일괄 매핑한다. 정렬·댓글 집계를 보존한다."""
-    params: list[Any] = [member_id, board_id]
+    params: list[Any] = [member_id, member_id, board_id]
     condition = ""
     if search:
         condition = " AND (p.title ILIKE %s OR p.body ILIKE %s)"
@@ -124,7 +124,18 @@ def list_posts(
             p.created_at,
             p.updated_at,
             COUNT(c.comment_id) FILTER (WHERE c.deleted_at IS NULL)::int AS comment_count,
-            (p.author_member_id = %s) AS is_owner
+            (p.author_member_id = %s) AS is_owner,
+            (
+                SELECT COUNT(*)
+                FROM post_likes AS l
+                WHERE l.post_id = p.post_id
+            )::int AS like_count,
+            EXISTS (
+                SELECT 1
+                FROM post_likes AS l
+                WHERE l.post_id = p.post_id
+                      AND l.member_id = %s
+            ) AS liked_by_me
         FROM posts AS p
         JOIN members AS m ON m.member_id = p.author_member_id
         LEFT JOIN comments AS c ON c.post_id = p.post_id
@@ -215,14 +226,31 @@ def get_post(
                 WHERE c.post_id = p.post_id
                       AND c.deleted_at IS NULL
             ) AS comment_count,
-            (p.author_member_id = %s) AS is_owner
+            (p.author_member_id = %s) AS is_owner,
+            (
+                SELECT COUNT(*)
+                FROM post_likes AS l
+                WHERE l.post_id = p.post_id
+            )::int AS like_count,
+            EXISTS (
+                SELECT 1
+                FROM post_likes AS l
+                WHERE l.post_id = p.post_id
+                      AND l.member_id = %s
+            ) AS liked_by_me,
+            EXISTS (
+                SELECT 1
+                FROM post_scraps AS s
+                WHERE s.post_id = p.post_id
+                      AND s.member_id = %s
+            ) AS scrapped_by_me
         FROM posts AS p
         JOIN members AS m ON m.member_id = p.author_member_id
         WHERE p.board_id = %s
             AND p.post_id = %s
             AND {_board_post_guard()}
         """,
-        (member_id, board_id, post_id),
+        (member_id, member_id, member_id, board_id, post_id),
     )
     row = cursor.fetchone()
     if row is not None:
@@ -281,6 +309,90 @@ def post_exists(cursor, board_id: int, post_id: int) -> bool:
         (board_id, post_id),
     )
     return cursor.fetchone() is not None
+
+
+def like_post(cursor, post_id: int, member_id: int) -> None:
+    """게시글 좋아요를 저장한다. 이미 좋아요한 글은 기본키 충돌을 무시한다."""
+    cursor.execute(
+        """
+        INSERT INTO post_likes (post_id, member_id)
+        VALUES (%s, %s)
+        ON CONFLICT (post_id, member_id) DO NOTHING
+        """,
+        (post_id, member_id),
+    )
+
+
+def unlike_post(cursor, post_id: int, member_id: int) -> None:
+    """회원의 게시글 좋아요를 삭제한다. 좋아요가 없으면 아무것도 변경하지 않는다."""
+    cursor.execute(
+        """
+        DELETE FROM post_likes
+        WHERE post_id = %s
+            AND member_id = %s
+        """,
+        (post_id, member_id),
+    )
+
+
+def get_post_like(cursor, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 좋아요 수와 회원의 좋아요 여부를 응답 필드로 조회한다."""
+    cursor.execute(
+        """
+        SELECT
+            %s AS post_id,
+            COUNT(*)::int AS like_count,
+            COALESCE(BOOL_OR(l.member_id = %s), FALSE) AS liked_by_me
+        FROM post_likes AS l
+        WHERE l.post_id = %s
+        """,
+        (post_id, member_id, post_id),
+    )
+    row = cursor.fetchone()
+    return row
+
+
+def scrap_post(cursor, post_id: int, member_id: int) -> None:
+    """게시글 스크랩을 저장한다. 이미 스크랩한 글은 기본키 충돌을 무시한다."""
+    cursor.execute(
+        """
+        INSERT INTO post_scraps (post_id, member_id)
+        VALUES (%s, %s)
+        ON CONFLICT (post_id, member_id) DO NOTHING
+        """,
+        (post_id, member_id),
+    )
+
+
+def unscrap_post(cursor, post_id: int, member_id: int) -> None:
+    """회원의 게시글 스크랩을 삭제한다. 스크랩이 없으면 아무것도 변경하지 않는다."""
+    cursor.execute(
+        """
+        DELETE FROM post_scraps
+        WHERE post_id = %s
+            AND member_id = %s
+        """,
+        (post_id, member_id),
+    )
+
+
+def get_post_scrap(cursor, post_id: int, member_id: int) -> dict[str, Any]:
+    """회원의 게시글 스크랩 여부를 응답 필드로 조회한다."""
+    cursor.execute(
+        """
+        SELECT
+            %s AS post_id,
+            EXISTS (
+                SELECT 1
+                FROM post_scraps AS s
+                WHERE s.post_id = %s
+                      AND s.member_id = %s
+            ) AS scrapped_by_me
+        """,
+        (post_id, post_id, member_id),
+    )
+    row = cursor.fetchone()
+    return row
 
 
 def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:

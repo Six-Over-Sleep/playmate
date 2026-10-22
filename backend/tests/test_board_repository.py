@@ -113,7 +113,8 @@ def test_list_posts_bounded_queries_and_image_mapping(database, count):
     ]
     sql, params = cursor.queries[1]
     assert "공부" not in sql
-    assert params == [1, 1, "%공부' OR 1=1 --%", "%공부' OR 1=1 --%"]
+    assert params == [1, 1, 1, "%공부' OR 1=1 --%", "%공부' OR 1=1 --%"]
+    assert "AS like_count" in sql and "l.member_id = %s ) AS liked_by_me" in sql
     assert "p.deleted_at IS NULL" in sql and "NOT EXISTS" in sql
     assert "c.deleted_at IS NULL" in sql
     assert "ORDER BY p.created_at DESC" in sql
@@ -375,6 +376,224 @@ def test_http_comment_service_repository(client, database, method, results, stat
         assert response.json()[0]["id"] == 3
     else:
         assert response.json()["id"] == 3
+
+
+def like_row(post_id=2, like_count=1, liked_by_me=True):
+    return dict(post_id=post_id, like_count=like_count, liked_by_me=liked_by_me)
+
+
+def test_like_post_single_transaction(database):
+    cursor, connection, factory = database([{"exists": 1}, None, like_row()])
+    assert service.like_post(1, 2, 1) == like_row()
+    sql, params = cursor.queries[1]
+    assert "INSERT INTO post_likes (post_id, member_id)" in sql
+    assert "ON CONFLICT (post_id, member_id) DO NOTHING" in sql
+    assert params == (2, 1)
+    assert cursor.queries[2][1] == (2, 1, 2)
+    factory.assert_called_once()
+    connection.commit.assert_called_once()
+    connection.rollback.assert_not_called()
+    connection.close.assert_called_once()
+
+
+def test_duplicate_like_keeps_single_row(database):
+    """이미 좋아요한 글은 기본키 충돌을 무시하므로 오류 없이 같은 상태를 반환한다."""
+    cursor, connection, _ = database([{"exists": 1}, None, like_row(like_count=1)])
+    assert service.like_post(1, 2, 1)["like_count"] == 1
+    assert "ON CONFLICT (post_id, member_id) DO NOTHING" in cursor.queries[1][0]
+    connection.commit.assert_called_once()
+
+
+def test_unlike_post_without_existing_like(database):
+    """좋아요가 없는 상태에서 취소해도 DELETE 0건으로 성공한다."""
+    cursor, connection, _ = database(
+        [{"exists": 1}, None, like_row(like_count=0, liked_by_me=False)], rowcount=0
+    )
+    assert service.unlike_post(1, 2, 1) == like_row(like_count=0, liked_by_me=False)
+    sql, params = cursor.queries[1]
+    assert "DELETE FROM post_likes" in sql and params == (2, 1)
+    connection.commit.assert_called_once()
+
+
+def test_like_count_increases_and_decreases(database):
+    database([{"exists": 1}, None, like_row(like_count=3)])
+    assert service.like_post(1, 2, 1)["like_count"] == 3
+    database([{"exists": 1}, None, like_row(like_count=2, liked_by_me=False)])
+    response = service.unlike_post(1, 2, 1)
+    assert response["like_count"] == 2 and response["liked_by_me"] is False
+
+
+def test_different_members_like_same_post(database):
+    first, _, _ = database([{"exists": 1}, None, like_row(like_count=1)])
+    service.like_post(1, 2, 1)
+    second, _, _ = database([{"exists": 1}, None, like_row(like_count=2)])
+    assert service.like_post(1, 2, 7)["like_count"] == 2
+    assert first.queries[1][1] == (2, 1) and second.queries[1][1] == (2, 7)
+
+
+@pytest.mark.parametrize("method", [service.like_post, service.unlike_post])
+def test_like_missing_or_deleted_post_rolls_back(database, method):
+    """없는 글·삭제된 글·모임 글은 게시글 확인에서 404이며 좋아요를 변경하지 않는다."""
+    cursor, connection, _ = database([None])
+    with pytest.raises(HTTPException) as error:
+        method(1, 999, 1)
+    assert error.value.status_code == 404
+    sql, params = cursor.queries[0]
+    assert "p.deleted_at IS NULL" in sql and "NOT EXISTS" in sql
+    assert params == (1, 999) and len(cursor.queries) == 1
+    connection.commit.assert_not_called()
+    connection.rollback.assert_called_once()
+
+
+def test_get_post_includes_like_fields(database):
+    cursor, _, _ = database([dict(post_row(2), like_count=5, liked_by_me=True), []])
+    response = service.get_post(1, 2, 3)
+    assert response["like_count"] == 5 and response["liked_by_me"] is True
+    sql, params = cursor.queries[0]
+    assert "FROM post_likes AS l WHERE l.post_id = p.post_id" in sql
+    assert params == (3, 3, 3, 1, 2)
+
+
+@pytest.mark.parametrize(
+    "method,liked",
+    [("put", True), ("delete", False)],
+)
+def test_http_like_service_repository(client, database, method, liked):
+    """좋아요 등록·취소의 HTTP→Service→Repository 계약과 커밋을 검증한다."""
+    row = like_row(like_count=1 if liked else 0, liked_by_me=liked)
+    _, connection, _ = database([{"exists": 1}, None, row])
+    response = client.request(method.upper(), "/api/boards/1/posts/2/like")
+    assert response.status_code == 200 and response.json() == row
+    connection.commit.assert_called_once()
+
+
+def test_http_like_missing_post(client, database):
+    database([None])
+    assert client.request("PUT", "/api/boards/1/posts/999/like").status_code == 404
+
+
+def test_http_post_detail_like_fields(client, database):
+    database([dict(post_row(2), like_count=1, liked_by_me=False), []])
+    response = client.get("/api/boards/1/posts/2")
+    assert response.status_code == 200
+    assert response.json()["like_count"] == 1
+    assert response.json()["liked_by_me"] is False
+
+
+@pytest.mark.parametrize("method", ["PUT", "DELETE"])
+def test_real_auth_rejects_unauthenticated_like(monkeypatch, method):
+    monkeypatch.setenv("APP_ENV", "production")
+    with TestClient(app) as client:
+        response = client.request(method, "/api/boards/1/posts/2/like")
+    assert response.status_code == 401
+
+
+def scrap_row(post_id=2, scrapped_by_me=True):
+    return dict(post_id=post_id, scrapped_by_me=scrapped_by_me)
+
+
+def test_scrap_post_single_transaction(database):
+    cursor, connection, factory = database([{"exists": 1}, None, scrap_row()])
+    assert service.scrap_post(1, 2, 1) == scrap_row()
+    sql, params = cursor.queries[1]
+    assert "INSERT INTO post_scraps (post_id, member_id)" in sql
+    assert "ON CONFLICT (post_id, member_id) DO NOTHING" in sql
+    assert params == (2, 1)
+    assert cursor.queries[2][1] == (2, 2, 1)
+    factory.assert_called_once()
+    connection.commit.assert_called_once()
+    connection.rollback.assert_not_called()
+    connection.close.assert_called_once()
+
+
+def test_duplicate_scrap_keeps_single_row(database):
+    """이미 스크랩한 글은 기본키 충돌을 무시하므로 오류 없이 같은 상태를 반환한다."""
+    cursor, connection, _ = database([{"exists": 1}, None, scrap_row()])
+    assert service.scrap_post(1, 2, 1)["scrapped_by_me"] is True
+    assert "ON CONFLICT (post_id, member_id) DO NOTHING" in cursor.queries[1][0]
+    connection.commit.assert_called_once()
+
+
+def test_unscrap_post_without_existing_scrap(database):
+    """스크랩이 없는 상태에서 취소해도 DELETE 0건으로 성공한다."""
+    cursor, connection, _ = database(
+        [{"exists": 1}, None, scrap_row(scrapped_by_me=False)], rowcount=0
+    )
+    assert service.unscrap_post(1, 2, 1) == scrap_row(scrapped_by_me=False)
+    sql, params = cursor.queries[1]
+    assert "DELETE FROM post_scraps" in sql and params == (2, 1)
+    connection.commit.assert_called_once()
+
+
+def test_different_members_scrap_same_post(database):
+    first, _, _ = database([{"exists": 1}, None, scrap_row()])
+    service.scrap_post(1, 2, 1)
+    second, _, _ = database([{"exists": 1}, None, scrap_row()])
+    assert service.scrap_post(1, 2, 7)["scrapped_by_me"] is True
+    assert first.queries[1][1] == (2, 1) and second.queries[1][1] == (2, 7)
+    assert first.queries[2][1] == (2, 2, 1) and second.queries[2][1] == (2, 2, 7)
+
+
+@pytest.mark.parametrize("method", [service.scrap_post, service.unscrap_post])
+def test_scrap_missing_or_deleted_post_rolls_back(database, method):
+    """없는 글·삭제된 글·모임 글은 게시글 확인에서 404이며 스크랩을 변경하지 않는다."""
+    cursor, connection, _ = database([None])
+    with pytest.raises(HTTPException) as error:
+        method(1, 999, 1)
+    assert error.value.status_code == 404
+    sql, params = cursor.queries[0]
+    assert "p.deleted_at IS NULL" in sql and "NOT EXISTS" in sql
+    assert params == (1, 999) and len(cursor.queries) == 1
+    connection.commit.assert_not_called()
+    connection.rollback.assert_called_once()
+
+
+@pytest.mark.parametrize("scrapped", [True, False])
+def test_get_post_includes_scrap_field(database, scrapped):
+    cursor, _, _ = database([dict(post_row(2), scrapped_by_me=scrapped), []])
+    assert service.get_post(1, 2, 3)["scrapped_by_me"] is scrapped
+    sql, _ = cursor.queries[0]
+    assert "FROM post_scraps AS s WHERE s.post_id = p.post_id" in sql
+
+
+def test_list_posts_does_not_query_scraps(database):
+    """목록은 스크랩 여부를 계산하지 않아 기존 SQL·바인딩을 유지한다."""
+    cursor, _, _ = database([{"id": 1}, [post_row()], []])
+    assert service.list_posts(1, None, "latest", 1)[0]["id"] == 1
+    assert all("post_scraps" not in sql for sql, _ in cursor.queries)
+
+
+@pytest.mark.parametrize(
+    "method,scrapped",
+    [("put", True), ("delete", False)],
+)
+def test_http_scrap_service_repository(client, database, method, scrapped):
+    """스크랩 등록·취소의 HTTP→Service→Repository 계약과 커밋을 검증한다."""
+    row = scrap_row(scrapped_by_me=scrapped)
+    _, connection, _ = database([{"exists": 1}, None, row])
+    response = client.request(method.upper(), "/api/boards/1/posts/2/scrap")
+    assert response.status_code == 200 and response.json() == row
+    connection.commit.assert_called_once()
+
+
+def test_http_scrap_missing_post(client, database):
+    database([None])
+    assert client.request("PUT", "/api/boards/1/posts/999/scrap").status_code == 404
+
+
+def test_http_post_detail_and_list_scrap_fields(client, database):
+    database([dict(post_row(2), scrapped_by_me=True), []])
+    assert client.get("/api/boards/1/posts/2").json()["scrapped_by_me"] is True
+    database([{"id": 1}, [post_row()], []])
+    assert client.get("/api/boards/1/posts").json()[0]["scrapped_by_me"] is None
+
+
+@pytest.mark.parametrize("method", ["PUT", "DELETE"])
+def test_real_auth_rejects_unauthenticated_scrap(monkeypatch, method):
+    monkeypatch.setenv("APP_ENV", "production")
+    with TestClient(app) as client:
+        response = client.request(method, "/api/boards/1/posts/2/scrap")
+    assert response.status_code == 401
 
 
 def test_http_duplicate_board_rolls_back(client, database):

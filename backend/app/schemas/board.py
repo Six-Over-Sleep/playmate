@@ -41,7 +41,21 @@ class PostResponse(BaseModel):
     updated_at: datetime
     comment_count: int = 0
     is_owner: bool = False
+    like_count: int = 0
+    liked_by_me: bool = False
+    scrapped_by_me: bool | None = None
     images: list[PostImageResponse] = Field(default_factory=list)
+
+
+class PostLikeResponse(BaseModel):
+    post_id: int
+    like_count: int
+    liked_by_me: bool
+
+
+class PostScrapResponse(BaseModel):
+    post_id: int
+    scrapped_by_me: bool
 
 
 class CommentWrite(StrictModel):

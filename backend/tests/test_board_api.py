@@ -85,9 +85,37 @@ def test_comment_permission_denied(monkeypatch):
     with pytest.raises(HTTPException) as error: routes.delete_comment(1, 2)
     assert error.value.status_code == 403
 
+def test_like_and_unlike_post(monkeypatch):
+    monkeypatch.setattr(board_service, "like_post", lambda board_id, post_id, member_id: {"post_id": post_id, "like_count": 1, "liked_by_me": True})
+    monkeypatch.setattr(board_service, "unlike_post", lambda board_id, post_id, member_id: {"post_id": post_id, "like_count": 0, "liked_by_me": False})
+    assert routes.like_post(1, 2, 1) == {"post_id": 2, "like_count": 1, "liked_by_me": True}
+    assert routes.unlike_post(1, 2, 1)["liked_by_me"] is False
+
+def test_like_missing_post_returns_404(monkeypatch):
+    def missing(*_): raise HTTPException(status_code=404, detail="없음")
+    monkeypatch.setattr(board_service, "like_post", missing)
+    with pytest.raises(HTTPException) as error: routes.like_post(1, 999, 1)
+    assert error.value.status_code == 404
+
+def test_scrap_and_unscrap_post(monkeypatch):
+    monkeypatch.setattr(board_service, "scrap_post", lambda board_id, post_id, member_id: {"post_id": post_id, "scrapped_by_me": True})
+    monkeypatch.setattr(board_service, "unscrap_post", lambda board_id, post_id, member_id: {"post_id": post_id, "scrapped_by_me": False})
+    assert routes.scrap_post(1, 2, 1) == {"post_id": 2, "scrapped_by_me": True}
+    assert routes.unscrap_post(1, 2, 1)["scrapped_by_me"] is False
+
+def test_scrap_missing_post_returns_404(monkeypatch):
+    def missing(*_): raise HTTPException(status_code=404, detail="없음")
+    monkeypatch.setattr(board_service, "scrap_post", missing)
+    with pytest.raises(HTTPException) as error: routes.scrap_post(1, 999, 1)
+    assert error.value.status_code == 404
+
 def test_openapi_declares_expected_status_codes():
     route_map = {(route.path, method): route for route in routes.router.routes for method in route.methods}
     assert route_map[("/api/boards", "POST")].status_code == 201
     assert route_map[("/api/boards/{board_id}/posts", "POST")].status_code == 201
     assert route_map[("/api/boards/{board_id}/posts/{post_id}", "DELETE")].status_code == 204
     assert route_map[("/api/comments/{comment_id}", "DELETE")].status_code == 204
+    assert route_map[("/api/boards/{board_id}/posts/{post_id}/like", "PUT")].response_model.__name__ == "PostLikeResponse"
+    assert route_map[("/api/boards/{board_id}/posts/{post_id}/like", "DELETE")].response_model.__name__ == "PostLikeResponse"
+    assert route_map[("/api/boards/{board_id}/posts/{post_id}/scrap", "PUT")].response_model.__name__ == "PostScrapResponse"
+    assert route_map[("/api/boards/{board_id}/posts/{post_id}/scrap", "DELETE")].response_model.__name__ == "PostScrapResponse"

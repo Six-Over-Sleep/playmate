@@ -6,6 +6,7 @@ import BoardSection from './components/board/BoardSection'
 import MeetupSection from './components/meetup/MeetupSection'
 import { apiRequest } from './services/apiClient'
 import { getAuthUrl } from './config/api'
+import MyPage from './pages/mypage/MyPage'
 
 export default function App() {
   const [authView, setAuthView] = useState('checking')
@@ -116,9 +117,13 @@ export default function App() {
           onLogout={handleLogout}
         />
 
+
         {section === 'board' && <BoardSection resetVersion={boardKey} />}
 
         {section === 'meetup' && <MeetupSection />}
+
+        {section === 'mypage' && <MyPage />}
+
       </>
     )
   }

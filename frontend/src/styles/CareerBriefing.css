@@ -1,0 +1,334 @@
+/* =========================================
+   커리어 브리핑 - 뉴스 목록
+========================================= */
+
+.career-briefing {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+}
+
+.career-briefing-intro {
+    margin: 0;
+    color: #6b6382;
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.career-briefing-demo {
+    margin: 0;
+    padding: 12px 16px;
+    background: #f2f8f6;
+    border: 1px solid #cce7df;
+    border-radius: 12px;
+    color: #32665c;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.career-briefing-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.career-briefing-toolbar .career-search {
+    flex: 1 1 270px;
+    min-width: 0;
+}
+
+.career-briefing-toolbar select {
+    min-height: 44px;
+    padding: 10px 13px;
+    color: #50456f;
+    background: #ffffff;
+    border: 1px solid #e0dce9;
+    border-radius: 12px;
+    font: inherit;
+    font-size: 13px;
+}
+
+.career-briefing-count {
+    margin: 0;
+    color: #80798f;
+    font-size: 13px;
+}
+
+.career-briefing-count strong {
+    color: #4b3b85;
+}
+
+.career-news-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.career-news-item {
+    min-width: 0;
+    padding: 22px 24px;
+    background: #ffffff;
+    border: 1px solid #eae7f0;
+    border-radius: 20px;
+    transition: border-color 0.18s ease;
+}
+
+.career-news-item:hover {
+    border-color: #c7b7e1;
+}
+
+.career-news-meta,
+.career-news-detail-meta {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+    color: #898398;
+    font-size: 12px;
+}
+
+.career-news-category-pill {
+    display: inline-flex;
+    align-items: center;
+    background: #f0eaf9;
+    color: #59448c;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.career-news-title {
+    display: block;
+    width: 100%;
+    margin: 14px 0 9px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #31294b;
+    font-size: 18px;
+    font-weight: 750;
+    line-height: 1.5;
+    text-align: left;
+    cursor: pointer;
+}
+
+.career-news-title:hover {
+    color: #6550a4;
+}
+
+.career-news-title:focus-visible,
+.career-news-back:focus-visible,
+.career-news-save:focus-visible,
+.career-news-source-link:focus-visible {
+    outline: 2px solid #7965b2;
+    outline-offset: 3px;
+}
+
+.career-news-summary {
+    margin: 0 0 16px;
+    color: #746e82;
+    font-size: 14px;
+    line-height: 1.75;
+    overflow-wrap: anywhere;
+}
+
+.career-news-bottom {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: #9390a1;
+    font-size: 12px;
+}
+
+.career-news-tags {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.career-news-tags span {
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: #f4f3f8;
+    color: #6a5c89;
+    font-size: 12px;
+}
+
+.career-news-bottom .career-news-save {
+    margin-left: auto;
+}
+
+.career-news-save {
+    min-width: 38px;
+    padding: 7px 10px;
+    border: 1px solid #e8dfee;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #6b568a;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.career-news-save.saved {
+    color: #a54c7b;
+    background: #fff0f6;
+    border-color: #e7bad0;
+}
+
+.career-news-empty {
+    padding: 50px 20px;
+    text-align: center;
+    background: #faf9fc;
+    border-radius: 18px;
+    color: #51496d;
+}
+
+.career-news-empty p {
+    color: #898298;
+    font-size: 13px;
+}
+
+.career-news-empty button {
+    padding: 10px 17px;
+    border: 0;
+    border-radius: 999px;
+    background: #4b3b85;
+    color: #ffffff;
+    cursor: pointer;
+}
+
+.career-news-disclaimer {
+    margin: 0;
+    color: #9290a3;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* =========================================
+   커리어 브리핑 - 뉴스 상세
+========================================= */
+
+.career-news-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.career-news-back {
+    align-self: flex-start;
+    padding: 8px 0;
+    border: 0;
+    background: transparent;
+    color: #66518d;
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.career-news-detail-card {
+    padding: 30px;
+    background: #ffffff;
+    border: 1px solid #eae7f0;
+    border-radius: 22px;
+}
+
+.career-news-detail-card h3 {
+    margin: 19px 0 10px;
+    color: #332b4c;
+    font-size: 24px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.career-news-source {
+    margin: 0 0 25px;
+    color: #898298;
+    font-size: 13px;
+}
+
+.career-news-detail-section {
+    padding: 22px 0;
+    border-top: 1px solid #eeecf3;
+}
+
+.career-news-detail-section h4 {
+    margin: 0 0 12px;
+    color: #4b3b85;
+    font-size: 16px;
+}
+
+.career-news-detail-section p {
+    margin: 0;
+    color: #5f586e;
+    font-size: 14px;
+    line-height: 1.9;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.career-news-detail-section small {
+    display: block;
+    margin-top: 10px;
+    color: #9b92a4;
+    font-size: 12px;
+}
+
+.career-news-detail-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    padding-top: 16px;
+    border-top: 1px solid #eeecf3;
+}
+
+.career-news-source-link,
+.career-news-no-link {
+    display: inline-flex;
+    padding: 10px 17px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.career-news-source-link {
+    background: #4b3b85;
+    color: #ffffff;
+}
+
+.career-news-no-link {
+    background: #f3f1f6;
+    color: #9892a5;
+}
+
+/* =========================================
+   모바일 반응형
+========================================= */
+
+@media (max-width: 580px) {
+    .career-news-item,
+    .career-news-detail-card {
+        padding: 18px;
+        border-radius: 17px;
+    }
+
+    .career-news-title {
+        font-size: 16px;
+    }
+
+    .career-news-detail-card h3 {
+        font-size: 19px;
+    }
+
+    .career-briefing-toolbar select {
+        flex: 1 1 125px;
+        min-width: 0;
+    }
+}

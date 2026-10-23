@@ -84,3 +84,26 @@
   .career-post p { font-size:13px; }
   .career-dashboard-empty { padding:40px 15px; }
 }
+
+
+/* 취준 도감 작성 폼 */
+
+.career-review-form select {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #e1dce8;
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+}
+
+.career-review-form select:focus {
+  outline: 2px solid #8870c2;
+  outline-offset: 1px;
+}
+
+.career-review-count {
+  margin: 0;
+  font-size: 13px;
+  color: #756b80;
+}

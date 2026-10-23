@@ -1,0 +1,691 @@
+/* =========================================
+   PLAYMATE 채용 인사이트 STEP 9
+   분기별 · 키워드 기반 통계 대시보드
+   기존 게시판 CSS와 충돌하지 않도록 범위 제한
+========================================= */
+
+.career-insights-v2 {
+    width: 100%;
+    color: #302b4d;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    box-sizing: border-box;
+}
+
+.career-insights-v2 * {
+    box-sizing: border-box;
+}
+
+/* =========================================
+   대시보드 소개 및 데모 안내
+========================================= */
+
+.career-ci-intro {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+}
+
+.career-ci-intro-kicker {
+    display: block;
+    color: #9188b2;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.7px;
+}
+
+.career-ci-intro h3 {
+    font-size: 23px;
+    margin: 9px 0 7px;
+    color: #292143;
+    letter-spacing: -0.7px;
+}
+
+.career-ci-intro p {
+    margin: 0;
+    color: #85839c;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.career-ci-demo-label {
+    flex: 0 0 auto;
+    padding: 9px 12px;
+    font-size: 11px;
+    font-weight: 800;
+    border-radius: 20px;
+    color: #674e9f;
+    background: #f1eef9;
+}
+
+.career-ci-warning {
+    margin: 0;
+    padding: 12px 15px;
+    border-radius: 11px;
+    border: 1px solid #eae4f3;
+    background: #faf8fd;
+    color: #766d93;
+    font-size: 12px;
+    line-height: 1.75;
+}
+
+/* =========================================
+   필터 영역
+========================================= */
+
+.career-ci-filters {
+    padding: 20px;
+    background: #f8f7fc;
+    border: 1px solid #eae8f2;
+    border-radius: 18px;
+}
+
+.career-ci-filters-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 15px;
+}
+
+.career-ci-filters-heading strong {
+    font-size: 14px;
+    color: #392c64;
+}
+
+.career-ci-filters-heading button {
+    border: 0;
+    background: transparent;
+    color: #6b539e;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.career-ci-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 13px;
+}
+
+.career-ci-filter-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    color: #5b5379;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.career-ci-filter-grid select {
+    min-width: 0;
+    width: 100%;
+    padding: 11px 35px 11px 12px;
+    border: 1px solid #e1ddeb;
+    border-radius: 10px;
+    outline-offset: 2px;
+    background: #ffffff;
+    color: #41365f;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.career-ci-filter-grid select:focus-visible,
+.career-insights-v2 button:focus-visible {
+    outline: 2px solid #8f71c6;
+    outline-offset: 2px;
+}
+
+.career-ci-filter-note {
+    font-size: 12px;
+    margin: 13px 0 0;
+    color: #8a849b;
+}
+
+/* =========================================
+   통계 KPI 카드
+========================================= */
+
+.career-ci-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.career-ci-kpi {
+    min-width: 0;
+    border: 1px solid #edebf1;
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 20px 17px;
+    box-shadow: 0 4px 15px rgba(60, 49, 93, 0.03);
+}
+
+.career-ci-kpi > span {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: #89849e;
+    margin-bottom: 11px;
+}
+
+.career-ci-kpi strong {
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: -0.8px;
+    color: #392861;
+    white-space: nowrap;
+}
+
+.career-ci-kpi strong small {
+    font-size: 13px;
+    padding-left: 3px;
+}
+
+.career-ci-kpi strong.positive {
+    color: #2f8a7d;
+}
+
+.career-ci-kpi strong.negative {
+    color: #c26671;
+}
+
+.career-ci-kpi p {
+    color: #9996a7;
+    font-size: 11px;
+    line-height: 1.55;
+    margin: 9px 0 0;
+}
+
+/* =========================================
+   분석 카드 공통
+========================================= */
+
+.career-ci-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 16px;
+}
+
+.career-ci-panel {
+    min-width: 0;
+    border: 1px solid #ebe9f0;
+    border-radius: 20px;
+    padding: 24px;
+    background: #ffffff;
+    box-shadow: 0 5px 18px rgba(60, 49, 93, 0.03);
+}
+
+.career-ci-panel.wide {
+    grid-column: 1 / -1;
+}
+
+.career-ci-section-title {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.career-ci-section-title > div:first-child > span {
+    color: #9a8cb9;
+    font-size: 10px;
+    letter-spacing: 1.3px;
+    font-weight: 900;
+}
+
+.career-ci-section-title h3 {
+    color: #2f2847;
+    font-size: 18px;
+    letter-spacing: -0.4px;
+    margin: 7px 0;
+}
+
+.career-ci-section-title p {
+    margin: 0;
+    color: #9793a6;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.career-ci-section-extra {
+    flex: 0 0 auto;
+}
+
+.career-ci-mini-badge {
+    padding: 8px 12px;
+    border-radius: 20px;
+    background: #f1eff8;
+    color: #66538c;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+/* =========================================
+   직무·분야·키워드 순위 막대
+========================================= */
+
+.career-ci-ranking {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+}
+
+.career-ci-rank {
+    display: flex;
+    gap: 11px;
+    width: 100%;
+    align-items: flex-start;
+}
+
+.career-ci-rank-button {
+    padding: 5px;
+    margin: -5px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.career-ci-rank-button:hover,
+.career-ci-rank-button.selected {
+    background: #f8f6fc;
+}
+
+.career-ci-rank-no {
+    flex: 0 0 20px;
+    padding-top: 1px;
+    color: #aaa4bb;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.career-ci-rank-body {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.career-ci-rank-text {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    color: #4b4265;
+    font-size: 12px;
+}
+
+.career-ci-rank-text > span {
+    overflow-wrap: anywhere;
+}
+
+.career-ci-rank-growth {
+    color: #b4757a;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.career-ci-rank-growth.up {
+    color: #37867a;
+}
+
+.career-ci-rank-text strong {
+    flex: 0 0 auto;
+    color: #41315e;
+    font-size: 12px;
+}
+
+.career-ci-bar-track {
+    width: 100%;
+    height: 8px;
+    border-radius: 20px;
+    background: #f0edf6;
+    overflow: hidden;
+}
+
+.career-ci-bar-track > span {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, #8c79c0, #b4a3d9);
+    border-radius: inherit;
+    transition: width 0.2s ease;
+}
+
+.career-ci-empty {
+    margin: 25px 0;
+    text-align: center;
+    font-size: 13px;
+    color: #9994a8;
+}
+
+/* =========================================
+   분기별 채용 수요 추이 차트
+========================================= */
+
+.career-ci-trend-wrap {
+    width: 100%;
+}
+
+.career-ci-trend-graph {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 280px;
+    overflow: visible;
+}
+
+.career-ci-gridline {
+    stroke: #edeaf4;
+    stroke-width: 1;
+}
+
+.career-ci-chart-line {
+    stroke: #8a70bc;
+    stroke-width: 3;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.career-ci-axis-label {
+    font-size: 11px;
+    fill: #948fa7;
+    font-weight: 600;
+}
+
+.career-ci-point-label {
+    font-size: 12px;
+    fill: #504173;
+    font-weight: 800;
+}
+
+.career-ci-dot {
+    fill: #b3a4d8;
+    stroke: #ffffff;
+    stroke-width: 2.5;
+}
+
+.career-ci-dot.active {
+    fill: #4c3b82;
+    stroke: #ffffff;
+    stroke-width: 3;
+}
+
+.career-ci-quarter-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 7px;
+    margin-top: 18px;
+}
+
+.career-ci-quarter-buttons button {
+    border: 1px solid #e6e1ee;
+    border-radius: 20px;
+    background: #ffffff;
+    padding: 7px 11px;
+    color: #87819a;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-ci-quarter-buttons button.active {
+    border-color: #503c86;
+    color: #ffffff;
+    background: #503c86;
+}
+
+/* =========================================
+   자격요건 · 직무 지식트리
+========================================= */
+
+.career-ci-tree {
+    display: grid;
+    grid-template-columns: minmax(190px, 0.38fr) minmax(0, 1fr);
+    gap: 19px;
+}
+
+.career-ci-tree-nav {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 19px;
+    border-radius: 15px;
+    background: #f8f6fc;
+    border: 1px solid #eeebf4;
+}
+
+.career-ci-tree-caption {
+    color: #9992b0;
+    font-size: 11px;
+    font-weight: 700;
+    margin-top: 5px;
+}
+
+.career-ci-tree-nav > strong {
+    color: #48336d;
+    font-size: 15px;
+    margin-bottom: 9px;
+}
+
+.career-ci-tree-nav button {
+    padding: 11px 13px;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 1px solid #e9e5ef;
+    text-align: left;
+    color: #665b7a;
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-ci-tree-nav button.active {
+    border-color: #b5a6d6;
+    background: #eae5f7;
+    color: #3f2e6a;
+}
+
+.career-ci-tree-detail {
+    min-width: 0;
+    padding: 8px;
+}
+
+.career-ci-tree-breadcrumb {
+    font-size: 12px;
+    color: #7c6b9f;
+    margin-bottom: 15px;
+}
+
+.career-ci-tree-breadcrumb span {
+    padding: 0 5px;
+}
+
+.career-ci-tree-detail h4 {
+    font-size: 16px;
+    margin: 0 0 5px;
+    color: #352b52;
+}
+
+.career-ci-tree-detail > p {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #8f8a9e;
+    margin: 0 0 22px;
+}
+
+.career-ci-tree-detail h4.career-ci-tree-subtitle {
+    margin: 23px 0 12px;
+    font-size: 14px;
+}
+
+.career-ci-keyword-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.career-ci-keyword-chips span {
+    padding: 9px 12px;
+    background: #f1eff8;
+    color: #594a83;
+    border-radius: 19px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.career-ci-keyword-chips b {
+    margin-left: 6px;
+    color: #aa95cb;
+}
+
+.career-ci-muted {
+    color: #9692a3;
+    font-size: 12px;
+}
+
+/* =========================================
+   직무별 급여 비교
+========================================= */
+
+.career-ci-salary-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 28px;
+    row-gap: 20px;
+}
+
+.career-ci-salary-item {
+    min-width: 0;
+}
+
+.career-ci-salary-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 9px;
+    font-size: 12px;
+    color: #4e4668;
+}
+
+.career-ci-salary-label strong {
+    white-space: nowrap;
+    color: #49366c;
+}
+
+.career-ci-bar-track.salary > span {
+    background: linear-gradient(90deg, #7eafb0, #a4cbc0);
+}
+
+.career-ci-salary-item small {
+    display: block;
+    color: #a09cab;
+    font-size: 10px;
+    margin-top: 7px;
+}
+
+.career-ci-smallprint {
+    font-size: 11px;
+    line-height: 1.7;
+    color: #948ea5;
+    margin: 23px 0 0;
+}
+
+/* =========================================
+   키워드 사전 · 데이터 정책 안내
+========================================= */
+
+.career-ci-data-footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.career-ci-data-footer > div {
+    padding: 18px 20px;
+    border-radius: 14px;
+    background: #f9f8fc;
+    border: 1px solid #eeecf3;
+}
+
+.career-ci-data-footer strong {
+    color: #544476;
+    font-size: 12px;
+}
+
+.career-ci-data-footer p {
+    color: #89869a;
+    font-size: 11px;
+    line-height: 1.75;
+    margin: 7px 0 0;
+}
+
+/* =========================================
+   태블릿 / 모바일
+========================================= */
+
+@media (max-width: 950px) {
+    .career-ci-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .career-ci-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .career-ci-panel.wide {
+        grid-column: auto;
+    }
+}
+
+@media (max-width: 650px) {
+    .career-ci-intro {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .career-ci-filter-grid,
+    .career-ci-kpis,
+    .career-ci-data-footer,
+    .career-ci-salary-list {
+        grid-template-columns: 1fr;
+    }
+
+    .career-ci-tree {
+        grid-template-columns: 1fr;
+    }
+
+    .career-ci-panel {
+        padding: 19px 15px;
+    }
+
+    .career-ci-section-title {
+        flex-direction: column;
+    }
+
+    .career-ci-intro h3 {
+        font-size: 21px;
+    }
+
+    .career-ci-kpi strong {
+        font-size: 22px;
+    }
+}

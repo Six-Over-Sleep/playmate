@@ -1,0 +1,153 @@
+/* =========================================
+   현직자 라운지 게시글 작성·수정 화면
+========================================= */
+
+.career-lounge-editor {
+    max-width: 860px;
+    margin: 0 auto;
+}
+
+.career-lounge-editor h3 {
+    margin: 5px 0 8px;
+    color: #332d53;
+    font-size: 21px;
+}
+
+.career-lounge-help {
+    margin: 0 0 18px;
+    color: #84869b;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.career-lounge-notice {
+    padding: 12px 16px;
+    border: 1px solid #b6dbcf;
+    border-radius: 12px;
+    background: #f0f8f5;
+    color: #275c50;
+    font-size: 13px;
+}
+
+/* =========================================
+   입력 폼 및 필드
+========================================= */
+
+.career-lounge-form {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 30px;
+    border: 1px solid #e9e8ee;
+    border-radius: 24px;
+    background: #ffffff;
+}
+
+.career-lounge-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    color: #332d53;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.career-lounge-form input,
+.career-lounge-form select,
+.career-lounge-form textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #e2e0e9;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #302a52;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 400;
+}
+
+.career-lounge-form textarea {
+    min-height: 90px;
+    resize: vertical;
+    line-height: 1.7;
+}
+
+.career-lounge-form textarea[rows="10"] {
+    min-height: 190px;
+}
+
+.career-lounge-form input:focus-visible,
+.career-lounge-form select:focus-visible,
+.career-lounge-form textarea:focus-visible {
+    outline: 2px solid #a99bcf;
+    outline-offset: 1px;
+}
+
+.career-lounge-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.career-lounge-count {
+    margin: -12px 0 0;
+    color: #81839a;
+    font-size: 12px;
+    text-align: right;
+}
+
+.career-lounge-privacy {
+    margin: 0;
+    color: #81839a;
+    font-size: 12px;
+    line-height: 1.7;
+}
+
+/* =========================================
+   취소·등록 버튼
+========================================= */
+
+.career-lounge-actions,
+.career-lounge-detail-actions {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.career-lounge-actions button,
+.career-lounge-detail-actions button {
+    padding: 11px 22px;
+    border: 0;
+    border-radius: 24px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-lounge-cancel {
+    background: #f2f0f6;
+    color: #514678;
+}
+
+.career-lounge-submit {
+    background: #4b3b85;
+    color: #ffffff;
+}
+
+.career-lounge-actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+@media (max-width: 580px) {
+    .career-lounge-form {
+        padding: 18px;
+        border-radius: 17px;
+    }
+
+    .career-lounge-row {
+        grid-template-columns: 1fr;
+    }
+}

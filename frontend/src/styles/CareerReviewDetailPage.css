@@ -1,0 +1,182 @@
+/* =========================================
+   취준 도감 후기 목록 클릭 영역
+========================================= */
+
+.career-review-post-open {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.career-review-post-open:hover h3 {
+    color: #594399;
+}
+
+.career-review-post-open:focus-visible {
+    outline: 3px solid #8e7bc4;
+    outline-offset: 4px;
+    border-radius: 6px;
+}
+
+/* =========================================
+   취준 도감 상세 화면
+========================================= */
+
+.career-review-detail {
+    max-width: 920px;
+    margin: 0 auto;
+}
+
+.career-review-back {
+    padding: 6px 0;
+    margin-bottom: 16px;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    color: #65529d;
+    cursor: pointer;
+}
+
+.career-review-detail-card {
+    padding: 34px;
+    background: #ffffff;
+    border: 1px solid #e9e8ee;
+    border-radius: 24px;
+}
+
+.career-review-detail-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.career-review-demo-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #8b8b9f;
+}
+
+.career-review-detail-card h3 {
+    margin: 0 0 14px;
+    font-size: 24px;
+    line-height: 1.45;
+    color: #292344;
+    overflow-wrap: anywhere;
+}
+
+.career-review-detail-meta {
+    display: flex;
+    gap: 16px;
+    color: #9292a8;
+    font-size: 13px;
+}
+
+/* =========================================
+   후기 정보 표시
+========================================= */
+
+.career-review-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin: 26px 0;
+    padding: 23px;
+    background: #f8f7fc;
+    border-radius: 15px;
+}
+
+.career-review-facts div {
+    min-width: 0;
+}
+
+.career-review-facts dt {
+    margin-bottom: 6px;
+    color: #85819f;
+    font-size: 12px;
+}
+
+.career-review-facts dd {
+    margin: 0;
+    color: #332d53;
+    font-size: 14px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.career-review-detail-body {
+    min-height: 190px;
+    padding: 14px 0 24px;
+    color: #39344d;
+    font-size: 15px;
+    line-height: 1.85;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.career-review-detail-hint {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #f4f3f8;
+    color: #79748d;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* =========================================
+   목록 · 수정 · 삭제 버튼
+========================================= */
+
+.career-review-detail-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.career-review-detail-actions button {
+    padding: 11px 22px;
+    border: 0;
+    border-radius: 24px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-review-edit-btn {
+    background: #4b3b85;
+    color: #ffffff;
+}
+
+.career-review-delete-btn {
+    background: #fff0f1;
+    color: #b44355;
+}
+
+@media (max-width: 580px) {
+    .career-review-detail-card {
+        padding: 22px 18px;
+        border-radius: 17px;
+    }
+
+    .career-review-detail-card h3 {
+        font-size: 20px;
+    }
+
+    .career-review-facts {
+        grid-template-columns: 1fr;
+        padding: 18px;
+    }
+}

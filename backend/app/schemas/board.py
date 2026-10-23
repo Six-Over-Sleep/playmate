@@ -46,6 +46,8 @@ class PostResponse(BaseModel):
 
 class CommentWrite(StrictModel):
     body: str = Field(min_length=1, max_length=2000)
+    parent_comment_id: int | None = Field(default=None, gt=0)
+
 
 
 class CommentResponse(BaseModel):
@@ -57,3 +59,4 @@ class CommentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     is_owner: bool = False
+    parent_comment_id: int | None = None

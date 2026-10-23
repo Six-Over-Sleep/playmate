@@ -1,0 +1,196 @@
+/* =========================================
+   커리어 연구소 상세 화면
+========================================= */
+
+.career-lab-detail {
+    max-width: 920px;
+    margin: 0 auto;
+}
+
+.career-lab-back {
+    margin-bottom: 16px;
+    padding: 6px 0;
+    border: 0;
+    background: transparent;
+    color: #65529d;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-lab-detail-card {
+    padding: 34px;
+    border: 1px solid #e9e8ee;
+    border-radius: 24px;
+    background: #ffffff;
+}
+
+.career-lab-detail-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.career-lab-detail-top small {
+    color: #8b8b9f;
+    font-size: 12px;
+}
+
+.career-lab-detail-card h3 {
+    margin: 0 0 14px;
+    color: #292344;
+    font-size: 24px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.career-lab-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    color: #9292a8;
+    font-size: 13px;
+}
+
+.career-lab-detail-body {
+    min-height: 150px;
+    padding: 22px 0;
+    color: #39344d;
+    font-size: 15px;
+    line-height: 1.85;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.career-lab-detail-extra {
+    margin-bottom: 20px;
+    padding: 16px 18px;
+    border: 1px solid #efedf4;
+    border-radius: 12px;
+    background: #faf9fd;
+}
+
+.career-lab-detail-extra h4,
+.career-lab-detail-poll h4 {
+    margin: 0 0 8px;
+    color: #514678;
+    font-size: 14px;
+}
+
+.career-lab-detail-extra p {
+    margin: 0;
+    color: #39344d;
+    font-size: 14px;
+    line-height: 1.75;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.career-lab-detail-field {
+    color: #79748d;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.career-lab-detail-field a {
+    color: #65529d;
+    text-decoration: underline;
+}
+
+.career-lab-resolution {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    background: #f0f8f5;
+    color: #275c50;
+    font-size: 13px;
+}
+
+.career-lab-resolution button {
+    padding: 9px 14px;
+    border: 1px solid #b6dbcf;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #275c50;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-lab-detail-poll {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin: 18px 0;
+    padding: 18px;
+    border-radius: 14px;
+    background: #f7f5fb;
+}
+
+.career-lab-detail-poll > p {
+    margin: 0 0 6px;
+    color: #79748d;
+    font-size: 12px;
+}
+
+.career-lab-detail-poll button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid #e1dbea;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #332d53;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.career-lab-detail-poll button.selected {
+    border-color: #65529d;
+    background: #ece6fa;
+}
+
+.career-lab-detail-poll button:disabled {
+    cursor: default;
+}
+
+.career-lab-detail-hint {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #f4f3f8;
+    color: #79748d;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.career-lab-detail-actions {
+    margin-top: 20px;
+}
+
+.career-lab-edit {
+    background: #4b3b85;
+    color: #ffffff;
+}
+
+.career-lab-delete {
+    background: #fff0f1;
+    color: #b44355;
+}
+
+@media (max-width: 580px) {
+    .career-lab-detail-card {
+        padding: 22px 18px;
+        border-radius: 17px;
+    }
+}

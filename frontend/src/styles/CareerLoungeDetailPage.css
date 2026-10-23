@@ -1,0 +1,136 @@
+/* =========================================
+   현직자 라운지 상세 화면
+========================================= */
+
+.career-lounge-detail {
+    max-width: 920px;
+    margin: 0 auto;
+}
+
+.career-lounge-back {
+    margin-bottom: 16px;
+    padding: 6px 0;
+    border: 0;
+    background: transparent;
+    color: #65529d;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-lounge-detail-card {
+    padding: 34px;
+    border: 1px solid #e9e8ee;
+    border-radius: 24px;
+    background: #ffffff;
+}
+
+.career-lounge-detail-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.career-lounge-detail-top small {
+    color: #8b8b9f;
+    font-size: 12px;
+}
+
+.career-lounge-detail-card h3 {
+    margin: 0 0 14px;
+    color: #292344;
+    font-size: 24px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.career-lounge-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    color: #9292a8;
+    font-size: 13px;
+}
+
+.career-lounge-detail-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.career-lounge-detail-tags span {
+    padding: 6px 12px;
+    border-radius: 20px;
+    background: #f4f1fb;
+    color: #65529d;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.career-lounge-detail-body {
+    min-height: 150px;
+    padding: 22px 0;
+    color: #39344d;
+    font-size: 15px;
+    line-height: 1.85;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.career-lounge-detail-extra {
+    margin-bottom: 20px;
+    padding: 16px 18px;
+    border: 1px solid #efedf4;
+    border-radius: 12px;
+    background: #faf9fd;
+}
+
+.career-lounge-detail-extra h4 {
+    margin: 0 0 8px;
+    color: #514678;
+    font-size: 14px;
+}
+
+.career-lounge-detail-extra p {
+    margin: 0;
+    color: #39344d;
+    font-size: 14px;
+    line-height: 1.75;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.career-lounge-detail-hint {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #f4f3f8;
+    color: #79748d;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.career-lounge-detail-actions {
+    margin-top: 20px;
+}
+
+.career-lounge-edit {
+    background: #4b3b85;
+    color: #ffffff;
+}
+
+.career-lounge-delete {
+    background: #fff0f1;
+    color: #b44355;
+}
+
+@media (max-width: 580px) {
+    .career-lounge-detail-card {
+        padding: 22px 18px;
+        border-radius: 17px;
+    }
+}

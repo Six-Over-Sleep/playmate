@@ -17,3 +17,5 @@ class Member(Base):
     student_verification_status = Column(String)
     verified_at = Column(DateTime)
     external_dm_opt_in = Column(Boolean)
+    # 댓글 작성자 이름 표시에 사용함. (members 테이블의 실제 컬럼)
+    nickname = Column(String)

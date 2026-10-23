@@ -6,9 +6,11 @@ Router는 API를 연결하고, Service는 업무 규칙을 판단함.
 """
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session 
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
-from backend.app.models.post import Post
+from backend.app.models.member import Member
+from backend.app.models.post import Comment, Post, PostLike, PostScrap
 from backend.app.models.recruit import Recruit, RecruitMember
 
 
@@ -29,7 +31,7 @@ def find_recruit_with_post(db: Session, recruit_id: int):
 
 
 def list_recruits_with_posts(db: Session):
-    """삭제되지 않은 모임과 JOINED 참여 인원수를 한 번의 쿼리로 조회함."""
+    """삭제되지 않은 모임과 JOINED 참여 인원수·좋아요 수를 한 번의 쿼리로 조회함."""
     # HOST도 JOINED 상태이면 포함하고, 취소한 참여자는 제외함.
     joined_counts = (
         db.query(
@@ -41,6 +43,16 @@ def list_recruits_with_posts(db: Session):
         .subquery()
     )
 
+    # 참여 인원과 같은 방식으로 게시글별 좋아요 수를 미리 집계함.
+    like_counts = (
+        db.query(
+            PostLike.post_id,
+            func.count(PostLike.member_id).label("like_count"),
+        )
+        .group_by(PostLike.post_id)
+        .subquery()
+    )
+
     return (
         db.query(
             Post,
@@ -48,12 +60,14 @@ def list_recruits_with_posts(db: Session):
             func.coalesce(joined_counts.c.participant_count, 0).label(
                 "participant_count"
             ),
+            func.coalesce(like_counts.c.like_count, 0).label("like_count"),
         )
         .join(Recruit, Post.post_id == Recruit.post_id)
         .outerjoin(
             joined_counts,
             joined_counts.c.recruit_id == Recruit.recruit_id,
         )
+        .outerjoin(like_counts, like_counts.c.post_id == Post.post_id)
         .filter(
             or_(Post.post_status != "DELETED", Post.post_status.is_(None))
         )
@@ -183,3 +197,109 @@ def get_recruit_capacity_and_count(db: Session, recruit_id: int):
         .group_by(Recruit.recruit_id, Recruit.capacity)
         .first()
     )
+
+
+# =========================================================
+# 4. 좋아요·스크랩
+# =========================================================
+def add_post_like(db: Session, post_id: int, member_id: int) -> None:
+    """좋아요를 등록함. 이미 있으면 기본키 충돌을 무시해 중복 행을 만들지 않음.
+
+    INSERT ... ON CONFLICT DO NOTHING이므로 동시에 여러 번 요청해도 한 행만 남음.
+    commit은 Service에서 수행함.
+    """
+    db.execute(
+        insert(PostLike)
+        .values(post_id=post_id, member_id=member_id)
+        .on_conflict_do_nothing(index_elements=["post_id", "member_id"])
+    )
+
+
+def delete_post_like(db: Session, post_id: int, member_id: int) -> None:
+    """회원의 좋아요를 삭제함. 좋아요가 없으면 아무것도 바뀌지 않음."""
+    db.query(PostLike).filter_by(post_id=post_id, member_id=member_id).delete(
+        synchronize_session=False
+    )
+
+
+def count_post_likes(db: Session, post_id: int) -> int:
+    """게시글의 좋아요 수를 DB의 COUNT 함수로 계산함."""
+    return (
+        db.query(func.count())
+        .select_from(PostLike)
+        .filter_by(post_id=post_id)
+        .scalar()
+    )
+
+
+def has_post_like(db: Session, post_id: int, member_id: int) -> bool:
+    """회원이 게시글에 좋아요했는지 확인함."""
+    return (
+        db.query(PostLike).filter_by(post_id=post_id, member_id=member_id).first()
+        is not None
+    )
+
+
+def add_post_scrap(db: Session, post_id: int, member_id: int) -> None:
+    """스크랩을 등록함. 좋아요와 같이 중복 요청은 무시함."""
+    db.execute(
+        insert(PostScrap)
+        .values(post_id=post_id, member_id=member_id)
+        .on_conflict_do_nothing(index_elements=["post_id", "member_id"])
+    )
+
+
+def delete_post_scrap(db: Session, post_id: int, member_id: int) -> None:
+    """회원의 스크랩을 삭제함. 스크랩이 없으면 아무것도 바뀌지 않음."""
+    db.query(PostScrap).filter_by(post_id=post_id, member_id=member_id).delete(
+        synchronize_session=False
+    )
+
+
+def has_post_scrap(db: Session, post_id: int, member_id: int) -> bool:
+    """회원이 게시글을 스크랩했는지 확인함."""
+    return (
+        db.query(PostScrap).filter_by(post_id=post_id, member_id=member_id).first()
+        is not None
+    )
+
+
+# =========================================================
+# 5. 댓글·대댓글
+# =========================================================
+def list_post_comments(db: Session, post_id: int):
+    """게시글의 댓글을 작성자 닉네임과 함께 작성 순서로 모두 조회함.
+
+    삭제된 댓글도 포함함. 화면에 보일지 여부는 Service에서 판단함.
+    Member 모델의 다른 컬럼은 읽지 않고 nickname만 조회함.
+    """
+    return (
+        db.query(Comment, Member.nickname)
+        .join(Member, Member.member_id == Comment.author_member_id)
+        .filter(Comment.post_id == post_id)
+        .order_by(Comment.created_at, Comment.comment_id)
+        .all()
+    )
+
+
+def get_active_comment(db: Session, comment_id: int):
+    """삭제되지 않은 댓글을 조회함. 없거나 삭제되었으면 None 반환."""
+    return (
+        db.query(Comment)
+        .filter(Comment.comment_id == comment_id, Comment.deleted_at.is_(None))
+        .first()
+    )
+
+
+def get_member_nickname(db: Session, member_id: int):
+    """회원 닉네임만 조회함. 응답의 작성자 이름에 사용함."""
+    return (
+        db.query(Member.nickname).filter(Member.member_id == member_id).scalar()
+    )
+
+
+def add_comment(db: Session, comment: Comment) -> Comment:
+    """새 댓글을 세션에 등록하고 생성된 comment_id를 확보함. commit은 Service에서 수행함."""
+    db.add(comment)
+    db.flush()
+    return comment

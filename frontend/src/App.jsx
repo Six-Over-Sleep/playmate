@@ -1,12 +1,18 @@
+
 import { useCallback, useEffect, useState } from 'react'
+
 import LoginPage from './pages/auth/LoginPage'
 import SignupPage from './pages/auth/SignupPage'
 import Header from './components/layout/Header'
 import BoardSection from './components/board/BoardSection'
 import MeetupSection from './components/meetup/MeetupSection'
+import MyPage from './pages/mypage/MyPage'
+
+// 취업 카테고리 페이지
+import CareerPage from './pages/career/CareerPage'
+
 import { apiRequest } from './services/apiClient'
 import { getAuthUrl } from './config/api'
-import MyPage from './pages/mypage/MyPage'
 
 export default function App() {
   const [authView, setAuthView] = useState('checking')
@@ -15,11 +21,13 @@ export default function App() {
   const [nickname, setNickname] = useState('')
   const [avatarUrl, setAvatarUrl] = useState(null)
 
+  // 서비스 진입
   const enterService = useCallback(() => {
     setSection('board')
     setAuthView('board')
   }, [])
 
+  // 로그인 상태 확인
   const checkAuth = useCallback(async () => {
     try {
       const data = await apiRequest('/me', {
@@ -41,6 +49,7 @@ export default function App() {
       if (error.status !== 401) {
         console.error(error)
       }
+
       setNickname('')
       setAvatarUrl(null)
       setAuthView('login')
@@ -50,6 +59,7 @@ export default function App() {
       if (url.searchParams.has('auth') || url.searchParams.has('signup')) {
         url.searchParams.delete('auth')
         url.searchParams.delete('signup')
+
         window.history.replaceState(
           {},
           '',
@@ -59,6 +69,7 @@ export default function App() {
     }
   }, [enterService])
 
+  // 로그아웃
   const handleLogout = async () => {
     if (!window.confirm('정말 로그아웃 하시겠습니까?')) return
 
@@ -68,6 +79,7 @@ export default function App() {
         method: 'POST',
         credentials: 'include',
       })
+
       setNickname('')
       setAvatarUrl(null)
       setAuthView('login')
@@ -81,6 +93,7 @@ export default function App() {
     checkAuth()
   }, [checkAuth])
 
+  // 상단 메뉴 이동
   const handleNavigate = (nextSection) => {
     setSection(nextSection)
 
@@ -89,6 +102,7 @@ export default function App() {
     }
   }
 
+  // 로그인 확인 중
   if (authView === 'checking') {
     return (
       <main className="service-error">
@@ -97,6 +111,7 @@ export default function App() {
     )
   }
 
+  // 회원가입 화면
   if (authView === 'signup') {
     return (
       <SignupPage
@@ -106,9 +121,11 @@ export default function App() {
     )
   }
 
+  // 로그인 후 서비스 화면
   if (authView === 'board') {
     return (
       <>
+        {/* 공통 헤더 */}
         <Header
           activeSection={section}
           onNavigate={handleNavigate}
@@ -117,17 +134,30 @@ export default function App() {
           onLogout={handleLogout}
         />
 
+        {/* 게시판 */}
+        {section === 'board' && (
+          <BoardSection resetVersion={boardKey} />
+        )}
 
-        {section === 'board' && <BoardSection resetVersion={boardKey} />}
+        {/* 취업 카테고리 - 신규 추가 */}
+        {section === 'career' && (
+          <CareerPage />
+        )}
 
-        {section === 'meetup' && <MeetupSection />}
+        {/* 모임 */}
+        {section === 'meetup' && (
+          <MeetupSection />
+        )}
 
-        {section === 'mypage' && <MyPage />}
-
+        {/* 마이페이지 */}
+        {section === 'mypage' && (
+          <MyPage />
+        )}
       </>
     )
   }
 
+  // 로그인 화면
   return (
     <LoginPage
       onSignup={() => setAuthView('signup')}

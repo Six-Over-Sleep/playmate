@@ -11,6 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from app.core.auth import get_current_member_id
 
 from app.schemas.career import (
+    # 취준 도감
     CareerReviewCreate,
     CareerReviewResponse,
     CareerReviewListResponse,
@@ -18,9 +19,36 @@ from app.schemas.career import (
     ReviewSubcategory,
     ProcessStage,
     ProcessResult,
+
+    # 커리어 톡톡
+    CareerTalkCreate,
+    CareerTalkUpdate,
+    CareerTalkResponse,
+    CareerTalkListResponse,
+    TalkSubcategory,
+    TalkStatus,
 )
+
 from app.services import career_service
 
+from app.schemas.career import (
+    CareerLoungeCreate,
+    CareerLoungeUpdate,
+    CareerLoungeResponse,
+    CareerLoungeListResponse,
+    LoungeSubcategory,
+)
+
+from app.schemas.career import (
+    CareerLabCreate,
+    CareerLabUpdate,
+    CareerLabResponse,
+    CareerLabListResponse,
+    CareerLabResolveUpdate,
+    CareerLabVoteCreate,
+    LabSubcategory,
+    LabPostType,
+)
 
 # 취업 카테고리 API
 router = APIRouter(
@@ -164,4 +192,493 @@ async def delete_review(
 
     return Response(
         status_code=status.HTTP_204_NO_CONTENT
+    )
+
+
+
+# =========================================
+# 커리어 톡톡 - 게시글 등록
+# =========================================
+
+@router.post(
+    "/talks",
+    response_model=CareerTalkResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_talk(
+    payload: CareerTalkCreate,
+    member_id: int = Depends(get_current_member_id),
+):
+    """로그인한 회원의 커리어 톡톡 게시글을 등록한다."""
+
+    return await run_in_threadpool(
+        career_service.create_talk,
+        payload,
+        member_id,
+    )
+
+
+# =========================================
+# 커리어 톡톡 - 게시글 목록 조회
+# =========================================
+
+@router.get(
+    "/talks",
+    response_model=CareerTalkListResponse,
+)
+async def list_talks(
+    q: str | None = Query(
+        default=None,
+        max_length=100,
+    ),
+    subcategory_code: TalkSubcategory | None = Query(
+        default=None,
+    ),
+    job_category_code: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=50,
+    ),
+    current_status: TalkStatus | None = Query(
+        default=None,
+    ),
+    page: int = Query(
+        default=1,
+        ge=1,
+    ),
+    page_size: int = Query(
+        default=10,
+        ge=1,
+        le=50,
+    ),
+    member_id: int = Depends(get_current_member_id),
+):
+    """검색·카테고리·직무·취업 상태별 게시글 목록을 조회한다."""
+
+    return await run_in_threadpool(
+        career_service.list_talks,
+        member_id=member_id,
+        q=q,
+        subcategory_code=subcategory_code,
+        job_category_code=job_category_code,
+        current_status=current_status,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# =========================================
+# 커리어 톡톡 - 게시글 상세 조회
+# =========================================
+
+@router.get(
+    "/talks/{post_id}",
+    response_model=CareerTalkResponse,
+)
+async def get_talk(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """게시글 ID로 커리어 톡톡 상세 정보를 조회한다."""
+
+    return await run_in_threadpool(
+        career_service.get_talk,
+        post_id,
+        member_id,
+    )
+
+
+# =========================================
+# 커리어 톡톡 - 게시글 수정
+# =========================================
+
+@router.patch(
+    "/talks/{post_id}",
+    response_model=CareerTalkResponse,
+)
+async def update_talk(
+    post_id: int,
+    payload: CareerTalkUpdate,
+    member_id: int = Depends(get_current_member_id),
+):
+    """작성자 본인의 커리어 톡톡 게시글을 수정한다."""
+
+    return await run_in_threadpool(
+        career_service.update_talk,
+        post_id,
+        payload,
+        member_id,
+    )
+
+
+# =========================================
+# 커리어 톡톡 - 게시글 삭제
+# =========================================
+
+@router.delete(
+    "/talks/{post_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_talk(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """작성자 본인의 커리어 톡톡 게시글을 논리 삭제한다."""
+
+    await run_in_threadpool(
+        career_service.delete_talk,
+        post_id,
+        member_id,
+    )
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+
+# =========================================================
+# 현직자 라운지 Router
+# =========================================================
+
+
+# =========================================================
+# 1. 현직자 라운지 게시글 등록
+# POST /api/career/lounges
+# =========================================================
+
+@router.post(
+    "/lounges",
+    response_model=CareerLoungeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_lounge(
+    payload: CareerLoungeCreate,
+    member_id: int = Depends(get_current_member_id),
+):
+    """로그인한 회원의 현직자 라운지 게시글을 등록한다."""
+
+    return await run_in_threadpool(
+        career_service.create_lounge,
+        payload,
+        member_id,
+    )
+
+
+# =========================================================
+# 2. 현직자 라운지 게시글 목록 조회
+# GET /api/career/lounges
+# =========================================================
+
+@router.get(
+    "/lounges",
+    response_model=CareerLoungeListResponse,
+)
+async def list_lounges(
+    q: str | None = Query(
+        default=None,
+        max_length=100,
+    ),
+    subcategory_code: LoungeSubcategory | None = Query(
+        default=None,
+    ),
+    job_category_code: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=50,
+    ),
+    experience_years: int | None = Query(
+        default=None,
+        ge=0,
+        le=32767,
+    ),
+    page: int = Query(
+        default=1,
+        ge=1,
+    ),
+    page_size: int = Query(
+        default=10,
+        ge=1,
+        le=50,
+    ),
+    member_id: int = Depends(get_current_member_id),
+):
+    """검색·카테고리·직무·경력 연차별 게시글을 조회한다."""
+
+    return await run_in_threadpool(
+        career_service.list_lounges,
+        member_id=member_id,
+        q=q,
+        subcategory_code=subcategory_code,
+        job_category_code=job_category_code,
+        experience_years=experience_years,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# =========================================================
+# 3. 현직자 라운지 게시글 상세 조회
+# GET /api/career/lounges/{post_id}
+# =========================================================
+
+@router.get(
+    "/lounges/{post_id}",
+    response_model=CareerLoungeResponse,
+)
+async def get_lounge(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """게시글 ID로 현직자 라운지 상세 정보를 조회한다."""
+
+    return await run_in_threadpool(
+        career_service.get_lounge,
+        post_id,
+        member_id,
+    )
+
+
+# =========================================================
+# 4. 현직자 라운지 게시글 수정
+# PATCH /api/career/lounges/{post_id}
+# =========================================================
+
+@router.patch(
+    "/lounges/{post_id}",
+    response_model=CareerLoungeResponse,
+)
+async def update_lounge(
+    post_id: int,
+    payload: CareerLoungeUpdate,
+    member_id: int = Depends(get_current_member_id),
+):
+    """작성자 본인의 현직자 라운지 게시글을 수정한다."""
+
+    return await run_in_threadpool(
+        career_service.update_lounge,
+        post_id,
+        payload,
+        member_id,
+    )
+
+
+# =========================================================
+# 5. 현직자 라운지 게시글 삭제
+# DELETE /api/career/lounges/{post_id}
+# =========================================================
+
+@router.delete(
+    "/lounges/{post_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_lounge(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """작성자 본인의 게시글을 논리 삭제한다."""
+
+    await run_in_threadpool(
+        career_service.delete_lounge,
+        post_id,
+        member_id,
+    )
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+
+
+# =========================================================
+# 커리어 연구소 Router
+# =========================================================
+
+
+# =========================================================
+# 1. 게시글 등록
+# POST /api/career/labs
+# =========================================================
+
+@router.post(
+    "/labs",
+    response_model=CareerLabResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_lab(
+    payload: CareerLabCreate,
+    member_id: int = Depends(get_current_member_id),
+):
+    """질문·토론 게시글을 등록한다."""
+
+    return await run_in_threadpool(
+        career_service.create_lab,
+        payload,
+        member_id,
+    )
+
+
+# =========================================================
+# 2. 게시글 목록 조회
+# GET /api/career/labs
+# =========================================================
+
+@router.get(
+    "/labs",
+    response_model=CareerLabListResponse,
+)
+async def list_labs(
+    q: str | None = Query(
+        default=None,
+        max_length=100,
+    ),
+    subcategory_code: LabSubcategory | None = Query(
+        default=None,
+    ),
+    post_type: LabPostType | None = Query(
+        default=None,
+    ),
+    is_resolved: bool | None = Query(
+        default=None,
+    ),
+    page: int = Query(
+        default=1,
+        ge=1,
+    ),
+    page_size: int = Query(
+        default=10,
+        ge=1,
+        le=50,
+    ),
+    member_id: int = Depends(get_current_member_id),
+):
+    """검색·유형·해결 여부·페이지별 게시글을 조회한다."""
+
+    return await run_in_threadpool(
+        career_service.list_labs,
+        member_id=member_id,
+        q=q,
+        subcategory_code=subcategory_code,
+        post_type=post_type,
+        is_resolved=is_resolved,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# =========================================================
+# 3. 게시글 상세 조회
+# GET /api/career/labs/{post_id}
+# =========================================================
+
+@router.get(
+    "/labs/{post_id}",
+    response_model=CareerLabResponse,
+)
+async def get_lab(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """게시글 상세 내용 및 투표 현황을 조회한다."""
+
+    return await run_in_threadpool(
+        career_service.get_lab,
+        post_id,
+        member_id,
+    )
+
+
+# =========================================================
+# 4. 게시글 수정
+# PATCH /api/career/labs/{post_id}
+# =========================================================
+
+@router.patch(
+    "/labs/{post_id}",
+    response_model=CareerLabResponse,
+)
+async def update_lab(
+    post_id: int,
+    payload: CareerLabUpdate,
+    member_id: int = Depends(get_current_member_id),
+):
+    """작성자 본인의 게시글을 수정한다."""
+
+    return await run_in_threadpool(
+        career_service.update_lab,
+        post_id,
+        payload,
+        member_id,
+    )
+
+
+# =========================================================
+# 5. 게시글 삭제
+# DELETE /api/career/labs/{post_id}
+# =========================================================
+
+@router.delete(
+    "/labs/{post_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_lab(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """작성자 본인의 게시글을 논리 삭제한다."""
+
+    await run_in_threadpool(
+        career_service.delete_lab,
+        post_id,
+        member_id,
+    )
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+
+
+# =========================================================
+# 6. 질문 해결 상태 변경
+# PATCH /api/career/labs/{post_id}/resolve
+# =========================================================
+
+@router.patch(
+    "/labs/{post_id}/resolve",
+    response_model=CareerLabResponse,
+)
+async def update_lab_resolved(
+    post_id: int,
+    payload: CareerLabResolveUpdate,
+    member_id: int = Depends(get_current_member_id),
+):
+    """질문 작성자가 해결 여부를 변경한다."""
+
+    return await run_in_threadpool(
+        career_service.update_lab_resolved,
+        post_id,
+        payload,
+        member_id,
+    )
+
+
+# =========================================================
+# 7. 토론 게시글 투표
+# POST /api/career/labs/{post_id}/votes
+# =========================================================
+
+@router.post(
+    "/labs/{post_id}/votes",
+    response_model=CareerLabResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def vote_lab(
+    post_id: int,
+    payload: CareerLabVoteCreate,
+    member_id: int = Depends(get_current_member_id),
+):
+    """토론 게시글에 한 번 투표한다."""
+
+    return await run_in_threadpool(
+        career_service.vote_lab,
+        post_id,
+        payload,
+        member_id,
     )

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import '../../styles/CareerLabForm.css'
 
-// 커리어 연구소 하위 게시판. 기존 취업 메인 메뉴명과 일치시킵니다.
+// 기존 커리어 연구소 하위 메뉴를 그대로 사용합니다.
 const LAB_MENUS = [
     '취업 전략',
     '포트폴리오 피드백',
@@ -11,34 +11,21 @@ const LAB_MENUS = [
     '직무 비교',
 ]
 
-const JOB_CATEGORIES = [
-    '소프트웨어 개발',
-    '데이터·AI',
-    '인프라·클라우드',
-    '정보보안',
-    'IT 기획·관리',
-    'QA·테스트',
-    '디자인·UX',
-    '기타 IT 직무',
-]
-
-const POST_TYPES = [
-    { value: 'QUESTION', label: '질문', description: '구체적인 고민을 질문하고 해결 방법을 구해요.' },
-    { value: 'DISCUSSION', label: '토론', description: '주장과 근거를 나누고 선택지 투표를 진행해요.' },
-    { value: 'FEEDBACK', label: '피드백', description: '이력서·포트폴리오 등을 검토받을 수 있어요.' },
-]
-
-function isValidWebLink(value) {
-    if (!value.trim()) return true
-    try {
-        const url = new URL(value.trim())
-        return url.protocol === 'https:' || url.protocol === 'http:'
-    } catch {
-        return false
-    }
+const LAB_CODES = {
+    '취업 전략': 'JOB_STRATEGY',
+    '포트폴리오 피드백': 'PORTFOLIO_FEEDBACK',
+    '이력서·자소서': 'RESUME',
+    '기술면접 스터디': 'TECH_INTERVIEW',
+    '자격증·스펙 전략': 'CERTIFICATION',
+    '직무 비교': 'JOB_COMPARISON',
 }
 
-/** 커리어 연구소 전용 폼. onSubmit은 화면 임시 데이터에만 반영됩니다. */
+const POST_TYPES = [
+    { value: 'QUESTION', label: '질문', description: '취업·이력서·포트폴리오 피드백 요청도 질문으로 등록해요.' },
+    { value: 'DISCUSSION', label: '토론', description: '서로 의견을 나누고 선택적으로 투표를 진행해요.' },
+]
+
+/** 서버 저장용 커리어 연구소 작성/수정 폼 */
 export default function CareerLabForm({
     initial = null,
     defaultMenu = '',
@@ -46,69 +33,50 @@ export default function CareerLabForm({
     onCancel,
     onSubmit,
 }) {
+    const editing = Boolean(initial)
     const [title, setTitle] = useState(initial?.title || '')
     const [menu, setMenu] = useState(initial?.menu || defaultMenu)
-    // 선택한 하위 게시판에 맞는 글 유형을 기본값으로 제안합니다.
-    const suggestedType = ['포트폴리오 피드백', '이력서·자소서'].includes(defaultMenu)
-        ? 'FEEDBACK'
-        : defaultMenu === '직무 비교'
-            ? 'DISCUSSION'
-            : 'QUESTION'
-    const [postType, setPostType] = useState(initial?.post_type || suggestedType)
+    const [postType, setPostType] = useState(
+        initial?.post_type || (defaultMenu === '직무 비교' ? 'DISCUSSION' : 'QUESTION')
+    )
     const [body, setBody] = useState(initial?.body || '')
-    const [desiredJob, setDesiredJob] = useState(initial?.desired_job || '')
-    const [questionDetail, setQuestionDetail] = useState(initial?.question_detail || '')
-    const [discussionStance, setDiscussionStance] = useState(initial?.discussion_stance || '')
-    const [feedbackFocus, setFeedbackFocus] = useState(initial?.feedback_focus || '')
-    const [referenceUrl, setReferenceUrl] = useState(initial?.reference_url || '')
-    const [fileNames, setFileNames] = useState(initial?.file_names || [])
-    const [pollEnabled, setPollEnabled] = useState(Boolean(initial?.poll_options?.length))
-    const [pollOptions, setPollOptions] = useState(initial?.poll_options || ['', ''])
+    const [anonymous, setAnonymous] = useState(initial?.is_anonymous ?? true)
+    const savedOptions = (initial?.poll_options || []).map((option) => (
+        typeof option === 'string' ? option : option.option_text
+    ))
+    const [pollEnabled, setPollEnabled] = useState(savedOptions.length >= 2)
+    const [pollOptions, setPollOptions] = useState(savedOptions.length ? savedOptions : ['', ''])
 
-    const trimmedOptions = pollOptions.map((item) => item.trim())
-    const pollValid = !pollEnabled || (
-        trimmedOptions.length >= 2 &&
-        trimmedOptions.length <= 5 &&
-        trimmedOptions.every(Boolean) &&
-        new Set(trimmedOptions).size === trimmedOptions.length
+    const cleanedOptions = pollOptions.map((option) => option.trim())
+    const validPoll = !pollEnabled || (
+        cleanedOptions.length >= 2 &&
+        cleanedOptions.length <= 10 &&
+        cleanedOptions.every((option) => option.length >= 1 && option.length <= 200) &&
+        new Set(cleanedOptions).size === cleanedOptions.length
     )
-    const linkValid = isValidWebLink(referenceUrl)
-    const typeValid = postType === 'DISCUSSION'
-        ? Boolean(discussionStance.trim() && pollValid)
-        : postType === 'FEEDBACK'
-            ? Boolean(feedbackFocus.trim() && linkValid)
-            : true
-
     const canSubmit = Boolean(
-        title.trim() && menu && body.trim() && typeValid && !busy
+        title.trim() && menu && body.trim() && !busy &&
+        (editing || postType !== 'DISCUSSION' || validPoll)
     )
-
-    function updatePollOption(index, value) {
-        setPollOptions((items) => items.map((item, i) => i === index ? value : item))
-    }
-
-    function chooseFiles(event) {
-        // 업로드 API가 없으므로 파일 내용은 읽지 않고 이름만 화면에 남깁니다.
-        setFileNames(Array.from(event.target.files || []).map((file) => file.name))
-    }
 
     function submit(event) {
         event.preventDefault()
         if (!canSubmit || !onSubmit) return
 
-        onSubmit({
+        const payload = {
             title: title.trim(),
-            menu,
-            post_type: postType,
             body: body.trim(),
-            desired_job: postType === 'QUESTION' ? desiredJob || null : null,
-            question_detail: postType === 'QUESTION' ? questionDetail.trim() || null : null,
-            discussion_stance: postType === 'DISCUSSION' ? discussionStance.trim() : null,
-            poll_options: postType === 'DISCUSSION' && pollEnabled ? trimmedOptions : [],
-            feedback_focus: postType === 'FEEDBACK' ? feedbackFocus.trim() : null,
-            reference_url: postType === 'FEEDBACK' ? referenceUrl.trim() || null : null,
-            file_names: postType === 'FEEDBACK' ? fileNames : [],
-        })
+            subcategory_code: LAB_CODES[menu],
+            is_anonymous: anonymous,
+        }
+
+        // 생성 시에만 글 유형과 투표 선택지를 받습니다.
+        if (!editing) {
+            payload.post_type = postType
+            payload.poll_options = postType === 'DISCUSSION' && pollEnabled ? cleanedOptions : []
+        }
+
+        onSubmit(payload)
     }
 
     return (
@@ -121,31 +89,27 @@ export default function CareerLabForm({
                     required
                     disabled={busy}
                     onChange={(event) => setTitle(event.target.value)}
-                    placeholder="질문·토론·피드백 요청 제목을 입력하세요"
+                    placeholder="질문이나 토론 주제를 입력해 주세요"
                 />
             </label>
 
             <div className="career-lab-row">
                 <label>
                     하위 게시판 *
-                    <select
-                        value={menu}
-                        required
-                        disabled={busy}
-                        onChange={(event) => setMenu(event.target.value)}
-                    >
+                    <select value={menu} required disabled={busy} onChange={(event) => setMenu(event.target.value)}>
                         <option value="">게시판 선택</option>
-                        {LAB_MENUS.map((item) => (
-                            <option key={item} value={item}>{item}</option>
-                        ))}
+                        {LAB_MENUS.map((item) => <option key={item} value={item}>{item}</option>)}
                     </select>
                 </label>
                 <label>
                     게시글 유형 *
                     <select
                         value={postType}
-                        disabled={busy}
-                        onChange={(event) => setPostType(event.target.value)}
+                        disabled={busy || editing}
+                        onChange={(event) => {
+                            setPostType(event.target.value)
+                            if (event.target.value !== 'DISCUSSION') setPollEnabled(false)
+                        }}
                     >
                         {POST_TYPES.map((item) => (
                             <option key={item.value} value={item.value}>{item.label}</option>
@@ -153,9 +117,9 @@ export default function CareerLabForm({
                     </select>
                 </label>
             </div>
-
             <p className="career-lab-type-help">
                 {POST_TYPES.find((item) => item.value === postType)?.description}
+                {editing ? ' 게시글 유형과 투표 선택지는 등록 후 변경할 수 없습니다.' : ''}
             </p>
 
             <label>
@@ -167,152 +131,94 @@ export default function CareerLabForm({
                     required
                     disabled={busy}
                     onChange={(event) => setBody(event.target.value)}
-                    placeholder="상황과 궁금한 점을 구체적으로 작성해 주세요. 개인 정보는 제외해 주세요."
+                    placeholder="상황, 희망 직무, 질문, 피드백 요청 사항, 참고 링크 등을 본문에 작성해 주세요. 개인정보는 제외해 주세요."
                 />
             </label>
             <p className="career-lab-count">{body.length.toLocaleString()} / 20,000자</p>
 
             {postType === 'QUESTION' && (
-                <>
-                    <div className="career-lab-row">
-                        <label>
-                            희망 직무 (선택)
-                            <select
-                                value={desiredJob}
-                                disabled={busy}
-                                onChange={(event) => setDesiredJob(event.target.value)}
-                            >
-                                <option value="">선택 안 함</option>
-                                {JOB_CATEGORIES.map((item) => (
-                                    <option key={item} value={item}>{item}</option>
-                                ))}
-                            </select>
-                        </label>
-                        <div className="career-lab-input-note">
-                            <strong>질문 상태</strong>
-                            <span>등록 후 상세 화면에서 해결 여부를 표시할 수 있어요.</span>
-                        </div>
-                    </div>
-                    <label>
-                        구체적으로 답변받고 싶은 내용 (선택)
-                        <textarea
-                            value={questionDetail}
-                            maxLength={3000}
-                            rows={3}
-                            disabled={busy}
-                            onChange={(event) => setQuestionDetail(event.target.value)}
-                            placeholder="예: 신입 데이터 분석가의 프로젝트 구성은 어떻게 하면 좋을까요?"
-                        />
-                    </label>
-                </>
+                <div className="career-lab-input-note">
+                    <strong>질문 해결 상태</strong>
+                    <span>등록 후 작성자가 상세 화면에서 해결 완료 여부를 변경할 수 있습니다.</span>
+                </div>
             )}
 
             {postType === 'DISCUSSION' && (
                 <>
-                    <label>
-                        나의 주장·의견 *
-                        <textarea
-                            value={discussionStance}
-                            maxLength={3000}
-                            rows={4}
-                            required
-                            disabled={busy}
-                            onChange={(event) => setDiscussionStance(event.target.value)}
-                            placeholder="선택한 입장과 그 이유를 적어 주세요"
-                        />
-                    </label>
-                    <label className="career-lab-checkbox">
-                        <input
-                            type="checkbox"
-                            checked={pollEnabled}
-                            disabled={busy}
-                            onChange={(event) => setPollEnabled(event.target.checked)}
-                        />
-                        선택지 투표 추가 (선택)
-                    </label>
-                    {pollEnabled && (
-                        <div className="career-lab-poll-editor">
-                            <strong>투표 선택지 (2~5개)</strong>
-                            {pollOptions.map((option, index) => (
-                                <div className="career-lab-poll-option" key={index}>
-                                    <input
-                                        value={option}
-                                        maxLength={80}
-                                        disabled={busy}
-                                        onChange={(event) => updatePollOption(index, event.target.value)}
-                                        placeholder={`선택지 ${index + 1}`}
-                                        aria-label={`투표 선택지 ${index + 1}`}
-                                    />
+                    {editing ? (
+                        savedOptions.length >= 2 && (
+                            <div className="career-lab-poll-editor">
+                                <strong>투표 선택지 (수정 불가)</strong>
+                                {savedOptions.map((option, index) => (
+                                    <p key={`${index}-${option}`}>{index + 1}. {option}</p>
+                                ))}
+                            </div>
+                        )
+                    ) : (
+                        <>
+                            <label className="career-lab-checkbox">
+                                <input
+                                    type="checkbox"
+                                    checked={pollEnabled}
+                                    disabled={busy}
+                                    onChange={(event) => setPollEnabled(event.target.checked)}
+                                />
+                                선택지 투표 추가 (선택)
+                            </label>
+                            {pollEnabled && (
+                                <div className="career-lab-poll-editor">
+                                    <strong>투표 선택지 (2~10개, 각 200자 이하)</strong>
+                                    {pollOptions.map((option, index) => (
+                                        <div className="career-lab-poll-option" key={index}>
+                                            <input
+                                                value={option}
+                                                maxLength={200}
+                                                disabled={busy}
+                                                onChange={(event) => setPollOptions((items) => (
+                                                    items.map((item, i) => i === index ? event.target.value : item)
+                                                ))}
+                                                placeholder={`선택지 ${index + 1}`}
+                                                aria-label={`투표 선택지 ${index + 1}`}
+                                            />
+                                            <button
+                                                type="button"
+                                                disabled={busy || pollOptions.length <= 2}
+                                                onClick={() => setPollOptions((items) => items.filter((_, i) => i !== index))}
+                                            >
+                                                삭제
+                                            </button>
+                                        </div>
+                                    ))}
                                     <button
                                         type="button"
-                                        disabled={busy || pollOptions.length <= 2}
-                                        onClick={() => setPollOptions((items) => items.filter((_, i) => i !== index))}
-                                        aria-label={`선택지 ${index + 1} 삭제`}
+                                        className="career-lab-add-option"
+                                        disabled={busy || pollOptions.length >= 10}
+                                        onClick={() => setPollOptions((items) => [...items, ''])}
                                     >
-                                        삭제
+                                        + 선택지 추가
                                     </button>
+                                    {!validPoll && (
+                                        <p className="career-lab-error">2~10개의 중복 없는 선택지를 입력해 주세요.</p>
+                                    )}
                                 </div>
-                            ))}
-                            <button
-                                type="button"
-                                className="career-lab-add-option"
-                                disabled={busy || pollOptions.length >= 5}
-                                onClick={() => setPollOptions((items) => [...items, ''])}
-                            >
-                                + 선택지 추가
-                            </button>
-                            {!pollValid && (
-                                <p className="career-lab-error">모든 선택지를 채우고 중복되지 않게 입력해 주세요.</p>
                             )}
-                        </div>
+                        </>
                     )}
                 </>
             )}
 
-            {postType === 'FEEDBACK' && (
-                <>
-                    <label>
-                        집중적으로 피드백받고 싶은 부분 *
-                        <textarea
-                            value={feedbackFocus}
-                            rows={4}
-                            maxLength={3000}
-                            required
-                            disabled={busy}
-                            onChange={(event) => setFeedbackFocus(event.target.value)}
-                            placeholder="예: 포트폴리오 설명의 설득력과 프로젝트 성과 표현 방식"
-                        />
-                    </label>
-                    <label>
-                        참고 링크 (선택)
-                        <input
-                            type="url"
-                            value={referenceUrl}
-                            disabled={busy}
-                            onChange={(event) => setReferenceUrl(event.target.value)}
-                            placeholder="https://example.com/portfolio"
-                        />
-                    </label>
-                    {!linkValid && <p className="career-lab-error">http 또는 https로 시작하는 주소를 입력해 주세요.</p>}
-                    <label>
-                        참고 파일 (선택 · 파일명만 표시)
-                        <input
-                            type="file"
-                            multiple
-                            disabled={busy}
-                            onChange={chooseFiles}
-                        />
-                    </label>
-                    {fileNames.length > 0 && (
-                        <p className="career-lab-files">선택한 파일: {fileNames.join(', ')}</p>
-                    )}
-                </>
-            )}
-
+            <label className="career-lab-checkbox">
+                <input
+                    type="checkbox"
+                    checked={anonymous}
+                    disabled={busy}
+                    onChange={(event) => setAnonymous(event.target.checked)}
+                />
+                익명으로 작성
+            </label>
             <p className="career-lab-privacy">
-                현재는 프론트엔드 화면 테스트 단계입니다. 작성 내용은 서버에 저장되지 않고,
-                선택한 파일도 업로드되지 않습니다. 공개가 제한된 자료 및 개인정보는 올리지 마세요.
-                투표와 해결 상태도 임시 화면에서만 동작합니다.
+                게시글과 투표는 PLAYMATE 서버에 저장됩니다. 파일 첨부 기능은 S3 연동 후 제공됩니다.
+                회사 기밀과 개인정보는 게시하지 마세요.
             </p>
 
             <div className="career-lab-actions">
@@ -320,7 +226,7 @@ export default function CareerLabForm({
                     취소
                 </button>
                 <button type="submit" className="career-lab-submit" disabled={!canSubmit}>
-                    {initial ? '수정 내용 임시 반영' : '게시글 임시 등록'}
+                    {busy ? '저장 중...' : editing ? '수정 완료' : '게시글 등록'}
                 </button>
             </div>
         </form>

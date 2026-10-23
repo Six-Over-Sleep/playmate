@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from app.routers import career
 
 # Support both `uvicorn app.main:app` from backend/ and
 # `uvicorn backend.app.main:app` from the repository root.
@@ -71,7 +72,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(board_router)
 app.include_router(recruit_router)
-
+app.include_router(career.router)
 
 # 업로드 폴더 설정
 PROJECT_ROOT.joinpath("uploads").mkdir(exist_ok=True)

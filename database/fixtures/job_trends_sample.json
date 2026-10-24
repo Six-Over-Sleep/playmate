@@ -1,0 +1,279 @@
+{
+  "jobs": {
+    "count": 5,
+    "start": 0,
+    "total": "5",
+    "job": [
+      {
+        "id": "90000000",
+        "url": "https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=90000000",
+        "active": 0,
+        "posting-timestamp": "1735797600",
+        "modification-timestamp": "1735797600",
+        "opening-timestamp": "1735797600",
+        "expiration-timestamp": "1738389600",
+        "close-type": {
+          "code": "1",
+          "name": "접수마감일"
+        },
+        "company": {
+          "detail": {
+            "name": "가상 플레이메이트 소프트웨어 1"
+          }
+        },
+        "position": {
+          "title": "[가상 시연] 데이터 분석가 채용",
+          "location": {
+            "code": "101070",
+            "name": "서울 > 구로구"
+          },
+          "industry": {
+            "code": "301",
+            "name": "솔루션·SI·ERP·CRM"
+          },
+          "job-mid-code": {
+            "code": "2",
+            "name": "IT개발·데이터"
+          },
+          "job-code": {
+            "code": "82",
+            "name": "데이터분석가"
+          },
+          "job-type": {
+            "code": "1",
+            "name": "정규직"
+          },
+          "experience-level": {
+            "code": 0,
+            "min": 0,
+            "max": 0,
+            "name": "경력무관"
+          },
+          "required-education-level": {
+            "code": "0",
+            "name": "학력무관"
+          }
+        },
+        "keyword": "Python"
+      },
+      {
+        "id": "90000001",
+        "url": "https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=90000001",
+        "active": 0,
+        "posting-timestamp": "1736910000",
+        "modification-timestamp": "1736910000",
+        "opening-timestamp": "1736910000",
+        "expiration-timestamp": "1739502000",
+        "close-type": {
+          "code": "1",
+          "name": "접수마감일"
+        },
+        "company": {
+          "detail": {
+            "name": "가상 플레이메이트 소프트웨어 2"
+          }
+        },
+        "position": {
+          "title": "[가상 시연] 데이터 사이언티스트 채용",
+          "location": {
+            "code": "101070",
+            "name": "서울 > 구로구"
+          },
+          "industry": {
+            "code": "301",
+            "name": "솔루션·SI·ERP·CRM"
+          },
+          "job-mid-code": {
+            "code": "2",
+            "name": "IT개발·데이터"
+          },
+          "job-code": {
+            "code": "2248",
+            "name": "데이터 사이언티스트"
+          },
+          "job-type": {
+            "code": "1",
+            "name": "정규직"
+          },
+          "experience-level": {
+            "code": 0,
+            "min": 0,
+            "max": 0,
+            "name": "경력무관"
+          },
+          "required-education-level": {
+            "code": "0",
+            "name": "학력무관"
+          }
+        },
+        "salary": {
+          "code": "6",
+          "name": "1,800~2,000만원"
+        }
+      },
+      {
+        "id": "90000002",
+        "url": "https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=90000002",
+        "active": 0,
+        "posting-timestamp": "1737288000",
+        "modification-timestamp": "1737288000",
+        "opening-timestamp": "1737288000",
+        "expiration-timestamp": "1739880000",
+        "close-type": {
+          "code": "1",
+          "name": "접수마감일"
+        },
+        "company": {
+          "detail": {
+            "name": "가상 플레이메이트 소프트웨어 3"
+          }
+        },
+        "position": {
+          "title": "[가상 시연] 백엔드 개발자 / Java 개발자 채용",
+          "location": {
+            "code": "101070",
+            "name": "서울 > 구로구"
+          },
+          "industry": {
+            "code": "301",
+            "name": "솔루션·SI·ERP·CRM"
+          },
+          "job-mid-code": {
+            "code": "2",
+            "name": "IT개발·데이터"
+          },
+          "job-code": {
+            "code": "84,235",
+            "name": "백엔드/서버개발,Java"
+          },
+          "job-type": {
+            "code": "1",
+            "name": "정규직"
+          },
+          "experience-level": {
+            "code": 0,
+            "min": 0,
+            "max": 0,
+            "name": "경력무관"
+          },
+          "required-education-level": {
+            "code": "0",
+            "name": "학력무관"
+          }
+        },
+        "keyword": "Java",
+        "salary": {
+          "code": "6",
+          "name": "1,800~2,000만원"
+        }
+      },
+      {
+        "id": "90000003",
+        "url": "https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=90000003",
+        "active": 0,
+        "posting-timestamp": "1736103600",
+        "modification-timestamp": "1736103600",
+        "opening-timestamp": "1736103600",
+        "expiration-timestamp": "1738695600",
+        "close-type": {
+          "code": "1",
+          "name": "접수마감일"
+        },
+        "position": {
+          "title": "[가상 시연] 프론트엔드 개발자 채용",
+          "location": {
+            "code": "101070",
+            "name": "서울 > 구로구"
+          },
+          "industry": {
+            "code": "301",
+            "name": "솔루션·SI·ERP·CRM"
+          },
+          "job-mid-code": {
+            "code": "2",
+            "name": "IT개발·데이터"
+          },
+          "job-code": {
+            "code": "92",
+            "name": "프론트엔드"
+          },
+          "job-type": {
+            "code": "1",
+            "name": "정규직"
+          },
+          "experience-level": {
+            "code": 0,
+            "min": 0,
+            "max": 0,
+            "name": "경력무관"
+          },
+          "required-education-level": {
+            "code": "0",
+            "name": "학력무관"
+          }
+        },
+        "keyword": "React",
+        "salary": {
+          "code": "6",
+          "name": "1,800~2,000만원"
+        }
+      },
+      {
+        "id": "90000004",
+        "url": "https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=90000004",
+        "active": 0,
+        "posting-timestamp": "1736928000",
+        "modification-timestamp": "1736928000",
+        "opening-timestamp": "1736928000",
+        "expiration-timestamp": "1739520000",
+        "close-type": {
+          "code": "1",
+          "name": "접수마감일"
+        },
+        "company": {
+          "detail": {
+            "name": "가상 플레이메이트 소프트웨어 5"
+          }
+        },
+        "position": {
+          "title": "[가상 시연] LLM 엔지니어 / AI 에이전트 개발자 채용",
+          "location": {
+            "code": "101070",
+            "name": "서울 > 구로구"
+          },
+          "industry": {
+            "code": "301",
+            "name": "솔루션·SI·ERP·CRM"
+          },
+          "job-mid-code": {
+            "code": "2",
+            "name": "IT개발·데이터"
+          },
+          "job-code": {
+            "code": "181",
+            "name": "AI(인공지능)"
+          },
+          "job-type": {
+            "code": "1",
+            "name": "정규직"
+          },
+          "experience-level": {
+            "code": 0,
+            "min": 0,
+            "max": 0,
+            "name": "경력무관"
+          },
+          "required-education-level": {
+            "code": "0",
+            "name": "학력무관"
+          }
+        },
+        "keyword": "Python",
+        "salary": {
+          "code": "6",
+          "name": "1,800~2,000만원"
+        }
+      }
+    ]
+  }
+}

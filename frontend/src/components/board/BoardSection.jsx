@@ -70,6 +70,8 @@ export default function BoardSection({ resetVersion }) {
               onBack={boardState.backToList}
               onEdit={boardState.editPost}
               onDelete={boardState.deletePost}
+              onLike={boardState.toggleLike}
+              onScrap={boardState.toggleScrap}
               onComment={boardState.addComment}
               onEditComment={boardState.editComment}
               onDeleteComment={boardState.deleteComment}

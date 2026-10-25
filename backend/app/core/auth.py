@@ -2,8 +2,7 @@ import os
 
 from fastapi import Header, HTTPException, Request, status
 
-from app.core.db_connect import db_cursor
-
+from .db_connect import db_cursor
 
 def get_current_member_id(
     request: Request,

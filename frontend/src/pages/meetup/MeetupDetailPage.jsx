@@ -1,3 +1,4 @@
+import MeetupCommentList from '../../components/meetup/MeetupCommentList'
 import MeetupMemberList from '../../components/meetup/MeetupMemberList'
 import {
   formatDateOnly,
@@ -9,7 +10,7 @@ import {
   getPlace,
 } from '../../utils/meetup'
 
-// 모임 상세 정보와 참여·관리 버튼 표시
+// 모임 상세 정보와 참여·관리·좋아요·스크랩 버튼, 댓글 표시
 export default function MeetupDetailPage({
   meetup,
   members = [],
@@ -22,6 +23,12 @@ export default function MeetupDetailPage({
   onDelete,
   onJoin,
   onCancelJoin,
+  onLike,
+  onScrap,
+  comments = [],
+  onAddComment,
+  onEditComment,
+  onDeleteComment,
 }) {
   if (!meetup) {
     return (
@@ -110,6 +117,35 @@ export default function MeetupDetailPage({
 
         <div className="meetup-detail-body">
           {meetup.body || '등록된 모임 설명이 없습니다.'}
+        </div>
+
+        {/* 좋아요 수·여부와 스크랩 여부는 서버 응답 값을 그대로 표시함. (스크랩 수는 없음) */}
+        <div className="meetup-action-buttons meetup-reaction-buttons">
+          <button
+            type="button"
+            className={
+              meetup.liked_by_me ? 'meetup-join-button' : 'meetup-cancel-button'
+            }
+            aria-pressed={Boolean(meetup.liked_by_me)}
+            onClick={onLike}
+            disabled={busy}
+          >
+            {meetup.liked_by_me ? '♥' : '♡'} 좋아요 {meetup.like_count ?? 0}
+          </button>
+
+          <button
+            type="button"
+            className={
+              meetup.scrapped_by_me
+                ? 'meetup-join-button'
+                : 'meetup-cancel-button'
+            }
+            aria-pressed={Boolean(meetup.scrapped_by_me)}
+            onClick={onScrap}
+            disabled={busy}
+          >
+            {meetup.scrapped_by_me ? '스크랩됨' : '스크랩'}
+          </button>
         </div>
 
         {/* 시작일과 카테고리별 상세 정보 */}
@@ -283,6 +319,15 @@ export default function MeetupDetailPage({
             )}
           </div>
         </footer>
+
+        {/* 댓글·대댓글 목록과 입력창 */}
+        <MeetupCommentList
+          comments={comments}
+          busy={busy}
+          onAdd={onAddComment}
+          onEdit={onEditComment}
+          onDelete={onDeleteComment}
+        />
       </article>
     </main>
   )

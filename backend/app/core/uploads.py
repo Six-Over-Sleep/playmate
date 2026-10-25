@@ -81,3 +81,49 @@ def remove_saved_images(images: list[dict]) -> None:
         path = Path(path).resolve()
         if path.is_relative_to(UPLOAD_DIR.resolve()):
             path.unlink(missing_ok=True)
+
+
+# 프로필 이미지 업로드
+async def save_profile_image(file: UploadFile) -> dict:
+    content_type = (file.content_type or "").lower()
+
+    # 이미지 형식 검사
+    if content_type not in ("image/jpeg", "image/png", "image/webp"):
+        raise HTTPException(
+            status_code=422,
+            detail="프로필 이미지는 JPG, PNG, WEBP만 가능합니다."
+        )
+
+    # 이미지 용량 검사
+    data = await file.read(MAX_IMAGE_SIZE + 1)
+
+    if not data or len(data) > MAX_IMAGE_SIZE:
+        raise HTTPException(
+            status_code=422,
+            detail="프로필 이미지는 1바이트 이상 5MB 이하여야 합니다."
+        )
+
+    # 실제 파일 형식 검사
+    if not _valid_signature(content_type, data):
+        raise HTTPException(
+            status_code=422,
+            detail="이미지 파일 형식이 올바르지 않습니다."
+        )
+
+    # 프로필 전용 저장 폴더
+    profile_dir = PROJECT_ROOT / "uploads" / "profiles"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{uuid4().hex}{ALLOWED[content_type]}"
+    path = profile_dir / filename
+
+    try:
+        path.write_bytes(data)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+    return {
+        "stored_name": f"profiles/{filename}",
+        "path": path
+    }

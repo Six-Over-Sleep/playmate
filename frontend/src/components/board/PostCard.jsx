@@ -10,6 +10,7 @@ export default function PostCard({ post, disabled, onClick }) {
         <strong>{post.author_name}</strong>
         <span>{formatBoardDate(post.created_at)}</span>
         <span>💬 {post.comment_count}</span>
+        <span>♡ {post.like_count}</span>
       </div>
     </button>
   )

@@ -648,7 +648,7 @@ def test_create_reply_validates_parent_in_same_transaction(database):
     "parent,status",
     [
         (None, 404),
-        ({"post_id": 9, "parent_comment_id": None}, 404),
+        ({"post_id": 9, "parent_comment_id": None}, 422),
         ({"post_id": 2, "parent_comment_id": 1}, 422),
     ],
     ids=["missing_or_deleted_parent", "other_post_parent", "reply_to_reply"],

@@ -16,6 +16,7 @@ export default function MeetupSection() {
     members,
     memberCount,
     joined,
+    comments,
     error,
     openMeetup,
     goBack,
@@ -26,6 +27,11 @@ export default function MeetupSection() {
     updateMeetup,
     deleteMeetup,
     changeParticipation,
+    toggleLike,
+    toggleScrap,
+    addComment,
+    editComment,
+    deleteComment,
   } = useMeetups()
 
   return (
@@ -56,7 +62,7 @@ export default function MeetupSection() {
         />
       )}
 
-      {/* 선택한 모임이 있을 때 상세 정보와 참여·취소 등의 동작을 전달함. */}
+      {/* 선택한 모임이 있을 때 상세 정보와 참여·취소·좋아요·스크랩·댓글 동작을 전달함. */}
       {!detailLoading && view === 'detail' && selectedMeetup && (
         <MeetupDetailPage
           meetup={selectedMeetup}
@@ -69,6 +75,12 @@ export default function MeetupSection() {
           onDelete={deleteMeetup}
           onJoin={() => changeParticipation(true)}
           onCancelJoin={() => changeParticipation(false)}
+          onLike={toggleLike}
+          onScrap={toggleScrap}
+          comments={comments}
+          onAddComment={addComment}
+          onEditComment={editComment}
+          onDeleteComment={deleteComment}
         />
       )}
 

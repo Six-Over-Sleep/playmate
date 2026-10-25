@@ -1,0 +1,134 @@
+/* =========================================
+   커리어 톡톡 상세 화면
+========================================= */
+
+.career-talk-detail {
+    max-width: 920px;
+    margin: 0 auto;
+}
+
+.career-talk-back {
+    margin-bottom: 16px;
+    padding: 6px 0;
+    border: 0;
+    background: transparent;
+    color: #65529d;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-talk-detail-card {
+    padding: 34px;
+    border: 1px solid #e9e8ee;
+    border-radius: 24px;
+    background: #ffffff;
+}
+
+.career-talk-detail-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.career-talk-detail-top small {
+    color: #8b8b9f;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.career-talk-detail-card h3 {
+    margin: 0 0 14px;
+    color: #292344;
+    font-size: 24px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.career-talk-detail-meta {
+    display: flex;
+    gap: 16px;
+    color: #9292a8;
+    font-size: 13px;
+}
+
+.career-talk-detail-tags {
+    display: flex;
+    gap: 8px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+}
+
+.career-talk-detail-tags span {
+    padding: 6px 12px;
+    border-radius: 20px;
+    background: #f4f1fb;
+    color: #65529d;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.career-talk-detail-body {
+    min-height: 190px;
+    padding: 22px 0;
+    color: #39344d;
+    font-size: 15px;
+    line-height: 1.85;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.career-talk-detail-files {
+    padding: 15px;
+    border: 1px solid #e9e8ee;
+    border-radius: 12px;
+    color: #514678;
+    font-size: 13px;
+}
+
+.career-talk-detail-files ul {
+    margin-bottom: 0;
+    overflow-wrap: anywhere;
+}
+
+.career-talk-detail-hint {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #f4f3f8;
+    color: #79748d;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.career-talk-detail-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.career-talk-edit {
+    background: #4b3b85;
+    color: #ffffff;
+}
+
+.career-talk-delete {
+    background: #fff0f1;
+    color: #b44355;
+}
+
+@media (max-width: 580px) {
+    .career-talk-detail-card {
+        padding: 22px 18px;
+        border-radius: 17px;
+    }
+
+    .career-talk-detail-card h3 {
+        font-size: 20px;
+    }
+}

@@ -1,0 +1,192 @@
+/* =========================================
+   커리어 톡톡 게시글 작성/수정 화면
+========================================= */
+
+.career-talk-editor {
+    max-width: 860px;
+    margin: 0 auto;
+}
+
+.career-talk-editor h3 {
+    margin: 5px 0 8px;
+    font-size: 21px;
+}
+
+.career-talk-help {
+    margin: 0 0 18px;
+    color: #84869b;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.career-talk-notice {
+    padding: 12px 16px;
+    border: 1px solid #b6dbcf;
+    border-radius: 12px;
+    background: #f0f8f5;
+    color: #275c50;
+    font-size: 13px;
+}
+
+.career-talk-form {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 30px;
+    border: 1px solid #e9e8ee;
+    border-radius: 24px;
+    background: #ffffff;
+}
+
+.career-talk-form label:not(.career-talk-anonymous) {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    color: #332d53;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.career-talk-form input:not([type="checkbox"]):not([type="file"]),
+.career-talk-form select,
+.career-talk-form textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #e2e0e9;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #302a52;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 400;
+}
+
+.career-talk-form textarea {
+    min-height: 190px;
+    resize: vertical;
+    line-height: 1.7;
+}
+
+.career-talk-form input:focus-visible,
+.career-talk-form select:focus-visible,
+.career-talk-form textarea:focus-visible {
+    outline: 2px solid #a99bcf;
+    outline-offset: 1px;
+}
+
+.career-talk-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.career-talk-count {
+    margin: -12px 0 0;
+    color: #81839a;
+    font-size: 12px;
+    text-align: right;
+}
+
+.career-talk-file-label input[type="file"] {
+    padding: 12px;
+    border: 1px dashed #cfcada;
+    border-radius: 12px;
+    background: #faf9fd;
+}
+
+.career-talk-file-error {
+    margin: -8px 0 0;
+    color: #b44355;
+    font-size: 12px;
+}
+
+.career-talk-files {
+    margin: -8px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.career-talk-files li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid #efedf4;
+    color: #514678;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.career-talk-files button {
+    flex-shrink: 0;
+    border: 0;
+    background: transparent;
+    color: #b44355;
+    cursor: pointer;
+}
+
+.career-talk-form .career-talk-anonymous {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #332d53;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.career-talk-anonymous input {
+    width: 16px;
+    height: 16px;
+    accent-color: #4b3b85;
+}
+
+.career-talk-privacy {
+    margin: 0;
+    color: #81839a;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.career-talk-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.career-talk-actions button,
+.career-talk-detail-actions button {
+    padding: 11px 22px;
+    border: 0;
+    border-radius: 24px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-talk-cancel {
+    background: #f2f0f6;
+    color: #514678;
+}
+
+.career-talk-submit {
+    background: #4b3b85;
+    color: #ffffff;
+}
+
+.career-talk-actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+@media (max-width: 580px) {
+    .career-talk-form {
+        padding: 18px;
+        border-radius: 17px;
+    }
+
+    .career-talk-row {
+        grid-template-columns: 1fr;
+    }
+}

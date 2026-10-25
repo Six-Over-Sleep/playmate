@@ -56,6 +56,8 @@ export default function MeetupCard({ meetup, featured = false, onClick }) {
       <div className="meetup-card-bottom">
         <strong className="meetup-card-count">
           {currentCount} / {capacity}명
+          {/* 목록 API의 like_count를 참여 인원 옆에 함께 표시함. */}
+          <span className="meetup-card-like">♡ {meetup.like_count ?? 0}</span>
         </strong>
 
         <span className={`meetup-status ${status.className}`}>

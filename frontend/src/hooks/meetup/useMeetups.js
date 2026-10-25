@@ -13,6 +13,7 @@ export default function useMeetups() {
   const [members, setMembers] = useState([])
   const [memberCount, setMemberCount] = useState(0)
   const [joined, setJoined] = useState(false)
+  const [comments, setComments] = useState([])
   const [error, setError] = useState('')
 
   // 참여 인원수가 포함된 모임 목록을 조회함.
@@ -57,6 +58,13 @@ export default function useMeetups() {
     )
   }
 
+  // 상세 화면의 댓글 목록을 조회함. 순서와 삭제 자리표시는 서버 응답을 그대로 사용함.
+  const loadComments = async (recruitId) => {
+    const data = await meetupApi.comments(recruitId)
+
+    setComments(Array.isArray(data) ? data : [])
+  }
+
   // 선택한 모임과 참여 정보를 불러온 뒤 상세 화면을 표시함.
   const openMeetup = async (meetup) => {
     setDetailLoading(true)
@@ -68,6 +76,8 @@ export default function useMeetups() {
       setSelectedMeetup(detail)
 
       await loadParticipation(meetup.recruit_id)
+
+      await loadComments(meetup.recruit_id)
 
       setView('detail')
     } catch (err) {
@@ -84,6 +94,7 @@ export default function useMeetups() {
     setMembers([])
     setMemberCount(0)
     setJoined(false)
+    setComments([])
     setView('list')
     setError('')
   }
@@ -134,6 +145,8 @@ export default function useMeetups() {
         setSelectedMeetup(detail)
 
         await loadParticipation(created.recruit_id)
+
+        setComments([])
 
         setView('detail')
       } else {
@@ -190,6 +203,7 @@ export default function useMeetups() {
       setMembers([])
       setMemberCount(0)
       setJoined(false)
+      setComments([])
 
       await loadMeetups()
 
@@ -233,6 +247,137 @@ export default function useMeetups() {
     }
   }
 
+  // 좋아요 여부에 따라 등록·취소하고, 응답의 좋아요 수로 상세와 목록 카드를 함께 갱신함.
+  const toggleLike = async () => {
+    if (!selectedMeetup || busy) return
+
+    setBusy(true)
+    setError('')
+
+    try {
+      const result = selectedMeetup.liked_by_me
+        ? await meetupApi.unlike(selectedMeetup.recruit_id)
+        : await meetupApi.like(selectedMeetup.recruit_id)
+
+      setSelectedMeetup((prev) => ({
+        ...prev,
+        like_count: result.like_count,
+        liked_by_me: result.liked_by_me,
+      }))
+
+      // 목록으로 돌아갔을 때 이전 좋아요 수가 남지 않도록 카드 데이터도 맞춤.
+      setMeetups((prev) =>
+        prev.map((meetup) =>
+          meetup.recruit_id === result.recruit_id
+            ? { ...meetup, like_count: result.like_count }
+            : meetup,
+        ),
+      )
+    } catch (err) {
+      console.error(err)
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 스크랩 여부에 따라 등록·취소하고 응답의 스크랩 여부로 상세를 갱신함. (스크랩 수는 없음)
+  const toggleScrap = async () => {
+    if (!selectedMeetup || busy) return
+
+    setBusy(true)
+    setError('')
+
+    try {
+      const result = selectedMeetup.scrapped_by_me
+        ? await meetupApi.unscrap(selectedMeetup.recruit_id)
+        : await meetupApi.scrap(selectedMeetup.recruit_id)
+
+      setSelectedMeetup((prev) => ({
+        ...prev,
+        scrapped_by_me: result.scrapped_by_me,
+      }))
+    } catch (err) {
+      console.error(err)
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 댓글·대댓글 작성 후 댓글 목록을 다시 조회함. 성공 여부를 반환해 입력창을 비울지 정함.
+  const addComment = async (body, parentCommentId = null) => {
+    if (!selectedMeetup || busy) return false
+
+    setBusy(true)
+    setError('')
+
+    try {
+      await meetupApi.createComment(selectedMeetup.recruit_id, {
+        body,
+        parent_comment_id: parentCommentId,
+      })
+
+      await loadComments(selectedMeetup.recruit_id)
+
+      return true
+    } catch (err) {
+      console.error(err)
+      setError(err.message)
+
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 댓글 수정 후 댓글 목록을 다시 조회함.
+  const editComment = async (commentId, body) => {
+    if (!selectedMeetup || busy) return false
+
+    setBusy(true)
+    setError('')
+
+    try {
+      await meetupApi.updateComment(selectedMeetup.recruit_id, commentId, {
+        body,
+      })
+
+      await loadComments(selectedMeetup.recruit_id)
+
+      return true
+    } catch (err) {
+      console.error(err)
+      setError(err.message)
+
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 삭제 확인 후 댓글을 삭제하고 목록을 다시 조회함.
+  // 대댓글이 남은 부모의 자리표시 여부는 서버 목록 응답을 따름.
+  const deleteComment = async (commentId) => {
+    if (!selectedMeetup || busy || !window.confirm('이 댓글을 삭제할까요?')) {
+      return
+    }
+
+    setBusy(true)
+    setError('')
+
+    try {
+      await meetupApi.removeComment(selectedMeetup.recruit_id, commentId)
+
+      await loadComments(selectedMeetup.recruit_id)
+    } catch (err) {
+      console.error(err)
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return {
     meetups,
     selectedMeetup,
@@ -243,6 +388,7 @@ export default function useMeetups() {
     members,
     memberCount,
     joined,
+    comments,
     error,
 
     openMeetup,
@@ -254,5 +400,10 @@ export default function useMeetups() {
     updateMeetup,
     deleteMeetup,
     changeParticipation,
+    toggleLike,
+    toggleScrap,
+    addComment,
+    editComment,
+    deleteComment,
   }
 }

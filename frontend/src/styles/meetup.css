@@ -598,6 +598,110 @@ button {
   cursor: not-allowed;
 }
 
+/* ---------- 좋아요·스크랩 ---------- */
+
+.meetup-reaction-buttons {
+  margin: 0 0 26px;
+}
+
+/* ---------- 댓글·대댓글 ---------- */
+
+.meetup-comment-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #ececf0;
+}
+
+.meetup-comment-section h2 {
+  margin: 0 0 13px;
+  color: #30283f;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.meetup-comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.meetup-comment {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #f7f7fa;
+}
+
+.meetup-comment.reply {
+  margin-left: 36px;
+}
+
+.meetup-comment-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #948b9f;
+  font-size: 12px;
+}
+
+.meetup-comment-head strong {
+  color: #443c50;
+  font-size: 14px;
+}
+
+.meetup-comment-body {
+  margin: 6px 0 8px;
+  color: #4d4657;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meetup-comment.deleted .meetup-comment-body {
+  margin: 0;
+  color: #958e9e;
+}
+
+.meetup-comment .meetup-owner-actions {
+  min-height: 0;
+}
+
+.meetup-comment-form,
+.meetup-comment-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.meetup-comment .meetup-comment-form {
+  margin-top: 12px;
+}
+
+.meetup-comment-form textarea,
+.meetup-comment-edit textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #ececf0;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #fff;
+  color: #30283f;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.meetup-comment-edit textarea {
+  margin-top: 6px;
+}
+
+.meetup-comment-form .meetup-action-buttons {
+  justify-content: flex-end;
+}
+
 /* ---------- 반응형 배치 ---------- */
 
 @media (max-width: 900px) {
@@ -1066,6 +1170,13 @@ button {
   color: inherit;
   font-size: 15px;
   font-weight: 900;
+}
+
+.meetup-card-like {
+  margin-left: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.8;
 }
 
 .meetup-card-featured {

@@ -1,13 +1,18 @@
 """모임 관련 데이터베이스 조회와 저장을 담당하는 Repository.
 
-Router는 API를 연결하고, Service는 업무 규칙을 판단함.
-이 파일에서는 SQLAlchemy로 DB를 조회하거나 객체를 등록함.
-트랜잭션의 commit/rollback은 Service에서 관리함.
+Router는 API 요청을 연결하고, Service는 업무 규칙을 판단함.
+Repository는 SQLAlchemy를 이용한 DB 조회 및 객체 등록을 담당함.
+commit/rollback 등 트랜잭션 처리는 Service에서 관리함.
 """
 
+# func : SQL COUNT, COALESCE 등의 함수를 사용하기 위한 도구
+# or_ : 여러 조회 조건을 OR로 연결하는 도구
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session 
 
+# Session : DB 조회 및 데이터 등록에 사용하는 SQLAlchemy 세션
+from sqlalchemy.orm import Session
+
+# 모임 게시글, 모임 정보, 모임 참여자 ORM 모델
 from backend.app.models.post import Post
 from backend.app.models.recruit import Recruit, RecruitMember
 
@@ -16,67 +21,72 @@ from backend.app.models.recruit import Recruit, RecruitMember
 # 1. 모임 및 게시글 조회
 # =========================================================
 def find_recruit_with_post(db: Session, recruit_id: int):
-    """삭제되지 않은 모임과 연결된 게시글을 조회함. 없으면 None 반환."""
+    """모임 ID에 해당하는 모임과 게시글을 함께 조회함. 없으면 None 반환."""
     return (
-        db.query(Post, Recruit)
-        .join(Recruit, Post.post_id == Recruit.post_id)
+        db.query(Post, Recruit)  # 게시글과 모임 정보를 함께 조회함
+        .join(Recruit, Post.post_id == Recruit.post_id)  # 두 테이블을 post_id로 연결함
         .filter(
-            Recruit.recruit_id == recruit_id,
+            Recruit.recruit_id == recruit_id,  # 요청한 모임 ID만 선택함
+            # 삭제 상태가 아니거나 상태값이 없는 게시글만 조회함
             or_(Post.post_status != "DELETED", Post.post_status.is_(None)),
         )
-        .first()
+        .first()  # 조회 결과 중 첫 번째 항목 반환, 없으면 None
     )
 
 
 def list_recruits_with_posts(db: Session):
-    """삭제되지 않은 모임과 JOINED 참여 인원수를 한 번의 쿼리로 조회함."""
-    # HOST도 JOINED 상태이면 포함하고, 취소한 참여자는 제외함.
+    """삭제 상태가 아닌 모임 목록과 각 모임의 참여 인원을 조회함."""
+    # 1단계 : 각 모임에서 JOINED 상태인 회원 수를 집계함
+    # HOST도 JOINED 상태라면 인원에 포함하고, 취소한 회원은 제외함
     joined_counts = (
         db.query(
-            RecruitMember.recruit_id,
-            func.count(RecruitMember.member_id).label("participant_count"),
+            RecruitMember.recruit_id,  # 모임별로 묶는 기준
+            func.count(RecruitMember.member_id).label("participant_count"),  # 참여 인원수
         )
-        .filter(RecruitMember.status == "JOINED")
-        .group_by(RecruitMember.recruit_id)
-        .subquery()
+        .filter(RecruitMember.status == "JOINED")  # 현재 참여 중인 회원만 계산함
+        .group_by(RecruitMember.recruit_id)  # 모임 ID별로 그룹화함
+        .subquery()  # 집계 결과를 아래 메인 쿼리에서 사용할 임시 조회식으로 만듦
     )
 
+    # 2단계 : 게시글 + 모임 + 참여 인원 정보를 한 쿼리로 조회함
     return (
         db.query(
             Post,
             Recruit,
+            # 참여자가 없어 집계 결과가 NULL이면 0명으로 표시함
             func.coalesce(joined_counts.c.participant_count, 0).label(
                 "participant_count"
             ),
         )
-        .join(Recruit, Post.post_id == Recruit.post_id)
+        .join(Recruit, Post.post_id == Recruit.post_id)  # 게시글과 모임 연결
         .outerjoin(
             joined_counts,
             joined_counts.c.recruit_id == Recruit.recruit_id,
-        )
+        )  # 참여자 집계가 없는 모임도 목록에 포함함
         .filter(
             or_(Post.post_status != "DELETED", Post.post_status.is_(None))
-        )
-        .all()
+        )  # 삭제 상태인 게시글은 제외함
+        .all()  # 조건에 맞는 전체 목록 반환
     )
 
 
 def get_recruit(db: Session, recruit_id: int):
-    """모임 ID(PK)로 기본 정보를 조회함. 없으면 None 반환."""
+    """모임 ID(PK)로 모임 기본 정보를 조회함. 없으면 None 반환."""
+    # db.get() : 기본키로 ORM 객체 한 건을 조회함
     return db.get(Recruit, recruit_id)
 
 
 def get_recruit_for_update(db: Session, recruit_id: int):
-    """참여·정원 수정 작업 동안 해당 모임 행을 잠가 조회함.
+    """정원 확인 및 참여 처리 동안 모임 행을 잠가 조회함.
 
-    PostgreSQL에서 SELECT ... FOR UPDATE로 같은 모임의 변경 요청을 직렬화함.
-    Service가 정원 확인과 참여 저장을 마친 뒤 commit/rollback해야 잠금이 풀림.
+    PostgreSQL의 SELECT ... FOR UPDATE를 사용함.
+    Service에서 commit 또는 rollback해야 해당 트랜잭션의 잠금이 해제됨.
     """
     return (
         db.query(Recruit)
-        .filter(Recruit.recruit_id == recruit_id)
-        .with_for_update()
-        .populate_existing()
+        .filter(Recruit.recruit_id == recruit_id)  # 잠글 모임 한 건 선택
+        .with_for_update()  # 동시에 정원을 수정하지 못하도록 행 잠금 요청
+        .populate_existing()  # 세션에 이미 로드된 객체도 조회 값으로 다시 채움
         .first()
     )
 
@@ -87,11 +97,12 @@ def get_post(db: Session, post_id: int):
 
 
 def get_category_detail(db: Session, detail_model: type, recruit_id: int):
-    """Service가 선택한 카테고리 모델에서 모임 상세 정보를 조회함.
+    """선택한 카테고리 모델에서 모임 상세 정보를 조회함.
 
     detail_model은 운동·게임·스터디·공동구매 상세 모델 중 하나임.
-    카테고리 선택 및 유효성 판단은 Service에서 수행함.
+    어떤 모델을 사용할지 결정하고 검증하는 것은 Service의 역할임.
     """
+    # 상세 테이블은 recruit_id를 기본키로 사용하므로 db.get()으로 조회 가능함
     return db.get(detail_model, recruit_id)
 
 
@@ -99,30 +110,31 @@ def get_category_detail(db: Session, detail_model: type, recruit_id: int):
 # 2. 참여자 조회 및 인원 집계
 # =========================================================
 def find_member(db: Session, recruit_id: int, member_id: int):
-    """특정 모임에 참여한 회원 기록을 조회함. 없으면 None 반환."""
+    """특정 모임에 등록된 회원의 참여 기록을 조회함. 없으면 None 반환."""
     return (
         db.query(RecruitMember)
+        # recruit_id + member_id : 참여자 테이블의 복합 기본키 조건
         .filter_by(recruit_id=recruit_id, member_id=member_id)
         .first()
     )
 
 
 def list_joined_members(db: Session, recruit_id: int):
-    """특정 모임에서 JOINED 상태인 회원만 조회함."""
+    """특정 모임에서 JOINED 상태인 회원 목록을 조회함."""
     return (
         db.query(RecruitMember)
-        .filter_by(recruit_id=recruit_id, status="JOINED")
+        .filter_by(recruit_id=recruit_id, status="JOINED")  # 참여 중인 회원만 선택
         .all()
     )
 
 
 def count_joined_members(db: Session, recruit_id: int) -> int:
-    """특정 모임의 현재 참여 인원을 DB의 COUNT 함수로 계산함."""
+    """특정 모임에서 현재 참여 중인 회원 수를 계산함."""
     return (
-        db.query(func.count())
-        .select_from(RecruitMember)
+        db.query(func.count())  # SQL COUNT(*)로 행 개수를 셈
+        .select_from(RecruitMember)  # 집계 대상 테이블 지정
         .filter_by(recruit_id=recruit_id, status="JOINED")
-        .scalar()
+        .scalar()  # COUNT 결과 숫자 한 개만 반환
     )
 
 
@@ -130,56 +142,53 @@ def count_joined_members(db: Session, recruit_id: int) -> int:
 # 3. 생성 시 DB 객체 등록
 # =========================================================
 def add_post(db: Session, post: Post) -> Post:
-    """새 게시글을 세션에 등록하고 생성된 post_id를 확보함.
+    """게시글을 등록하고 생성된 post_id를 확보함.
 
-    flush는 SQL을 DB에 전달하지만 commit처럼 저장을 확정하지 않음.
-    이후 모임 저장이 실패하면 Service에서 전체 rollback할 수 있음.
+    flush는 변경 사항을 DB에 전달하지만 commit처럼 확정하지 않음.
+    이후 모임 생성에 실패하면 Service에서 전체 rollback할 수 있음.
     """
-    db.add(post)
-    db.flush()
+    db.add(post)  # 게시글 객체를 DB 세션에 등록함
+    db.flush()  # INSERT를 실행하여 생성된 post_id를 사용할 수 있게 함
     return post
 
 
 def add_recruit(db: Session, recruit: Recruit) -> Recruit:
-    """새 모임을 세션에 등록하고 상세 정보에 사용할 recruit_id를 확보함."""
-    db.add(recruit)
-    db.flush()
+    """새 모임을 등록하고 카테고리 상세 정보에 사용할 recruit_id를 확보함."""
+    db.add(recruit)  # 모임 객체를 DB 세션에 등록함
+    db.flush()  # INSERT를 실행하여 모임 ID를 확보함 (아직 commit 전)
     return recruit
 
 
 def add_category_detail(db: Session, detail) -> None:
-    """운동·게임·스터디·공동구매 중 하나의 상세 객체를 세션에 등록함.
-
-    상세 정보 등록 후 commit 여부는 Service가 결정함.
-    """
-    db.add(detail)
+    """운동·게임·스터디·공동구매 상세 정보를 세션에 등록함."""
+    db.add(detail)  # 상세 객체 등록; 최종 commit 여부는 Service가 결정함
 
 
 def add_member(db: Session, member: RecruitMember) -> None:
-    """신규 참여자를 DB 세션에 등록함. commit은 Service에서 수행함."""
-    db.add(member)
+    """모임 신규 참여자를 세션에 등록함."""
+    db.add(member)  # 참여 기록 등록; commit은 Service에서 수행함
+
 
 def get_recruit_capacity_and_count(db: Session, recruit_id: int):
-    """모임 존재 여부, 모집 정원, 현재 인원을 한 번에 조회함."""
-
+    """모임 모집 정원과 현재 참여 인원을 함께 조회함. 없으면 None 반환."""
     return (
         db.query(
-            Recruit.capacity,
-            func.count(RecruitMember.member_id).label("current_members"),
+            Recruit.capacity,  # 모임 최대 모집 인원
+            func.count(RecruitMember.member_id).label("current_members"),  # 현재 인원
         )
-        .join(Post, Post.post_id == Recruit.post_id)
+        .join(Post, Post.post_id == Recruit.post_id)  # 모임에 연결된 게시글 조회
         .outerjoin(
             RecruitMember,
             (RecruitMember.recruit_id == Recruit.recruit_id)
             & (RecruitMember.status == "JOINED"),
-        )
+        )  # JOINED 참여자만 연결; 참여자가 0명인 모임도 조회함
         .filter(
             Recruit.recruit_id == recruit_id,
             or_(
                 Post.post_status != "DELETED",
                 Post.post_status.is_(None),
-            ),
+            ),  # 삭제 상태가 아닌 게시글에 속한 모임만 대상으로 함
         )
-        .group_by(Recruit.recruit_id, Recruit.capacity)
-        .first()
+        .group_by(Recruit.recruit_id, Recruit.capacity)  # 모임별 참여 인원 집계
+        .first()  # 모집 정원과 현재 인원 반환, 없으면 None
     )

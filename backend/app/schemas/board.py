@@ -81,15 +81,12 @@ class PostResponse(BaseModel):
     images: list[PostImageResponse] = Field(default_factory=list)
 
 
-
 # 댓글 및 대댓글 작성 시 전달하는 데이터
 class CommentWrite(StrictModel):
     body: str = Field(min_length=1, max_length=2000)
 
     # 일반 댓글이면 None, 대댓글이면 부모 댓글 ID
     parent_comment_id: int | None = Field(default=None, gt=0)
-
-
 
 
 # 댓글 조회 및 작성 결과를 반환하는 데이터
@@ -107,7 +104,3 @@ class CommentResponse(BaseModel):
 
     # 대댓글 관계
     parent_comment_id: int | None = None
-
-
-
-

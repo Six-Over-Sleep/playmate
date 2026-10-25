@@ -57,7 +57,7 @@ export default function CareerReviewForm({ initial = null, busy = false, onCance
                     required
                     disabled={busy}
                     onChange={(event) => setTitle(event.target.value)}
-                    placeholder="취업 후기 제목을 입력하세요"
+                    placeholder="후기 제목을 입력하세요"
                 />
             </label>
 
@@ -137,7 +137,7 @@ export default function CareerReviewForm({ initial = null, busy = false, onCance
             </div>
 
             <label>
-                취업 후기 * (최소 500자)
+                후기 내용 * (최소 500자)
                 <textarea
                     value={body}
                     rows={12}
@@ -156,7 +156,7 @@ export default function CareerReviewForm({ initial = null, busy = false, onCance
 
             <p className="career-review-privacy">
                 개인정보·기업 기밀·공개 제한 면접 문제는 포함하지 마세요.
-                현재 입력 내용은 서버에 저장되지 않으며 새로고침 시 사라집니다.
+                작성한 후기는 등록 후 서버에 저장됩니다.
             </p>
 
             <div className="career-review-actions">
@@ -173,7 +173,7 @@ export default function CareerReviewForm({ initial = null, busy = false, onCance
                     className="career-review-submit"
                     disabled={busy || !isValid || !onSubmit}
                 >
-                    {initial ? '수정 내용 임시 반영' : '후기 임시 등록'}
+                    {initial ? '수정하기' : '후기 등록'}
                 </button>
             </div>
         </form>

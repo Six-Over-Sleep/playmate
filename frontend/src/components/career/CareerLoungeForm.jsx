@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import '../../styles/CareerLoungeForm.css'
 
-// 현직자 라운지 6개 하위 게시판
+// 현직자 라운지 6개 주제
 const LOUNGE_TOPICS = [
     '현직자의 하루',
     '실무 기술',
@@ -22,16 +22,7 @@ const JOB_CATEGORIES = [
     '기타 IT 직무',
 ]
 
-const COMPANY_SIZES = [
-    '스타트업',
-    '중소기업',
-    '중견기업',
-    '대기업',
-    '공공기관',
-    '기타',
-]
-
-/** 현직자 라운지 작성/수정 폼. 인증 상태는 입력받거나 임의로 부여하지 않습니다. */
+// 현재 Backend에서 지원하는 입력값만 활성화
 export default function CareerLoungeForm({
     initial = null,
     defaultMenu = '',
@@ -41,24 +32,18 @@ export default function CareerLoungeForm({
 }) {
     const [title, setTitle] = useState(initial?.title || '')
     const [menu, setMenu] = useState(initial?.menu || defaultMenu)
-    const [postType, setPostType] = useState(
-        initial?.post_type || (defaultMenu === '직무 Q&A' ? 'QUESTION' : 'EXPERIENCE')
-    )
     const [jobCategory, setJobCategory] = useState(initial?.job_category || '')
     const [careerYears, setCareerYears] = useState(initial?.career_years ?? '')
-    const [companySize, setCompanySize] = useState(initial?.company_size || '')
-    const [techStack, setTechStack] = useState(initial?.tech_stack || '')
+    const [companyName, setCompanyName] = useState(initial?.company_name || '')
     const [body, setBody] = useState(initial?.body || '')
-    const [workDetails, setWorkDetails] = useState(initial?.work_details || '')
-    const [challenges, setChallenges] = useState(initial?.challenges || '')
-    const [advice, setAdvice] = useState(initial?.advice || '')
-    const [visibility, setVisibility] = useState(initial?.visibility || 'PUBLIC')
+    const [anonymous, setAnonymous] = useState(initial?.anonymous ?? true)
 
     const yearsValid = careerYears === '' || (
         Number.isInteger(Number(careerYears)) &&
         Number(careerYears) >= 0 &&
         Number(careerYears) <= 50
     )
+
     const canSubmit = Boolean(title.trim() && menu && jobCategory && body.trim() && yearsValid)
 
     function submit(event) {
@@ -68,16 +53,11 @@ export default function CareerLoungeForm({
         onSubmit({
             title: title.trim(),
             menu,
-            post_type: postType,
             job_category: jobCategory,
             career_years: careerYears === '' ? null : Number(careerYears),
-            company_size: companySize || null,
-            tech_stack: techStack.trim() || null,
+            company_name: companyName.trim() || null,
             body: body.trim(),
-            work_details: workDetails.trim() || null,
-            challenges: challenges.trim() || null,
-            advice: advice.trim() || null,
-            visibility,
+            anonymous,
         })
     }
 
@@ -102,11 +82,7 @@ export default function CareerLoungeForm({
                         value={menu}
                         required
                         disabled={busy}
-                        onChange={(event) => {
-                            setMenu(event.target.value)
-                            if (event.target.value === '직무 Q&A') setPostType('QUESTION')
-                            else setPostType('EXPERIENCE')
-                        }}
+                        onChange={(event) => setMenu(event.target.value)}
                     >
                         <option value="">주제를 선택하세요</option>
                         {LOUNGE_TOPICS.map((topic) => (
@@ -116,11 +92,11 @@ export default function CareerLoungeForm({
                 </label>
 
                 <label>
-                    글 유형 *
+                    글 유형
                     <select
-                        value={postType}
-                        disabled={busy}
-                        onChange={(event) => setPostType(event.target.value)}
+                        value={menu === '직무 Q&A' ? 'QUESTION' : 'EXPERIENCE'}
+                        disabled
+                        aria-label="게시글 주제에 따른 자동 분류"
                     >
                         <option value="EXPERIENCE">실무 경험 공유</option>
                         <option value="QUESTION">직무 질문</option>
@@ -159,32 +135,16 @@ export default function CareerLoungeForm({
                 </label>
             </div>
 
-            <div className="career-lounge-row">
-                <label>
-                    기업 규모 (선택)
-                    <select
-                        value={companySize}
-                        disabled={busy}
-                        onChange={(event) => setCompanySize(event.target.value)}
-                    >
-                        <option value="">선택 안 함</option>
-                        {COMPANY_SIZES.map((size) => (
-                            <option key={size} value={size}>{size}</option>
-                        ))}
-                    </select>
-                </label>
-
-                <label>
-                    기술 스택 (선택)
-                    <input
-                        value={techStack}
-                        maxLength={150}
-                        disabled={busy}
-                        onChange={(event) => setTechStack(event.target.value)}
-                        placeholder="예: Python, FastAPI, React"
-                    />
-                </label>
-            </div>
+            <label>
+                회사명 (선택)
+                <input
+                    value={companyName}
+                    maxLength={150}
+                    disabled={busy}
+                    onChange={(event) => setCompanyName(event.target.value)}
+                    placeholder="회사명 (공개해도 되는 경우에만 입력)"
+                />
+            </label>
 
             <label>
                 본문 *
@@ -198,68 +158,42 @@ export default function CareerLoungeForm({
                     placeholder="경험이나 궁금한 내용을 작성해 주세요. 회사 기밀과 개인정보는 제외해 주세요."
                 />
             </label>
-            <p className="career-lounge-count">{body.length.toLocaleString()} / 20,000자</p>
 
-            <label>
-                실제 업무 (선택)
-                <textarea
-                    value={workDetails}
-                    maxLength={3000}
-                    rows={3}
+            <p className="career-lounge-count">
+                {body.length.toLocaleString()} / 20,000자
+            </p>
+
+            <label className="career-lounge-anonymous">
+                <input
+                    type="checkbox"
+                    checked={anonymous}
                     disabled={busy}
-                    onChange={(event) => setWorkDetails(event.target.value)}
-                    placeholder="담당 업무나 하루 일과를 공유해 주세요"
+                    onChange={(event) => setAnonymous(event.target.checked)}
                 />
-            </label>
-
-            <label>
-                어려웠던 점 (선택)
-                <textarea
-                    value={challenges}
-                    maxLength={3000}
-                    rows={3}
-                    disabled={busy}
-                    onChange={(event) => setChallenges(event.target.value)}
-                    placeholder="업무 중 겪은 어려움과 해결 방법"
-                />
-            </label>
-
-            <label>
-                조언 (선택)
-                <textarea
-                    value={advice}
-                    maxLength={3000}
-                    rows={3}
-                    disabled={busy}
-                    onChange={(event) => setAdvice(event.target.value)}
-                    placeholder="취준생·주니어에게 남기고 싶은 조언"
-                />
-            </label>
-
-            <label>
-                공개 범위 (UI 시연용)
-                <select
-                    value={visibility}
-                    disabled={busy}
-                    onChange={(event) => setVisibility(event.target.value)}
-                >
-                    <option value="PUBLIC">전체 공개</option>
-                    <option value="MEMBERS">회원에게만 공개 (추후 구현)</option>
-                </select>
+                익명으로 작성하기
             </label>
 
             <p className="career-lounge-privacy">
-                회사명·연봉은 입력하지 않아도 됩니다. 졸업생/재직 인증은 별도 검증이 필요한 기능으로,
-                현재는 인증 배지를 표시하지 않습니다. 공개 범위 선택은 프론트엔드 시연용이며
-                실제 접근 제한은 적용되지 않습니다.
+                게시글은 PLAYMATE 서버에 저장됩니다. 익명 설정은 작성자 닉네임에만 적용되며,
+                회사명을 입력하면 본문과 함께 공개됩니다. 재직 인증 기능은 아직 제공하지 않습니다.
+                기업 규모·기술 스택·업무 세부 항목·회원 전용 공개 설정은 서버 저장 기능이 준비되면 추가합니다.
             </p>
 
             <div className="career-lounge-actions">
-                <button type="button" className="career-lounge-cancel" disabled={busy} onClick={onCancel}>
+                <button
+                    type="button"
+                    className="career-lounge-cancel"
+                    disabled={busy}
+                    onClick={onCancel}
+                >
                     취소
                 </button>
-                <button type="submit" className="career-lounge-submit" disabled={busy || !canSubmit}>
-                    {initial ? '수정 내용 임시 반영' : '게시글 임시 등록'}
+                <button
+                    type="submit"
+                    className="career-lounge-submit"
+                    disabled={busy || !canSubmit}
+                >
+                    {busy ? '저장 중...' : initial ? '수정하기' : '게시글 등록'}
                 </button>
             </div>
         </form>

@@ -19,11 +19,10 @@ const TYPE_NAMES = {
     EXPERIENCED: '경력',
 }
 
-/** 화면 테스트용 후기 상세: 서버에 없는 값은 추정하지 않는다. */
+/** 취준 도감 후기 상세 화면. 서버에 없는 값은 추정하지 않는다. */
 export default function CareerReviewDetailPage({ review, onBack, onEdit, onDelete }) {
     if (!review) return null
 
-    const isDraft = review.isDraft === true
 
     return (
         <div className="career-review-detail">
@@ -38,9 +37,6 @@ export default function CareerReviewDetailPage({ review, onBack, onEdit, onDelet
             <article className="career-review-detail-card">
                 <div className="career-review-detail-top">
                     <span className="career-post-tag">{review.menu}</span>
-                    <span className="career-review-demo-label">
-                        {isDraft ? '브라우저 임시 후기' : '화면용 예시 후기'}
-                    </span>
                 </div>
 
                 <h3>{review.title}</h3>
@@ -77,17 +73,11 @@ export default function CareerReviewDetailPage({ review, onBack, onEdit, onDelet
                     {review.body || review.summary}
                 </div>
 
-                <p className="career-review-detail-hint">
-                    {isDraft
-                        ? '프론트엔드 임시 데이터입니다. 새로고침하거나 페이지를 벗어나면 사라집니다.'
-                        : '예시 게시글은 실제 후기 데이터가 아니므로 상세 항목이 비어 있습니다.'}
-                </p>
-
                 <div className="career-review-detail-actions">
                     <button type="button" className="career-review-cancel" onClick={onBack}>
                         목록
                     </button>
-                    {isDraft && (
+                    {review.is_owner && (
                         <>
                             <button type="button" className="career-review-edit-btn" onClick={onEdit}>
                                 수정

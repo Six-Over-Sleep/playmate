@@ -64,7 +64,7 @@ from backend.app.models.member import Member  # noqa: E402, F401
 # 회원 인증
 from backend.app.routers.auth import router as auth_router  # noqa: E402
 
-# 게시판
+# 일반 게시판
 from backend.app.routers.board import router as board_router  # noqa: E402
 
 # 모임
@@ -72,6 +72,9 @@ from backend.app.routers.recruit import router as recruit_router  # noqa: E402
 
 # 마이페이지
 from backend.app.routers.mypage import router as mypage_router  # noqa: E402
+
+# 취업 카테고리
+from backend.app.routers.career import router as career_router  # noqa: E402
 
 
 # =========================================================
@@ -123,10 +126,18 @@ app.add_middleware(
 # 7. Router 등록
 # =========================================================
 
-# 기존 API
+# 회원 인증 API
 app.include_router(auth_router)
+
+# 일반 게시판 API
 app.include_router(board_router)
+
+# 모임 API
 app.include_router(recruit_router)
+
+# 취업 카테고리 API
+# 최종 주소: /api/career/...
+app.include_router(career_router)
 
 # 마이페이지 API
 # 최종 주소: /api/mypage/...

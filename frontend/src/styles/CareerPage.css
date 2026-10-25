@@ -1,109 +1,674 @@
-/* PLAYMATE 취업 전용 스타일: 기존 게시판 CSS와 충돌하지 않도록 career- 접두사 사용 */
-.career-page { min-height: calc(100vh - 60px); background:#f8f8fa; color:#211b3d; font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif; }
-.career-page *, .career-page *::before, .career-page *::after { box-sizing:border-box; }
-.career-container { width:min(1120px, calc(100% - 48px)); margin:0 auto; padding:42px 0 94px; }
-.career-page-heading { margin-bottom:30px; }
-.career-page-heading h1 { font-size:30px; letter-spacing:-1.2px; font-weight:800; line-height:1.2; margin:0 0 10px; }
-.career-page-heading p { color:#888ca3; font-size:14px; line-height:1.65; margin:0; }
 
-/* 가로 카테고리: 사이드바를 사용하지 않음 */
-.career-category-grid { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:45px; }
-.career-category-card { display:flex; align-items:center; gap:15px; min-height:93px; padding:17px 20px; background:#fff; color:#312a53; border:1px solid #ebe9f0; border-radius:20px; box-shadow:0 4px 12px rgba(31,24,58,.026); text-align:left; font:inherit; cursor:pointer; transition:background .15s,border-color .15s,transform .15s; }
-.career-category-card:hover { border-color:#cfc7eb; transform:translateY(-1px); }
-.career-category-card.active { background:#f1eefa; border-color:#a89ad6; box-shadow:0 0 0 1px rgba(137,116,195,.05); }
-.career-category-card:focus-visible, .career-subnav button:focus-visible { outline:3px solid #8e7bc4; outline-offset:3px; }
-.career-category-icon { display:flex; align-items:center; justify-content:center; flex-shrink:0; width:44px; height:44px; border-radius:15px; background:#f4f2fa; color:#6d5aab; }
-.career-category-card.active .career-category-icon { background:#e2daf5; color:#4b398c; }
-.career-category-text { display:flex; flex-direction:column; gap:6px; min-width:0; }
-.career-category-text strong { font-size:15px; font-weight:800; letter-spacing:-.3px; }
-.career-category-text small { font-size:12px; color:#9093a9; white-space:nowrap; }
-.career-category-card.active .career-category-text small { color:#80729f; }
+/* =========================================================
+   PLAYMATE 취업 전용 스타일
+   기존 게시판 CSS와 충돌하지 않도록 career- 접두사 사용
+========================================================= */
 
-/* 선택 카테고리 아래에 게시판 본문 표시 */
-.career-board { width:100%; }
-.career-section-head { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:19px; }
-.career-eyebrow { display:block; color:#9b8ac9; font-size:10px; font-weight:800; letter-spacing:1.5px; margin-bottom:8px; }
-.career-section-head h2 { font-size:25px; line-height:1.2; font-weight:800; margin:0; letter-spacing:-.8px; }
-.career-write-btn { height:42px; padding:0 23px; background:#9bcfc6; border:0; border-radius:23px; color:#14333a; font-size:14px; font-family:inherit; font-weight:750; opacity:1; cursor:not-allowed; }
-.career-subnav { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding-bottom:21px; margin-bottom:18px; border-bottom:1px solid #e9e8ef; }
-.career-subnav button { white-space:nowrap; padding:9px 15px; background:#fff; border:1px solid #e7e5ee; border-radius:22px; color:#69647e; font-family:inherit; font-size:13px; font-weight:650; cursor:pointer; }
-.career-subnav button:hover { background:#f5f1ff; }
-.career-subnav button.active { color:#fff; background:#4b3b85; border-color:#4b3b85; }
-.career-board-toolbar { display:flex; align-items:center; gap:12px; margin-bottom:13px; }
-.career-search { display:flex; align-items:center; gap:13px; height:56px; flex:1; min-width:0; padding:0 19px; background:#fff; border:1px solid #e9e8ee; border-radius:19px; box-shadow:0 5px 18px rgba(25,23,43,.035); }
-.career-search svg { flex-shrink:0; color:#a8b4cb; }
-.career-search input { border:0; outline:0; background:transparent; flex:1; min-width:0; font-size:14px; font-family:inherit; color:#241f40; }
-.career-search input::placeholder { color:#adb5c7; }
-.career-search button { border:0; padding:9px 3px 9px 14px; background:transparent; font-family:inherit; font-size:14px; color:#55438f; cursor:pointer; }
-.career-board-toolbar select { flex-shrink:0; width:112px; height:56px; padding:0 13px; border:1px solid #e9e8ee; border-radius:30px; background:#fff; color:#372b69; font-size:13px; font-family:inherit; cursor:pointer; }
-.career-sample-caption { text-align:right; margin:4px 3px 12px; color:#a5a4b3; font-size:11px; }
-.career-post-list { display:flex; flex-direction:column; gap:14px; }
-.career-post { min-height:142px; padding:23px 27px 21px; background:#fff; border:1px solid #e9e8ee; border-radius:25px; box-shadow:0 5px 12px rgba(30,24,51,.02); }
-.career-post-tag { display:inline-flex; align-items:center; padding:5px 9px; margin-bottom:10px; border-radius:7px; background:#f1effa; color:#7361a8; font-size:11px; font-weight:800; }
-.career-post h3 { margin:0 0 6px; font-size:19px; font-weight:800; line-height:1.4; letter-spacing:-.5px; }
-.career-post p { font-size:14px; color:#7e8ba5; line-height:1.65; margin:0; }
-.career-post-footer { display:flex; align-items:center; flex-wrap:wrap; gap:14px; color:#96a0b7; font-size:12px; margin-top:18px; }
-.career-post-footer strong { font-weight:750; color:#7d8eae; }
-.career-empty { display:flex; flex-direction:column; align-items:center; gap:10px; padding:75px 15px; border-radius:25px; border:1px solid #e9e8ee; background:#fff; }
-.career-empty strong { font-size:18px; }
-.career-empty span { color:#8992a8; font-size:13px; }
-
-/* 채용 인사이트 전용: 통계 데이터 연결 전에는 숫자·차트 임의 표시 금지 */
-.career-dashboard-empty { min-height:350px; background:#fff; border:1px solid #e9e8ee; border-radius:25px; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:45px 20px; text-align:center; }
-.career-dashboard-symbol { display:flex; justify-content:center; align-items:center; width:58px; height:58px; border-radius:18px; color:#67539d; background:#ede8f9; margin-bottom:18px; }
-.career-dashboard-symbol svg { width:29px; height:29px; }
-.career-dashboard-empty h3 { font-size:22px; font-weight:800; letter-spacing:-.6px; margin:0 0 10px; }
-.career-dashboard-empty p { margin:0; color:#77829b; font-size:14px; line-height:1.7; }
-.career-metric-placeholders { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin:25px 0 19px; }
-.career-metric-placeholders span { font-size:12px; color:#5c4f8d; font-weight:700; background:#f4f1fb; border-radius:12px; padding:11px 15px; }
-.career-dashboard-empty small { color:#a0a4b1; font-size:12px; }
-@media (max-width:900px) {
-  .career-category-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.career-page {
+    min-height: calc(100vh - 60px);
+    background: #f8f8fa;
+    color: #211b3d;
+    font-family: Pretendard, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "Noto Sans KR", sans-serif;
 }
-@media (max-width:580px) {
-  .career-container { width:calc(100% - 28px); padding:26px 0 65px; }
-  .career-page-heading { margin-bottom:23px; }
-  .career-page-heading h1 { font-size:26px; }
-  .career-category-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:32px; }
-  .career-category-card { min-height:88px; gap:9px; padding:12px 10px; border-radius:15px; }
-  .career-category-icon { width:34px; height:34px; border-radius:11px; }
-  .career-category-icon svg { width:19px; height:19px; }
-  .career-category-text strong { font-size:13px; }
-  .career-category-text small { white-space:normal; font-size:10px; line-height:1.35; }
-  .career-section-head h2 { font-size:22px; }
-  .career-write-btn { height:39px; padding:0 16px; font-size:12px; }
-  .career-subnav { gap:6px; }
-  .career-subnav button { padding:8px 11px; font-size:12px; }
-  .career-search { height:51px; padding:0 10px; gap:8px; }
-  .career-search input { font-size:12px; }
-  .career-search button { font-size:12px; padding:8px 3px; }
-  .career-board-toolbar { gap:7px; }
-  .career-board-toolbar select { height:51px; width:95px; padding:0 6px; font-size:12px; }
-  .career-post { border-radius:19px; padding:20px 18px; }
-  .career-post h3 { font-size:16px; }
-  .career-post p { font-size:13px; }
-  .career-dashboard-empty { padding:40px 15px; }
+
+.career-page *,
+.career-page *::before,
+.career-page *::after {
+    box-sizing: border-box;
+}
+
+.career-container {
+    width: min(1120px, calc(100% - 48px));
+    margin: 0 auto;
+    padding: 42px 0 94px;
+}
+
+.career-page-heading {
+    margin-bottom: 30px;
+}
+
+.career-page-heading h1 {
+    font-size: 30px;
+    letter-spacing: -1.2px;
+    font-weight: 800;
+    line-height: 1.2;
+    margin: 0 0 10px;
+}
+
+.career-page-heading p {
+    color: #888ca3;
+    font-size: 14px;
+    line-height: 1.65;
+    margin: 0;
 }
 
 
-/* 취준 도감 작성 폼 */
+/* =========================================================
+   1. 취업 카테고리 카드
+========================================================= */
+
+.career-category-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 45px;
+}
+
+.career-category-card {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    min-height: 93px;
+    padding: 17px 20px;
+    background: #fff;
+    color: #312a53;
+    border: 1px solid #ebe9f0;
+    border-radius: 20px;
+    box-shadow: 0 4px 12px rgba(31, 24, 58, .026);
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+    transition: background .15s, border-color .15s, transform .15s;
+}
+
+.career-category-card:hover {
+    border-color: #cfc7eb;
+    transform: translateY(-1px);
+}
+
+.career-category-card.active {
+    background: #f1eefa;
+    border-color: #a89ad6;
+    box-shadow: 0 0 0 1px rgba(137, 116, 195, .05);
+}
+
+.career-category-card:focus-visible,
+.career-subnav button:focus-visible {
+    outline: 3px solid #8e7bc4;
+    outline-offset: 3px;
+}
+
+.career-category-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 15px;
+    background: #f4f2fa;
+    color: #6d5aab;
+}
+
+.career-category-card.active .career-category-icon {
+    background: #e2daf5;
+    color: #4b398c;
+}
+
+.career-category-text {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.career-category-text strong {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -.3px;
+}
+
+.career-category-text small {
+    font-size: 12px;
+    color: #9093a9;
+    white-space: nowrap;
+}
+
+.career-category-card.active .career-category-text small {
+    color: #80729f;
+}
+
+
+/* =========================================================
+   2. 게시판 헤더
+========================================================= */
+
+.career-board {
+    width: 100%;
+}
+
+.career-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 19px;
+}
+
+.career-eyebrow {
+    display: block;
+    color: #9b8ac9;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+}
+
+.career-section-head h2 {
+    font-size: 25px;
+    line-height: 1.2;
+    font-weight: 800;
+    margin: 0;
+    letter-spacing: -.8px;
+}
+
+.career-write-btn {
+    height: 42px;
+    padding: 0 23px;
+    background: #9bcfc6;
+    border: 0;
+    border-radius: 23px;
+    color: #14333a;
+    font-size: 14px;
+    font-family: inherit;
+    font-weight: 750;
+    opacity: 1;
+    cursor: not-allowed;
+}
+
+
+/* =========================================================
+   3. 하위 카테고리 메뉴
+========================================================= */
+
+.career-subnav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 21px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid #e9e8ef;
+}
+
+.career-subnav button {
+    white-space: nowrap;
+    padding: 9px 15px;
+    background: #fff;
+    border: 1px solid #e7e5ee;
+    border-radius: 22px;
+    color: #69647e;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.career-subnav button:hover {
+    background: #f5f1ff;
+}
+
+.career-subnav button.active {
+    color: #fff;
+    background: #4b3b85;
+    border-color: #4b3b85;
+}
+
+
+/* =========================================================
+   4. 게시판 검색 및 정렬
+========================================================= */
+
+.career-board-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 13px;
+}
+
+.career-search {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    height: 56px;
+    flex: 1;
+    min-width: 0;
+    padding: 0 19px;
+    background: #fff;
+    border: 1px solid #e9e8ee;
+    border-radius: 19px;
+    box-shadow: 0 5px 18px rgba(25, 23, 43, .035);
+}
+
+.career-search svg {
+    flex-shrink: 0;
+    color: #a8b4cb;
+}
+
+.career-search input {
+    border: 0;
+    outline: 0;
+    background: transparent;
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-family: inherit;
+    color: #241f40;
+}
+
+.career-search input::placeholder {
+    color: #adb5c7;
+}
+
+.career-search button {
+    border: 0;
+    padding: 9px 3px 9px 14px;
+    background: transparent;
+    font-family: inherit;
+    font-size: 14px;
+    color: #55438f;
+    cursor: pointer;
+}
+
+.career-board-toolbar select {
+    flex-shrink: 0;
+    width: 112px;
+    height: 56px;
+    padding: 0 13px;
+    border: 1px solid #e9e8ee;
+    border-radius: 30px;
+    background: #fff;
+    color: #372b69;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.career-sample-caption {
+    text-align: right;
+    margin: 4px 3px 12px;
+    color: #a5a4b3;
+    font-size: 11px;
+}
+
+
+/* =========================================================
+   5. 게시글 목록 카드
+========================================================= */
+
+.career-post-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.career-post {
+    min-height: 142px;
+    padding: 23px 27px 21px;
+    background: #fff;
+    border: 1px solid #e9e8ee;
+    border-radius: 25px;
+    box-shadow: 0 5px 12px rgba(30, 24, 51, .02);
+}
+
+.career-post-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 9px;
+    margin-bottom: 10px;
+    border-radius: 7px;
+    background: #f1effa;
+    color: #7361a8;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.career-post h3 {
+    margin: 0 0 6px;
+    font-size: 19px;
+    font-weight: 800;
+    line-height: 1.4;
+    letter-spacing: -.5px;
+}
+
+.career-post p {
+    font-size: 14px;
+    color: #7e8ba5;
+    line-height: 1.65;
+    margin: 0;
+}
+
+.career-post-footer {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px;
+    color: #96a0b7;
+    font-size: 12px;
+    margin-top: 18px;
+}
+
+.career-post-footer strong {
+    font-weight: 750;
+    color: #7d8eae;
+}
+
+.career-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 75px 15px;
+    border-radius: 25px;
+    border: 1px solid #e9e8ee;
+    background: #fff;
+}
+
+.career-empty strong {
+    font-size: 18px;
+}
+
+.career-empty span {
+    color: #8992a8;
+    font-size: 13px;
+}
+
+
+/* =========================================================
+   6. 채용 인사이트 대시보드
+========================================================= */
+
+.career-dashboard-empty {
+    min-height: 350px;
+    background: #fff;
+    border: 1px solid #e9e8ee;
+    border-radius: 25px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 45px 20px;
+    text-align: center;
+}
+
+.career-dashboard-symbol {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 58px;
+    height: 58px;
+    border-radius: 18px;
+    color: #67539d;
+    background: #ede8f9;
+    margin-bottom: 18px;
+}
+
+.career-dashboard-symbol svg {
+    width: 29px;
+    height: 29px;
+}
+
+.career-dashboard-empty h3 {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -.6px;
+    margin: 0 0 10px;
+}
+
+.career-dashboard-empty p {
+    margin: 0;
+    color: #77829b;
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.career-metric-placeholders {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin: 25px 0 19px;
+}
+
+.career-metric-placeholders span {
+    font-size: 12px;
+    color: #5c4f8d;
+    font-weight: 700;
+    background: #f4f1fb;
+    border-radius: 12px;
+    padding: 11px 15px;
+}
+
+.career-dashboard-empty small {
+    color: #a0a4b1;
+    font-size: 12px;
+}
+
+
+/* =========================================================
+   7. 취준 도감 작성 폼
+========================================================= */
 
 .career-review-form select {
-  width: 100%;
-  padding: 12px 14px;
-  border: 1px solid #e1dce8;
-  border-radius: 10px;
-  background: #fff;
-  font: inherit;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #e1dce8;
+    border-radius: 10px;
+    background: #fff;
+    font: inherit;
 }
 
 .career-review-form select:focus {
-  outline: 2px solid #8870c2;
-  outline-offset: 1px;
+    outline: 2px solid #8870c2;
+    outline-offset: 1px;
 }
 
 .career-review-count {
-  margin: 0;
-  font-size: 13px;
-  color: #756b80;
+    margin: 0;
+    font-size: 13px;
+    color: #756b80;
+}
+
+
+/* =========================================================
+   8. 커리어 연구소 - 게시글 유형 및 해결 상태
+========================================================= */
+
+/* 하위 카테고리 + 상태 가로 정렬 */
+.career-page .career-post-labels {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-bottom: 12px;
+}
+
+/* 기존 카테고리 태그 유지 */
+.career-page .career-post-labels .career-post-tag {
+    margin-bottom: 0;
+    min-height: 25px;
+    padding: 5px 10px;
+}
+
+/* 상태 배지 공통 */
+.career-page .career-lab-state {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+
+    min-height: 25px;
+    padding: 5px 10px;
+
+    border: 1px solid transparent;
+    border-radius: 7px;
+
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+/* QUESTION - 미해결 */
+.career-page .career-lab-state.is-open {
+    background: #f4f5f8;
+    border-color: #e8eaf0;
+    color: #7e8598;
+}
+
+/* QUESTION - 해결 완료 */
+.career-page .career-lab-state.is-complete {
+    background: #e9f7ef;
+    border-color: #d2eadc;
+    color: #29845a;
+}
+
+/* DISCUSSION - 토론 */
+.career-page .career-lab-state.is-discussion {
+    background: #eeebfa;
+    border-color: #e0d9f5;
+    color: #6953ac;
+}
+
+
+/* =========================================================
+   9. 반응형 - 태블릿
+========================================================= */
+
+@media (max-width: 900px) {
+    .career-category-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+
+/* =========================================================
+   10. 반응형 - 모바일
+========================================================= */
+
+@media (max-width: 580px) {
+
+    .career-container {
+        width: calc(100% - 28px);
+        padding: 26px 0 65px;
+    }
+
+    .career-page-heading {
+        margin-bottom: 23px;
+    }
+
+    .career-page-heading h1 {
+        font-size: 26px;
+    }
+
+    .career-category-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 32px;
+    }
+
+    .career-category-card {
+        min-height: 88px;
+        gap: 9px;
+        padding: 12px 10px;
+        border-radius: 15px;
+    }
+
+    .career-category-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 11px;
+    }
+
+    .career-category-icon svg {
+        width: 19px;
+        height: 19px;
+    }
+
+    .career-category-text strong {
+        font-size: 13px;
+    }
+
+    .career-category-text small {
+        white-space: normal;
+        font-size: 10px;
+        line-height: 1.35;
+    }
+
+    .career-section-head h2 {
+        font-size: 22px;
+    }
+
+    .career-write-btn {
+        height: 39px;
+        padding: 0 16px;
+        font-size: 12px;
+    }
+
+    .career-subnav {
+        gap: 6px;
+    }
+
+    .career-subnav button {
+        padding: 8px 11px;
+        font-size: 12px;
+    }
+
+    .career-search {
+        height: 51px;
+        padding: 0 10px;
+        gap: 8px;
+    }
+
+    .career-search input {
+        font-size: 12px;
+    }
+
+    .career-search button {
+        font-size: 12px;
+        padding: 8px 3px;
+    }
+
+    .career-board-toolbar {
+        gap: 7px;
+    }
+
+    .career-board-toolbar select {
+        height: 51px;
+        width: 95px;
+        padding: 0 6px;
+        font-size: 12px;
+    }
+
+    .career-post {
+        border-radius: 19px;
+        padding: 20px 18px;
+    }
+
+    .career-post h3 {
+        font-size: 16px;
+    }
+
+    .career-post p {
+        font-size: 13px;
+    }
+
+    .career-dashboard-empty {
+        padding: 40px 15px;
+    }
+
+    /* 커리어 연구소 상태 배지 모바일 최적화 */
+    .career-page .career-post-labels {
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+
+    .career-page .career-post-labels .career-post-tag,
+    .career-page .career-lab-state {
+        font-size: 10px;
+        min-height: 23px;
+        padding: 5px 8px;
+    }
 }

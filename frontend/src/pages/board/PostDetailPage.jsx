@@ -6,7 +6,7 @@ import { formatBoardDate } from '../../utils/board'
 /** 상세 화면을 구성한다. 소유자 표시는 서버 응답을 따르고 실제 인가는 백엔드가 수행한다. */
 export default function PostDetailPage({
   boards, board, post, comments, busy, onSelectBoard, onCreateBoard,
-  onBack, onEdit, onDelete, onComment, onEditComment, onDeleteComment,
+  onBack, onEdit, onDelete, onLike, onScrap, onComment, onEditComment, onDeleteComment,
 }) {
   return (
     <main className="detail-layout">
@@ -52,13 +52,33 @@ export default function PostDetailPage({
             ))}
           </div>
         )}
+        {/* 표시 값은 서버 응답(like_count·liked_by_me·scrapped_by_me)을 그대로 사용한다. */}
+        <div className="post-reactions">
+          <button
+            className={`button ${post.liked_by_me ? 'purple' : 'ghost'}`}
+            aria-pressed={post.liked_by_me}
+            disabled={busy}
+            onClick={onLike}
+          >
+            {post.liked_by_me ? '♥' : '♡'} 좋아요 {post.like_count}
+          </button>
+          <button
+            className={`button ${post.scrapped_by_me ? 'purple' : 'ghost'}`}
+            aria-pressed={Boolean(post.scrapped_by_me)}
+            disabled={busy}
+            onClick={onScrap}
+          >
+            {post.scrapped_by_me ? '스크랩됨' : '스크랩'}
+          </button>
+        </div>
         <section className="comments">
-          <h2>댓글 {comments.length}</h2>
+          <h2>댓글 {post.comment_count}</h2>
           <CommentList
             comments={comments}
             busy={busy}
             onEdit={onEditComment}
             onDelete={onDeleteComment}
+            onReply={onComment}
           />
           <CommentForm busy={busy} onSubmit={onComment} />
         </section>

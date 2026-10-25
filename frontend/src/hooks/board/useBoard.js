@@ -282,25 +282,70 @@ export function useBoard(resetVersion) {
     })
   }
 
-  /** 댓글 변경 응답으로 상세와 목록의 개수를 함께 갱신해 상세/댓글 재조회를 없앤다. */
+  /** 좋아요 상태에 맞춰 등록·취소를 보내고 서버가 돌려준 개수·여부로 상세를 갱신한다. */
+  function toggleLike() {
+    return mutate(
+      () => post.liked_by_me
+        ? boardApi.unlikePost(board.id, post.id)
+        : boardApi.likePost(board.id, post.id),
+      (result) => setPost((current) => ({
+        ...current,
+        like_count: result.like_count,
+        liked_by_me: result.liked_by_me,
+      })),
+    )
+  }
+
+  /** 스크랩 상태에 맞춰 등록·취소를 보내고 서버가 돌려준 여부로 상세를 갱신한다. */
+  function toggleScrap() {
+    return mutate(
+      () => post.scrapped_by_me
+        ? boardApi.unscrapPost(board.id, post.id)
+        : boardApi.scrapPost(board.id, post.id),
+      (result) => setPost((current) => ({ ...current, scrapped_by_me: result.scrapped_by_me })),
+    )
+  }
+
+  /**
+   * 댓글 변경 응답으로 상세와 목록의 개수를 함께 갱신해 상세/댓글 재조회를 없앤다.
+   * 삭제된 부모 자리표시(is_deleted)는 서버 comment_count처럼 개수에서 뺀다.
+   */
   function applyComments(items) {
+    const count = items.filter((item) => !item.is_deleted).length
     setComments(items)
-    setPost((current) => ({ ...current, comment_count: items.length }))
+    setPost((current) => ({ ...current, comment_count: count }))
     setPosts((current) => Array.isArray(current)
-      ? current.map((item) => item.id === post.id ? { ...item, comment_count: items.length } : item)
+      ? current.map((item) => item.id === post.id ? { ...item, comment_count: count } : item)
       : current)
     if (currentList.current) {
       currentList.current.items = currentList.current.items.map((item) => (
-        item.id === post.id ? { ...item, comment_count: items.length } : item
+        item.id === post.id ? { ...item, comment_count: count } : item
       ))
     }
   }
 
-  /** 댓글 본문을 전송하고 성공 응답을 목록 끝에 추가한다. 실패 시 폼이 초안을 유지하게 한다. */
-  function addComment(body) {
+  /**
+   * 댓글 본문을 전송하고 성공 응답을 목록에 추가한다. 실패 시 폼이 초안을 유지하게 한다.
+   * 일반 댓글은 목록 끝에, 대댓글은 같은 부모의 마지막 대댓글 뒤에 넣어 서버 순서와 맞춘다.
+   */
+  function addComment(body, parentCommentId = null) {
     return mutate(
-      () => boardApi.createComment(board.id, post.id, body),
-      (created) => applyComments([...comments, created]),
+      () => boardApi.createComment(board.id, post.id, body, parentCommentId),
+      (created) => {
+        if (!created.parent_comment_id) {
+          applyComments([...comments, created])
+          return
+        }
+        const lastIndex = comments.findLastIndex((item) => (
+          item.id === created.parent_comment_id
+          || item.parent_comment_id === created.parent_comment_id
+        ))
+        applyComments([
+          ...comments.slice(0, lastIndex + 1),
+          created,
+          ...comments.slice(lastIndex + 1),
+        ])
+      },
     )
   }
 
@@ -312,12 +357,29 @@ export function useBoard(resetVersion) {
     )
   }
 
-  /** 확인 후 해당 댓글만 제거한다. 204의 빈 응답은 mutate가 성공 true로 변환한다. */
+  /**
+   * 확인 후 해당 댓글만 제거한다. 204의 빈 응답은 mutate가 성공 true로 변환한다.
+   * 서버 목록 규칙과 같게, 대댓글이 남은 부모는 자리표시로 바꾸고
+   * 삭제된 부모의 마지막 대댓글을 지우면 그 자리표시도 함께 뺀다.
+   */
   function deleteComment(id) {
     if (mutationLock.current || !window.confirm('이 댓글을 삭제할까요?')) return null
     return mutate(
       () => boardApi.deleteComment(id),
-      () => applyComments(comments.filter((item) => item.id !== id)),
+      () => {
+        const target = comments.find((item) => item.id === id)
+        const hasReplies = comments.some((item) => item.parent_comment_id === id)
+        let next = hasReplies
+          ? comments.map((item) => item.id === id
+            ? { ...item, body: '', author_id: null, author_name: '', is_owner: false, is_deleted: true }
+            : item)
+          : comments.filter((item) => item.id !== id)
+        const parentId = target?.parent_comment_id
+        if (parentId && !next.some((item) => item.parent_comment_id === parentId)) {
+          next = next.filter((item) => !(item.id === parentId && item.is_deleted))
+        }
+        applyComments(next)
+      },
     )
   }
 
@@ -359,6 +421,6 @@ export function useBoard(resetVersion) {
     busy, modal, error, success, initialized,
     selectBoard, searchPosts, openPost, backToList, createBoard, savePost,
     deletePost, addComment, editComment, deleteComment, openEditor,
-    editPost, cancelEditor, openModal, closeModal,
+    editPost, cancelEditor, openModal, closeModal, toggleLike, toggleScrap,
   }
 }

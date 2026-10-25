@@ -76,9 +76,29 @@ class PostResponse(BaseModel):
     comment_count: int = 0
     is_owner: bool = False
 
+    # like_count : 좋아요 수
+    # liked_by_me : 현재 로그인한 회원의 좋아요 여부
+    # scrapped_by_me : 현재 회원의 스크랩 여부 (목록에서는 None, 상세에서만 계산)
+    like_count: int = 0
+    liked_by_me: bool = False
+    scrapped_by_me: bool | None = None
+
     # images : 게시글 이미지 목록
     # default_factory=list : 요청/응답 객체마다 새로운 빈 목록 생성
     images: list[PostImageResponse] = Field(default_factory=list)
+
+
+# 좋아요 등록·취소 후 반환하는 데이터
+class PostLikeResponse(BaseModel):
+    post_id: int
+    like_count: int
+    liked_by_me: bool
+
+
+# 스크랩 등록·취소 후 반환하는 데이터 (스크랩 수는 제공하지 않음)
+class PostScrapResponse(BaseModel):
+    post_id: int
+    scrapped_by_me: bool
 
 
 # 댓글 및 대댓글 작성 시 전달하는 데이터
@@ -93,14 +113,18 @@ class CommentWrite(StrictModel):
 class CommentResponse(BaseModel):
     id: int
     post_id: int
+
+    # 대댓글 관계 (일반 댓글이면 None)
+    parent_comment_id: int | None = None
     body: str
 
-    author_id: int
+    # 삭제된 부모 댓글 자리표시는 작성자 정보를 숨기므로 None일 수 있음
+    author_id: int | None
     author_name: str
 
     created_at: datetime
     updated_at: datetime
     is_owner: bool = False
 
-    # 대댓글 관계
-    parent_comment_id: int | None = None
+    # 대댓글이 남아 있는 삭제된 부모 댓글 자리표시 여부
+    is_deleted: bool = False

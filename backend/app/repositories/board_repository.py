@@ -134,8 +134,8 @@ def list_posts(
 ) -> list[dict[str, Any]]:
     """검색 조건으로 게시글을 조회하고 이미지를 일괄 매핑한다. 정렬·댓글 집계를 보존한다."""
     # SQL에서 사용하는 %s 자리표시자 순서대로 조회 인자를 준비함
-    # member_id는 본인 작성 여부(is_owner), board_id는 게시판 필터에 사용함
-    params: list[Any] = [member_id, board_id]
+    # member_id는 본인 작성 여부(is_owner)와 좋아요 여부(liked_by_me), board_id는 게시판 필터에 사용함
+    params: list[Any] = [member_id, member_id, board_id]
     condition = ""
     # 검색어가 있을 때만 제목·본문 검색 조건을 추가함
     # ILIKE : PostgreSQL에서 대소문자 구분 없이 문자열 검색
@@ -164,7 +164,18 @@ def list_posts(
             p.created_at,
             p.updated_at,
             COUNT(c.comment_id) FILTER (WHERE c.deleted_at IS NULL)::int AS comment_count,
-            (p.author_member_id = %s) AS is_owner
+            (p.author_member_id = %s) AS is_owner,
+            (
+                SELECT COUNT(*)
+                FROM post_likes AS l
+                WHERE l.post_id = p.post_id
+            )::int AS like_count,
+            EXISTS (
+                SELECT 1
+                FROM post_likes AS l
+                WHERE l.post_id = p.post_id
+                      AND l.member_id = %s
+            ) AS liked_by_me
         FROM posts AS p
         JOIN members AS m ON m.member_id = p.author_member_id
         LEFT JOIN comments AS c ON c.post_id = p.post_id
@@ -265,14 +276,31 @@ def get_post(
                 WHERE c.post_id = p.post_id
                       AND c.deleted_at IS NULL
             ) AS comment_count,
-            (p.author_member_id = %s) AS is_owner
+            (p.author_member_id = %s) AS is_owner,
+            (
+                SELECT COUNT(*)
+                FROM post_likes AS l
+                WHERE l.post_id = p.post_id
+            )::int AS like_count,
+            EXISTS (
+                SELECT 1
+                FROM post_likes AS l
+                WHERE l.post_id = p.post_id
+                      AND l.member_id = %s
+            ) AS liked_by_me,
+            EXISTS (
+                SELECT 1
+                FROM post_scraps AS s
+                WHERE s.post_id = p.post_id
+                      AND s.member_id = %s
+            ) AS scrapped_by_me
         FROM posts AS p
         JOIN members AS m ON m.member_id = p.author_member_id
         WHERE p.board_id = %s
             AND p.post_id = %s
             AND {_board_post_guard()}
         """,
-        (member_id, board_id, post_id),
+        (member_id, member_id, member_id, board_id, post_id),
     )
     # 조회한 글이 있을 때만 이미지 정보를 함께 추가함
     row = cursor.fetchone()
@@ -345,14 +373,106 @@ def post_exists(cursor, board_id: int, post_id: int) -> bool:
     return cursor.fetchone() is not None
 
 
-# 게시글에 달린 댓글 목록을 작성 시간 순서로 조회함
+# 게시글 좋아요 저장 (중복 요청은 무시)
+def like_post(cursor, post_id: int, member_id: int) -> None:
+    """게시글 좋아요를 저장한다. 이미 좋아요한 글은 기본키 충돌을 무시한다."""
+    cursor.execute(
+        """
+        INSERT INTO post_likes (post_id, member_id)
+        VALUES (%s, %s)
+        ON CONFLICT (post_id, member_id) DO NOTHING
+        """,
+        (post_id, member_id),
+    )
+
+
+# 게시글 좋아요 취소
+def unlike_post(cursor, post_id: int, member_id: int) -> None:
+    """회원의 게시글 좋아요를 삭제한다. 좋아요가 없으면 아무것도 변경하지 않는다."""
+    cursor.execute(
+        """
+        DELETE FROM post_likes
+        WHERE post_id = %s
+            AND member_id = %s
+        """,
+        (post_id, member_id),
+    )
+
+
+# 좋아요 등록·취소 후 응답할 좋아요 수와 내 좋아요 여부 조회
+def get_post_like(cursor, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 좋아요 수와 회원의 좋아요 여부를 응답 필드로 조회한다."""
+    cursor.execute(
+        """
+        SELECT
+            %s AS post_id,
+            COUNT(*)::int AS like_count,
+            COALESCE(BOOL_OR(l.member_id = %s), FALSE) AS liked_by_me
+        FROM post_likes AS l
+        WHERE l.post_id = %s
+        """,
+        (post_id, member_id, post_id),
+    )
+    row = cursor.fetchone()
+    return row
+
+
+# 게시글 스크랩 저장 (중복 요청은 무시)
+def scrap_post(cursor, post_id: int, member_id: int) -> None:
+    """게시글 스크랩을 저장한다. 이미 스크랩한 글은 기본키 충돌을 무시한다."""
+    cursor.execute(
+        """
+        INSERT INTO post_scraps (post_id, member_id)
+        VALUES (%s, %s)
+        ON CONFLICT (post_id, member_id) DO NOTHING
+        """,
+        (post_id, member_id),
+    )
+
+
+# 게시글 스크랩 취소
+def unscrap_post(cursor, post_id: int, member_id: int) -> None:
+    """회원의 게시글 스크랩을 삭제한다. 스크랩이 없으면 아무것도 변경하지 않는다."""
+    cursor.execute(
+        """
+        DELETE FROM post_scraps
+        WHERE post_id = %s
+            AND member_id = %s
+        """,
+        (post_id, member_id),
+    )
+
+
+# 스크랩 등록·취소 후 응답할 내 스크랩 여부 조회
+def get_post_scrap(cursor, post_id: int, member_id: int) -> dict[str, Any]:
+    """회원의 게시글 스크랩 여부를 응답 필드로 조회한다."""
+    cursor.execute(
+        """
+        SELECT
+            %s AS post_id,
+            EXISTS (
+                SELECT 1
+                FROM post_scraps AS s
+                WHERE s.post_id = %s
+                      AND s.member_id = %s
+            ) AS scrapped_by_me
+        """,
+        (post_id, post_id, member_id),
+    )
+    row = cursor.fetchone()
+    return row
+
+
+# 게시글에 달린 댓글 목록을 부모 → 대댓글 순서로 조회함
 def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
-    """삭제되지 않은 댓글을 작성 시간·ID 순서로 반환한다."""
+    """삭제되지 않은 댓글을 부모 댓글 작성 순서로, 대댓글은 부모 바로 뒤에 반환한다.
+
+    삭제된 최상위 댓글은 살아 있는 대댓글이 있을 때만 본문·작성자를 비운
+    삭제 표시 행으로 포함한다.
+    """
     # JOIN members : 작성자의 닉네임과 작성자 ID를 함께 조회함
-    # is_owner : 로그인한 회원이 해당 댓글 작성자인지 비교함
-    # deleted_at IS NULL : 삭제되지 않은 댓글만 조회함
-    # 요청자와 작성자를 비교하여 is_owner 값을 포함함
-    # 삭제된 댓글은 조회 대상에서 제외함
+    # is_owner : 로그인한 회원이 해당 댓글 작성자인지 비교함 (삭제 표시 행은 False)
+    # 삭제된 댓글은 제외하되, 살아 있는 대댓글이 있는 삭제된 부모는 자리표시로 포함함
     cursor.execute(
         """
 
@@ -360,18 +480,37 @@ def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
             c.comment_id AS id,
             c.post_id,
             c.parent_comment_id,
-            c.body,
-
-            c.author_member_id AS author_id,
-            COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,
+            CASE WHEN c.deleted_at IS NULL THEN c.body ELSE '' END AS body,
+            CASE WHEN c.deleted_at IS NULL THEN c.author_member_id END AS author_id,
+            CASE
+                WHEN c.deleted_at IS NULL
+                THEN COALESCE(NULLIF(m.nickname, ''), '익명')
+                ELSE ''
+            END AS author_name,
             c.created_at,
             c.updated_at,
-            (c.author_member_id = %s) AS is_owner
+            (c.deleted_at IS NULL AND c.author_member_id = %s) AS is_owner,
+            (c.deleted_at IS NOT NULL) AS is_deleted
         FROM comments AS c
         JOIN members AS m ON m.member_id = c.author_member_id
+        LEFT JOIN comments AS parent ON parent.comment_id = c.parent_comment_id
         WHERE c.post_id = %s
-            AND c.deleted_at IS NULL
+            AND (
+                c.deleted_at IS NULL
+                OR (
+                    c.parent_comment_id IS NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM comments AS r
+                        WHERE r.parent_comment_id = c.comment_id
+                              AND r.deleted_at IS NULL
+                    )
+                )
+            )
         ORDER BY
+            COALESCE(parent.created_at, c.created_at),
+            COALESCE(parent.comment_id, c.comment_id),
+            c.parent_comment_id IS NOT NULL,
             c.created_at,
             c.comment_id
         """,
@@ -380,32 +519,46 @@ def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
     return list(cursor.fetchall())
 
 
-
 # 댓글 및 대댓글 저장
 def create_comment(
     cursor,
     post_id: int,
     body: str,
     member_id: int,
-    parent_comment_id: int | None = None
+    parent_comment_id: int | None = None,
 ) -> int:
-
+    """게시글 ID·작성자·본문·부모 댓글 ID로 댓글을 저장하고 생성 ID를 반환한다."""
     cursor.execute(
         """
-        INSERT INTO comments (
-            post_id,
-            author_member_id,
-            body,
-            parent_comment_id
-        )
+        INSERT INTO comments (post_id, author_member_id, body, parent_comment_id)
         VALUES (%s, %s, %s, %s)
         RETURNING comment_id
         """,
-        (post_id, member_id, body, parent_comment_id)
+        (post_id, member_id, body, parent_comment_id),
     )
 
     return cursor.fetchone()["comment_id"]
 
+
+# 대댓글 작성 전 부모 댓글의 게시글·상위 댓글 ID 조회
+def get_parent_comment(cursor, comment_id: int) -> dict[str, Any] | None:
+    """대댓글 검증에 필요한 부모 댓글의 게시글·상위 댓글 ID를 조회한다.
+
+    없거나 삭제된 댓글은 None이다.
+    """
+    cursor.execute(
+        """
+        SELECT
+            post_id,
+            parent_comment_id
+        FROM comments
+        WHERE comment_id = %s
+            AND deleted_at IS NULL
+        """,
+        (comment_id,),
+    )
+    row = cursor.fetchone()
+    return row
 
 
 # 댓글 ID에 해당하는 댓글 한 건을 조회함

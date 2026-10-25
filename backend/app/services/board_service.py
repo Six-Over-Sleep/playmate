@@ -32,7 +32,7 @@ def _require_board(cursor, board_id: int) -> dict[str, Any]:
 
 
 def _require_post(cursor, board_id: int, post_id: int) -> None:
-    """댓글 처리에 필요한 게시글 존재 여부만 검증한다."""
+    """댓글·좋아요·스크랩 처리에 필요한 게시글 존재 여부만 검증한다."""
     # 게시판에 속하는 유효한 게시글이 있는지만 확인함.
     if not repository.post_exists(cursor, board_id, post_id):
         raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
@@ -64,6 +64,22 @@ def list_boards() -> list[dict[str, Any]]:
     # read_only=True : 조회용 트랜잭션으로 DB 작업을 수행함.
     with db_cursor(read_only=True) as cursor:
         return repository.list_boards(cursor)
+
+
+def create_board(
+    name: str, description: str | None, creation_reason: str | None, member_id: int
+) -> dict[str, Any]:
+    """게시판 저장·응답 조회를 한 트랜잭션으로 처리한다. 이름 중복은 409이다."""
+    try:
+        with db_cursor(commit=True) as cursor:
+            board_id = repository.create_board(
+                cursor, name, description or None, creation_reason or None, member_id
+            )
+            return _require_board(cursor, board_id)
+    except errors.UniqueViolation as exc:
+        raise HTTPException(
+            status_code=409, detail="이미 같은 이름의 게시판이 있습니다."
+        ) from exc
 
 
 
@@ -202,9 +218,52 @@ def delete_post(board_id: int, post_id: int, member_id: int) -> None:
         # 2. 게시글 작성 XP 회수
         revoke_xp(cursor, member_id, "POST", post_id)
 
+# =========================================================
+# 5. 게시글 좋아요·스크랩
+# =========================================================
+def like_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 확인·좋아요 저장·응답 조회를 한 트랜잭션에서 수행한다.
+
+    이미 좋아요한 글에 다시 요청해도 행을 추가하지 않고 현재 상태를 반환한다.
+    삭제·모임 게시글은 404이다.
+    """
+    with db_cursor(commit=True) as cursor:
+        _require_post(cursor, board_id, post_id)
+        repository.like_post(cursor, post_id, member_id)
+        return repository.get_post_like(cursor, post_id, member_id)
+
+
+def unlike_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 확인 후 좋아요를 취소하고 응답을 조회한다. 좋아요가 없어도 성공한다."""
+    with db_cursor(commit=True) as cursor:
+        _require_post(cursor, board_id, post_id)
+        repository.unlike_post(cursor, post_id, member_id)
+        return repository.get_post_like(cursor, post_id, member_id)
+
+
+def scrap_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 확인·스크랩 저장·응답 조회를 한 트랜잭션에서 수행한다.
+
+    이미 스크랩한 글에 다시 요청해도 행을 추가하지 않고 현재 상태를 반환한다.
+    삭제·모임 게시글은 404이다.
+    """
+    with db_cursor(commit=True) as cursor:
+        _require_post(cursor, board_id, post_id)
+        repository.scrap_post(cursor, post_id, member_id)
+        return repository.get_post_scrap(cursor, post_id, member_id)
+
+
+def unscrap_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 확인 후 스크랩을 취소하고 응답을 조회한다. 스크랩이 없어도 성공한다."""
+    with db_cursor(commit=True) as cursor:
+        _require_post(cursor, board_id, post_id)
+        repository.unscrap_post(cursor, post_id, member_id)
+        return repository.get_post_scrap(cursor, post_id, member_id)
+
+
 
 # =========================================================
-# 5. 댓글 목록·생성·상세 조회
+# 6. 댓글 목록·생성·상세 조회
 # =========================================================
 def list_comments(board_id: int, post_id: int, member_id: int) -> list[dict[str, Any]]:
     """게시글 확인 후 댓글을 반환한다. 불필요한 상세·이미지 조회를 생략한다."""
@@ -215,6 +274,27 @@ def list_comments(board_id: int, post_id: int, member_id: int) -> list[dict[str,
         return repository.list_comments(cursor, post_id, member_id)
 
 
+def _require_parent_comment(cursor, post_id: int, parent_comment_id: int) -> None:
+    """대댓글의 부모가 같은 글의 삭제되지 않은 최상위 댓글인지 검증한다.
+
+    없거나 삭제된 부모는 404, 다른 글의 댓글이거나 대댓글에 다시 답글을 달면 422이다.
+    """
+    parent = repository.get_parent_comment(cursor, parent_comment_id)
+    if parent is None:
+        raise HTTPException(status_code=404, detail="부모 댓글을 찾을 수 없습니다.")
+
+    # 다른 게시글의 댓글에는 답글 작성 불가
+    if parent["post_id"] != post_id:
+        raise HTTPException(
+            status_code=422,
+            detail="같은 게시글의 댓글에만 답글을 작성할 수 있습니다.",
+        )
+
+    # 대댓글에 다시 답글 작성 불가 (1단계까지만 허용)
+    if parent["parent_comment_id"] is not None:
+        raise HTTPException(
+            status_code=422, detail="대댓글에는 답글을 작성할 수 없습니다."
+        )
 
 
 # 댓글 및 대댓글 작성
@@ -223,46 +303,16 @@ def create_comment(
     post_id: int,
     body: str,
     member_id: int,
-    parent_comment_id: int | None = None
+    parent_comment_id: int | None = None,
 ) -> dict[str, Any]:
-
+    """게시글·부모 댓글 확인, 댓글 저장, 응답 조회를 한 트랜잭션에서 수행한다."""
     with db_cursor(commit=True) as cursor:
         # 1. 게시글 존재 확인
         _require_post(cursor, board_id, post_id)
 
         # 2. 대댓글이면 부모 댓글 검증
         if parent_comment_id is not None:
-            cursor.execute(
-                """
-                SELECT post_id, parent_comment_id
-                FROM comments
-                WHERE comment_id = %s
-                  AND deleted_at IS NULL
-                """,
-                (parent_comment_id,)
-            )
-
-            parent = cursor.fetchone()
-
-            if parent is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail="부모 댓글을 찾을 수 없습니다."
-                )
-
-            # 다른 게시글의 댓글에는 답글 작성 불가
-            if parent["post_id"] != post_id:
-                raise HTTPException(
-                    status_code=422,
-                    detail="같은 게시글의 댓글에만 답글을 작성할 수 있습니다."
-                )
-
-            # 대댓글에 다시 답글 작성 불가
-            if parent["parent_comment_id"] is not None:
-                raise HTTPException(
-                    status_code=422,
-                    detail="대댓글에는 답글을 작성할 수 없습니다."
-                )
+            _require_parent_comment(cursor, post_id, parent_comment_id)
 
         # 3. 댓글 또는 대댓글 저장
         comment_id = repository.create_comment(
@@ -302,7 +352,7 @@ def get_comment(comment_id: int, member_id: int) -> dict[str, Any]:
 
 
 # =========================================================
-# 6. 댓글 수정·삭제 및 작성자 권한 확인
+# 7. 댓글 수정·삭제 및 작성자 권한 확인
 # =========================================================
 def _raise_comment_permission(cursor, comment_id: int) -> None:
     """댓글 변경 실패를 작성자 권한 부족과 데이터 누락으로 구분한다."""

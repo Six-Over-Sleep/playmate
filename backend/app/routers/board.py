@@ -25,7 +25,9 @@ from app.schemas.board import (
     BoardResponse,
     CommentResponse,
     CommentWrite,
+    PostLikeResponse,
     PostResponse,
+    PostScrapResponse,
     PostWrite,
 )
 # 게시판·게시글·댓글의 실제 업무 로직을 처리하는 Service
@@ -172,7 +174,49 @@ def delete_post(
 
 
 # =========================================================
-# 4. 댓글 조회 및 생성
+# 4. 게시글 좋아요·스크랩
+# =========================================================
+
+# PUT /api/boards/{board_id}/posts/{post_id}/like : 좋아요 등록 (중복 요청은 현재 상태 반환)
+@router.put("/boards/{board_id}/posts/{post_id}/like", response_model=PostLikeResponse)
+def like_post(
+    board_id: int, post_id: int, member_id: int = Depends(get_current_member_id)
+):
+    return board_service.like_post(board_id, post_id, member_id)
+
+
+# DELETE /api/boards/{board_id}/posts/{post_id}/like : 좋아요 취소 (없어도 성공)
+@router.delete(
+    "/boards/{board_id}/posts/{post_id}/like", response_model=PostLikeResponse
+)
+def unlike_post(
+    board_id: int, post_id: int, member_id: int = Depends(get_current_member_id)
+):
+    return board_service.unlike_post(board_id, post_id, member_id)
+
+
+# PUT /api/boards/{board_id}/posts/{post_id}/scrap : 스크랩 등록 (중복 요청은 현재 상태 반환)
+@router.put(
+    "/boards/{board_id}/posts/{post_id}/scrap", response_model=PostScrapResponse
+)
+def scrap_post(
+    board_id: int, post_id: int, member_id: int = Depends(get_current_member_id)
+):
+    return board_service.scrap_post(board_id, post_id, member_id)
+
+
+# DELETE /api/boards/{board_id}/posts/{post_id}/scrap : 스크랩 취소 (없어도 성공)
+@router.delete(
+    "/boards/{board_id}/posts/{post_id}/scrap", response_model=PostScrapResponse
+)
+def unscrap_post(
+    board_id: int, post_id: int, member_id: int = Depends(get_current_member_id)
+):
+    return board_service.unscrap_post(board_id, post_id, member_id)
+
+
+# =========================================================
+# 5. 댓글 조회 및 생성
 # =========================================================
 
 # GET /api/boards/{board_id}/posts/{post_id}/comments : 게시글 댓글 목록 조회
@@ -198,9 +242,8 @@ def create_comment(
     payload: CommentWrite,
     member_id: int = Depends(get_current_member_id),
 ):
-    # CommentWrite : 댓글 내용을 전달받는 요청 스키마
+    # CommentWrite : 댓글 내용과 부모 댓글 ID(대댓글일 때)를 전달받는 요청 스키마
     # member_id : 댓글 작성자의 회원 ID
-
     return board_service.create_comment(
         board_id,
         post_id,
@@ -211,7 +254,7 @@ def create_comment(
 
 
 # =========================================================
-# 5. 댓글 수정 및 삭제
+# 6. 댓글 수정 및 삭제
 # =========================================================
 
 # PATCH /api/comments/{comment_id} : 기존 댓글 수정
@@ -222,6 +265,9 @@ def update_comment(
     member_id: int = Depends(get_current_member_id),
 ):
     # comment_id : 수정할 댓글 고유 번호
+    # 본문만 수정할 수 있으며 부모 댓글(댓글 위치)은 바꿀 수 없음.
+    if payload.parent_comment_id is not None:
+        raise HTTPException(status_code=422, detail="댓글 위치는 수정할 수 없습니다.")
     # 작성자 확인 및 댓글 수정은 Service에서 수행함.
     return board_service.update_comment(comment_id, payload.body, member_id)
 

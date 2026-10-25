@@ -282,17 +282,27 @@ export function useBoard(resetVersion) {
     })
   }
 
-  /** 좋아요 상태에 맞춰 등록·취소를 보내고 서버가 돌려준 개수·여부로 상세를 갱신한다. */
+  /**
+   * 좋아요 상태에 맞춰 등록·취소를 보내고 서버가 돌려준 개수·여부로 상세를 갱신한다.
+   * 목록 카드도 like_count를 표시하므로 댓글 수처럼 목록 상태를 함께 맞춘다.
+   */
   function toggleLike() {
     return mutate(
       () => post.liked_by_me
         ? boardApi.unlikePost(board.id, post.id)
         : boardApi.likePost(board.id, post.id),
-      (result) => setPost((current) => ({
-        ...current,
-        like_count: result.like_count,
-        liked_by_me: result.liked_by_me,
-      })),
+      (result) => {
+        const changes = { like_count: result.like_count, liked_by_me: result.liked_by_me }
+        setPost((current) => ({ ...current, ...changes }))
+        setPosts((current) => Array.isArray(current)
+          ? current.map((item) => item.id === post.id ? { ...item, ...changes } : item)
+          : current)
+        if (currentList.current) {
+          currentList.current.items = currentList.current.items.map((item) => (
+            item.id === post.id ? { ...item, ...changes } : item
+          ))
+        }
+      },
     )
   }
 

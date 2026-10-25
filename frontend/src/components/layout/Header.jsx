@@ -5,6 +5,7 @@ import logo from '../../assets/playmate-logo.png'
 export default function Header({ activeSection, onNavigate, nickname, avatarUrl, onLogout }) {
   const [profileOpen, setProfileOpen] = useState(false)
   const go = (section) => {
+    setProfileOpen(false)
     onNavigate?.(section)
   }
 
@@ -44,7 +45,15 @@ export default function Header({ activeSection, onNavigate, nickname, avatarUrl,
           모임
         </button>
 
-        <span>마이페이지</span>
+
+        <button
+          type="button"
+          className={activeSection === 'mypage' ? 'active' : ''}
+          onClick={() => go('mypage')}
+        >
+          마이페이지
+        </button>
+
       </nav>
 
       <div className="profile-container">
@@ -76,6 +85,26 @@ export default function Header({ activeSection, onNavigate, nickname, avatarUrl,
               <span className="profile-nickname">{nickname || '사용자'}</span>
             </div>
             <hr />
+            
+            <hr />
+
+            <button
+              type="button"
+              onClick={() => go('mypage')}
+            >
+              마이페이지
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setProfileOpen(false)
+                onLogout?.()
+              }}
+            >
+              로그아웃
+            </button>
+
             <button
               type="button"
               onClick={() => {

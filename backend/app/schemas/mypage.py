@@ -99,13 +99,22 @@ class MySkillAccuracyResponse(BaseModel):
     accuracy_percent: float
 
 
-# 내가 작성한 게시글 응답
+
 class MyPostResponse(BaseModel):
     post_id: int
     board_id: int | None = None
+    board_name: str | None = None
     title: str
     created_at: datetime | None = None
 
+
+
+# 내 게시글 페이지네이션 응답
+class MyPostPageResponse(BaseModel):
+    items: list[MyPostResponse]
+    total: int
+    page: int
+    page_size: int
 
 
 # 내가 작성한 댓글 및 대댓글 응답
@@ -139,3 +148,10 @@ class MyMeetupResponse(BaseModel):
     recruit_mode: str | None = None
     state: str | None = None
     created_at: datetime | None = None
+
+
+class MyCommentPageResponse(BaseModel):
+    items: list[MyCommentResponse]
+    total: int
+    page: int
+    page_size: int

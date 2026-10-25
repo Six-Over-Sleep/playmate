@@ -1,6 +1,6 @@
 """모임 참여·취소·인원 조회와 모집 정원에 관한 비즈니스 로직."""
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -8,7 +8,20 @@ from sqlalchemy.orm import Session
 from backend.app.models.recruit import RecruitMember
 from backend.app.repositories import recruit as recruit_repo
 
-import time 
+import time
+
+KST = timezone(timedelta(hours=9))
+
+
+def kst_now() -> datetime:
+    """지금 한국 시각을 timezone 없는 값으로 돌려줌.
+
+    deadline_at은 사용자가 입력한 한국 시각 그대로 timezone 없이 저장됨(프론트 datetime-local).
+    서버가 UTC로 실행돼도 같은 기준으로 비교하려고, 서버 로컬 시각(datetime.now()) 대신 한국 시각과 비교함.
+    Discord Bot도 같은 기준(KST에서 timezone만 뗀 값)으로 마감을 판단함.
+    """
+    return datetime.now(KST).replace(tzinfo=None)
+
 
 def ensure_capacity_not_below_joined(
     db: Session,
@@ -46,6 +59,12 @@ def join_recruit(
         recruit = recruit_repo.get_recruit_for_update(db, recruit_id)
         if recruit is None or recruit.state != "OPEN":
             raise HTTPException(400, "참여할 수 없는 모임입니다.")
+
+        # 모집 마감(deadline_at) 이후에는 참여할 수 없음.
+        # Discord Bot이 마감 시각에 최종 참여자 기준으로 모임 채널을 만들기 때문에,
+        # 마감 뒤 참여가 허용되면 Discord 참여자와 DB 참여자가 어긋남.
+        if recruit.deadline_at is not None and recruit.deadline_at <= kst_now():
+            raise HTTPException(400, "모집이 마감된 모임입니다.")
 
         post = recruit_repo.get_post(db, recruit.post_id)
         if post is None or post.post_status == "DELETED":

@@ -1,13 +1,16 @@
-"""모임의 Discord 공간(카테고리, 채팅, 음성)을 만들고 삭제한다.
+"""모임 Discord 채널을 만들고 삭제한다. 모임 하나에 채널 하나이며, 모임별 Category는 만들지 않는다.
 
-모임 이름은 식별자가 아니다. 공간은 항상 recruit_id와 저장된 Discord 리소스 ID로 구분한다.
+모임 채널은 공용 카테고리(config.MEETING_CATEGORY_NAME) 아래에 만든다. 모임 이름은 식별자가 아니므로
+채널은 항상 recruit_id와 저장된 Discord 채널 ID로 구분한다.
 """
 import discord
 
-# 참여자 권한. 카테고리와 모든 채널에 같은 세트를 적용한다 (db_sync가 목표 상태 확인에도 쓴다).
+from config import MEETING_CATEGORY_CHANNEL_LIMIT, MEETING_CATEGORY_NAME
+
+# 참여자 권한 (텍스트 채널). db_sync가 목표 상태를 확인할 때도 같은 세트를 쓴다.
+# HOST도 일반 참여자와 같다. 채널 구조를 바꾸는 권한(manage_channels 등)은 누구에게도 주지 않는다.
 PARTICIPANT_PERMISSIONS = dict(
-    view_channel=True, read_message_history=True,
-    send_messages=True, connect=True, speak=True,
+    view_channel=True, read_message_history=True, send_messages=True,
 )
 
 
@@ -15,58 +18,64 @@ def participant_overwrite() -> discord.PermissionOverwrite:
     return discord.PermissionOverwrite(**PARTICIPANT_PERMISSIONS)
 
 
-class MeetingSpaceCleanupError(RuntimeError):
-    """생성 실패 후 부분 생성물을 다 지우지 못했다 (`remaining_ids`).
+def channel_topic(recruit_id: int, visibility: str = "PUBLIC") -> str:
+    """채널 주제. 삭제 직전에 "이 채널이 정말 이 모임의 채널인지" 확인하는 표지로도 쓴다."""
+    return f"PlayMate 모임 #{recruit_id} ({visibility})"
 
-    자동 재시도하면 남은 공간 위에 새 공간이 중복으로 만들어지므로 재시도하면 안 된다.
+
+async def ensure_meeting_category(guild: discord.Guild) -> discord.CategoryChannel:
+    """모임 채널을 넣을 공용 카테고리를 찾고, 없으면 만든다.
+
+    Discord 카테고리는 채널 50개가 한도라서, 가득 차면 "모임별 채널 2", "모임별 채널 3"처럼
+    공용 카테고리를 늘린다. 이것은 모임별 Category가 아니라 모든 모임이 함께 쓰는 묶음이다.
     """
+    index = 1
+    while True:
+        name = MEETING_CATEGORY_NAME if index == 1 else f"{MEETING_CATEGORY_NAME} {index}"
+        category = discord.utils.get(guild.categories, name=name)
+        if category is None:
+            category = await guild.create_category(name=name)
+            print(f'모임 공용 카테고리 생성: {name} (ID: {category.id})')
+            return category
+        if len(category.channels) < MEETING_CATEGORY_CHANNEL_LIMIT:
+            return category
+        index += 1
 
-    def __init__(self, cause: BaseException, remaining_ids: list[int]):
-        super().__init__(f"{type(cause).__name__}: {cause}")
-        self.cause = cause
-        self.remaining_ids = remaining_ids
 
-
-async def create_meeting_space(
+async def create_meeting_channel(
     guild: discord.Guild,
     meeting_name: str,
-    recruit_mode: str,
-    visibility: str = "PUBLIC",
+    recruit_id: int,
     participant_ids: list[int] | None = None,
-    create_voice_channel: bool = True,
-):
-    """regular 모임의 공간(📁 모임명 / # ╔・채팅 / 🔊 ╚・음성)을 만든다. short는 만들지 않고 None.
+    visibility: str = "PUBLIC",
+) -> discord.TextChannel:
+    """모임 텍스트 채널 하나를 만들고 최종 참여자에게 권한을 준다. 음성 채널은 만들지 않는다.
 
-    반환: (카테고리, 텍스트, 음성 또는 None). 중간에 실패하면 만든 리소스를 역순으로 지우고
-    원래 예외를 올린다. 지우지도 못하면 MeetingSpaceCleanupError.
+    입력:
+        participant_ids: 최종 참여자의 Discord 사용자 ID (HOST 포함). 서버에서 찾지 못한
+            사용자는 로그만 남기고 건너뛴다.
+        visibility: PUBLIC은 비참여자도 보기/읽기 가능(쓰기 불가), PRIVATE은 비참여자에게 안 보임.
+    실패 처리: 채널 생성이 실패하면 예외를 그대로 올린다 (만든 것이 없으므로 정리할 것도 없다).
+        공용 카테고리는 다른 모임도 쓰므로 실패해도 지우지 않는다.
     """
-    if recruit_mode == "short":
-        print("short 모임은 Discord 공간을 생성하지 않습니다.")
-        return None
-    if recruit_mode != "regular":
-        raise ValueError("recruit_mode는 'regular' 또는 'short'여야 합니다.")
-
-    participant_ids = participant_ids or []
     visibility = visibility.upper()
     if visibility not in ('PUBLIC', 'PRIVATE'):
         raise ValueError('visibility은 PUBLIC 또는 PRIVATE여야 합니다.')
     if visibility == 'PUBLIC':
-        # 비참여자: 보기/읽기만 가능, 쓰기와 음성 연결 불가
+        # 비참여자: 보기/읽기만 가능, 쓰기 불가
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(
-                view_channel=True, read_message_history=True,
-                send_messages=False, connect=False, speak=False,
+                view_channel=True, read_message_history=True, send_messages=False,
             )
         }
     else:
-        # 비참여자: 카테고리와 채널이 아예 보이지 않음
+        # 비참여자: 채널이 보이지 않음
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(
-                view_channel=False, read_message_history=False,
-                send_messages=False, connect=False, speak=False,
+                view_channel=False, read_message_history=False, send_messages=False,
             )
         }
-    for participant_id in participant_ids:
+    for participant_id in participant_ids or []:
         try:
             member = await guild.fetch_member(participant_id)
         except discord.NotFound:
@@ -76,36 +85,15 @@ async def create_meeting_space(
             print(f'참여자 조회 권한 없음: {participant_id}')
             continue
         overwrites[member] = participant_overwrite()
-    category = await guild.create_category(name=meeting_name, overwrites=overwrites)
-    print(f'모임 카테고리 생성 완료: {category.name} (ID: {category.id})')
-    created = [category]
-    try:
-        text_channel = await guild.create_text_channel(
-            name='╔・채팅', category=category, topic=f'[{visibility}] {meeting_name}'
-        )
-        created.append(text_channel)
-        print(f'텍스트 채널 생성 완료: {text_channel.name} (ID: {text_channel.id})')
-        voice_channel = None
-        if create_voice_channel:
-            voice_channel = await guild.create_voice_channel(name='╚・음성', category=category)
-            created.append(voice_channel)
-            print(f'음성 채널 생성 완료: {voice_channel.name} (ID: {voice_channel.id})')
-        else:
-            print('음성 채널 생성 안 함')
-    except Exception as creation_error:
-        # DB가 추적하지 못하는 반쪽짜리 공간을 남기지 않도록 만든 것을 역순으로 지운다.
-        # 지우는 것까지 실패하면 남은 ID를 호출자에게 알려 맹목적인 재시도를 막는다.
-        remaining = []
-        for resource in reversed(created):
-            try:
-                await resource.delete(reason='PlayMate 모임 생성 실패 정리')
-            except Exception as cleanup_error:
-                print(f'생성 실패 정리 중 삭제 실패: {resource.id} / {cleanup_error}')
-                remaining.append(resource.id)
-        if remaining:
-            raise MeetingSpaceCleanupError(creation_error, remaining) from creation_error
-        raise
-    return (category, text_channel, voice_channel)
+    category = await ensure_meeting_category(guild)
+    channel = await guild.create_text_channel(
+        name=meeting_name,
+        category=category,
+        topic=channel_topic(recruit_id, visibility),
+        overwrites=overwrites,
+    )
+    print(f'모임 채널 생성 완료: {channel.name} (ID: {channel.id}, recruit_id={recruit_id})')
+    return channel
 
 
 async def resolve_channel(guild: discord.Guild, channel_id: int):
@@ -124,94 +112,55 @@ async def resolve_channel(guild: discord.Guild, channel_id: int):
         return "unknown", None
 
 
-async def resolve_space(guild: discord.Guild, category_id: int, channel_ids=()):
-    """저장된 ID 기준으로 공간을 찾는다: (카테고리 상태, 대상 목록, 불명확 여부).
-
-    대상은 카테고리, 그 하위 채널, 저장된 채널 ID 순서(중복 없음)다. 다른 카테고리로 옮겨진
-    채널도 ID로 찾아 권한 변경이 놓치지 않게 한다. NotFound는 불명확으로 보지 않는다.
-    """
-    category_state, category = await resolve_channel(guild, category_id)
-    unresolved = category_state == "unknown"
-    targets = []
-    seen = set()
-    if category is not None:
-        targets.append(category)
-        seen.add(category.id)
-        for channel in category.channels:
-            if channel.id not in seen:
-                targets.append(channel)
-                seen.add(channel.id)
-    for channel_id in channel_ids:
-        if channel_id is None or channel_id in seen:
-            continue
-        seen.add(channel_id)
-        state, channel = await resolve_channel(guild, channel_id)
-        if state == "present":
-            targets.append(channel)
-        elif state == "unknown":
-            unresolved = True
-    return category_state, targets, unresolved
-
-
-async def delete_meeting_space(
+async def delete_meeting_channel(
     guild: discord.Guild,
-    category_id: int,
-    extra_channel_ids=(),
+    channel_id: int,
+    recruit_id: int,
+    protected_ids=frozenset(),
+    should_abort=None,
 ) -> bool:
-    """모임 공간을 삭제한다. Discord는 카테고리를 지워도 하위 채널을 지우지 않는다.
+    """저장된 채널 ID 하나만 삭제한다. 카테고리나 다른 채널은 절대 지우지 않는다.
 
-    하위 채널과 저장된 채널(extra_channel_ids)을 지운 뒤, 모두 확실히 사라졌을 때만 카테고리를 지운다.
-    True는 카테고리까지 삭제된 경우뿐이며, False면 호출자가 API로 따로 확인해야 한다.
+    공식 서버에는 모임과 무관한 채널이 많으므로 삭제 전에 안전 확인을 한다:
+        1. 보호 목록(상시 오픈채팅 등)에 있는 채널이면 삭제하지 않는다.
+        2. 텍스트 채널이 아니면(카테고리, 음성 등) 삭제하지 않는다.
+        3. 채널 주제가 이 모임(recruit_id)의 표지로 시작하지 않으면 삭제하지 않는다
+           (DB의 ID가 잘못되어 엉뚱한 채널을 지우는 일을 막는다).
+    should_abort: 안전 확인을 모두 마친 뒤 `channel.delete()`를 부르기 직전에 한 번 더 호출되는 동기 함수.
+    True를 돌려주면 삭제하지 않는다 (그 사이 사용자 활동이 감지된 경우 등).
+    반환: 채널이 삭제되었거나 이미 없으면 True, 삭제하지 않았거나 실패했으면 False.
+    호출자는 반환값을 믿지 말고 API로 사라졌는지 따로 확인해야 한다.
     """
-    complete = True
-    category_state, category = await resolve_channel(guild, category_id)
-    if category_state == "unknown":
-        complete = False
-
-    targets = []
-    seen = set()
-    if category is not None:
-        for channel in category.channels:
-            targets.append(channel)
-            seen.add(channel.id)
-    for channel_id in extra_channel_ids:
-        if channel_id is None or channel_id in seen:
-            continue
-        seen.add(channel_id)
-        state, channel = await resolve_channel(guild, channel_id)
-        if state == "present":
-            targets.append(channel)
-        elif state == "unknown":
-            complete = False
-
-    if category_state == "gone" and not targets and complete:
-        print(f'카테고리/채널을 찾을 수 없음 또는 이미 삭제됨: {category_id}')
+    if channel_id in protected_ids:
+        print(f'보호된 채널이라 삭제하지 않음: {channel_id}')
         return False
-    print(f'\n모임 Discord 공간 삭제 시작: category_id={category_id}')
-    for channel in targets:
-        try:
-            await channel.delete(reason='PlayMate 모임 종료')
-            print(f'채널 삭제 완료: {channel.name} (ID: {channel.id})')
-        except discord.NotFound:
-            print(f'채널이 이미 삭제됨: {channel.id}')
-        except discord.Forbidden:
-            print(f'채널 삭제 권한 없음: {channel.name}')
-            complete = False
-        except discord.HTTPException as e:
-            print(f'채널 삭제 실패: {channel.name} / {e}')
-            complete = False
-    if category is None or not complete:
+    state, channel = await resolve_channel(guild, channel_id)
+    if state == "gone":
+        print(f'채널이 이미 삭제됨: {channel_id}')
+        return True
+    if state == "unknown":
+        print(f'채널 조회가 불명확해 삭제하지 않음: {channel_id}')
+        return False
+    if getattr(channel, "type", None) is not discord.ChannelType.text:
+        print(f'텍스트 채널이 아니라 삭제하지 않음: {channel_id}')
+        return False
+    marker = f"PlayMate 모임 #{recruit_id} "
+    if not (getattr(channel, "topic", None) or "").startswith(marker):
+        print(f'모임 채널 표지가 달라 삭제하지 않음: {channel_id} (recruit_id={recruit_id})')
+        return False
+    if should_abort is not None and should_abort():
+        print(f'삭제 직전 활동이 감지되어 삭제하지 않음: {channel_id}')
         return False
     try:
-        await category.delete(reason='PlayMate 모임 종료')
-        print(f'카테고리 삭제 완료: {category.name} (ID: {category.id})')
+        await channel.delete(reason='PlayMate 모임 채널 비활성 삭제')
+        print(f'모임 채널 삭제 완료: {channel.name} (ID: {channel_id})')
         return True
     except discord.NotFound:
-        print(f'카테고리가 이미 삭제됨: {category.id}')
+        print(f'채널이 이미 삭제됨: {channel_id}')
         return True
     except discord.Forbidden:
-        print(f'카테고리 삭제 권한 없음: {category.name}')
+        print(f'채널 삭제 권한 없음: {channel_id}')
         return False
-    except discord.HTTPException as e:
-        print(f'카테고리 삭제 실패: {category.name} / {e}')
+    except discord.HTTPException as error:
+        print(f'채널 삭제 실패: {channel_id} / {error}')
         return False

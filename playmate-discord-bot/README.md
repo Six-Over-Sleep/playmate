@@ -2,13 +2,11 @@
 
 PlayMate의 **모임 기능과 Discord를 연결하기 위한 Bot 모듈**입니다.
 
-Discord 기능은 독립적으로 구현·검증되어 있고, 이 브랜치(`feature/13-discord-bot`)에서
-**공용 PostgreSQL(`recruit_discord_channels`)과 DB polling 방식으로 연결**했습니다.
-Backend / Frontend / Auth 코드는 수정하지 않고, Bot이 DB를 주기적으로 읽어 Discord에 반영합니다.
-HOST는 DB(`recruit_members.role='HOST'`)에서 조회해 새 공간에 권한을 주고 비활성 DM을 보냅니다.
-기존 공간 HOST 권한 소급·실패 재시도, PUBLIC/PRIVATE 저장 위치, 실제 로그인 사용자 연동은 아직 미완료입니다.
-무엇이 구현되었고 무엇이 실환경에서 확인되었는지는 "2. 현재 개발 상태"와
-"13. 실환경에서 확인된 내용"을 참고하세요.
+모임 Discord 채널은 **모임 하나당 채널 하나**입니다 (모임별 Category / 음성 채널은 만들지 않습니다).
+채널은 모임 생성 즉시가 아니라 **모집 마감(`recruits.deadline_at`) 시점**에 만들고, 그때의 최종 참여자에게 권한을 줍니다.
+공용 PostgreSQL(`recruit_discord_channels`)과 **DB polling** 방식으로 연결하며, Bot이 DB를 주기적으로 읽어 Discord에 반영합니다.
+PUBLIC/PRIVATE 저장 위치와 실제 로그인 사용자 연동은 아직 미완료입니다.
+무엇이 구현되었고 무엇이 실환경에서 확인되었는지는 "2. 현재 개발 상태"와 "13. 실환경에서 확인된 내용"을 참고하세요.
 
 > 팀원이 이 저장소를 처음 받아도 구조를 이해하고, 로컬에서 Bot을 실행하고,
 > 테스트 코드까지 확인할 수 있도록 정리한 README입니다.
@@ -17,56 +15,58 @@ HOST는 DB(`recruit_members.role='HOST'`)에서 조회해 새 공간에 권한�
 ## 요약
 
 ```text
-Discord 기능 구현 / 모듈화 / 실제 Discord 검증     완료
-↓
-공용 DB 연동 (DB polling, regular 모임만)          구현 완료, 실환경 확인은 일부 (13절 참고)
-↓
-HOST 조회 연결                                     구현 완료 (새 공간 권한 + 비활성 DM, 실서버 미확인)
-↓
-HOST 소급/재시도 · PUBLIC/PRIVATE 저장 · 실제 사용자  미완료
+모임 생성 → (모집 중: Discord 채널 없음)
+        ↓
+모집 마감(deadline_at) 도달
+        ↓
+Bot이 최종 참여자 조회 → 공용 카테고리 "모임별 채널" 아래에 모임 채널 1개 생성 → 참여자 권한 부여
+        ↓
+7일 동안 메시지 없음 → 해당 모임 채널에 Bot 경고 → 24시간 안에 메시지 없으면 채널 삭제
+                                     └ 메시지가 생기면 삭제 예약 취소 (취소 안내 Bot 메시지)
 ```
 
 정책 요약:
 
-- `recruit_mode='regular'` 모임만 Discord 공간을 만들고 관리합니다.
-- `recruit_mode='short'` 모임은 Discord 공간을 만들지 않으며, Bot의 모든 경로(생성·권한·활동·삭제)에서 제외됩니다.
-- `recruits.state`(OPEN/CLOSED 등)는 **모집 상태**일 뿐이며 Discord 삭제 기준이 아닙니다. `meeting_end`도 사용하지 않습니다.
+- `recruit_mode`가 `regular`든 `short`든 마감 시점에 모임 채널을 만듭니다 (프로젝트 / 스터디 구분 없이 같은 정책).
+- `recruits.state`(OPEN/CLOSED 등)는 **모집 상태**일 뿐이며 채널 생성·삭제 기준이 아닙니다. `meeting_end`도 사용하지 않습니다.
+- HOST도 일반 참여자입니다. HOST 전용 권한(`manage_channels` 등)과 HOST DM은 없습니다.
+- 상시 오픈채팅(자격증 / 기술스택 / 직무)은 모임과 무관한 채널이며 자동 삭제되지 않습니다.
 
 ---
 
 ## 1. 이 Bot이 하는 일
 
-PlayMate에서 생성되는 모임마다 Discord 공간을 아래처럼 구성하는 것을 목표로 합니다.
+PlayMate 공식 Discord 서버의 구조는 아래와 같습니다.
 
 ```text
 PlayMate 공식 Discord 서버
-
-📁 알고리즘 스터디
-├─ # ╔・채팅
-└─ 🔊 ╚・음성
-
-📁 LOL 내전
-├─ # ╔・채팅
-└─ 🔊 ╚・음성
+├─ 공지, 자유채팅, 취업 정보 공유, IT 정보 공유   (Bot이 관리하지 않음)
+├─ 상시 오픈채팅                                     ← Bot이 시작 때 확인/생성, 자동 삭제 안 함
+│  ├─ #자격증-정보공유
+│  ├─ #기술스택-정보공유
+│  └─ #직무-정보공유
+└─ 모임별 채널                                       ← 공용 카테고리 (가득 차면 "모임별 채널 2" ...)
+   ├─ Python 스터디         ← 모임 하나당 텍스트 채널 하나
+   ├─ SQLD 스터디
+   └─ LangChain 프로젝트
 ```
-
-모임 하나당 Discord **카테고리 1개**를 만들고, 그 아래에 `╔・채팅` 채널과 `╚・음성` 채널을 생성합니다.
 
 현재 구현된 핵심 기능은 다음과 같습니다.
 
-- PUBLIC / PRIVATE 모임 권한 처리
-- 모임 참여자 Discord 권한 부여
-- 참여 취소 시 권한 회수
-- HOST 권한 부여
-- regular 모임 활동 시각 추적 (DB `last_activity_at`)
-- 30일 비활성 시 HOST에게 DM 경고
-- 경고 후 7일 동안 활동이 없으면 자동 종료
-- 유예기간 중 활동이 재개되면 자동 종료 예약 취소
-- 삭제 직전 최신 활동 여부를 다시 확인하는 안전장치
-- Discord 공간 삭제가 확인된 뒤에만 `discord_deleted_at` 기록
+- 모집 마감(`deadline_at`) 시점에 모임 채널 1개 생성 + 최종 참여자(HOST 포함) 권한 부여
+  (`deadline_at`이 없는 예전 데이터만 regular는 `regular_start_date` 당일 00:00, short는 `meeting_start` 날짜 00:00 기준,
+  그 기준도 없으면 만들지 않고 `MANUAL:` 실패 행을 남깁니다)
+- Bot이 꺼져 있던 동안 마감된 모임도 다음 polling에서 복구해 생성 (기간 제한 없음, 한 번에 5개까지, 아래 참고)
+- PUBLIC / PRIVATE 모임 권한 처리, 참여 취소 시 권한 회수
+- 모임 채널 활동 시각 추적 (DB `last_activity_at`, 채널 ID 기준)
+- 7일 동안 메시지가 없으면 **해당 모임 채널에** Bot 경고 메시지 (DM 아님)
+- 경고 후 24시간 안에 메시지가 없으면 채널 자동 삭제, 메시지가 생기면 삭제 예약 취소 + 취소 안내 메시지
+- 삭제 직전 최신 활동 여부를 다시 확인하는 안전장치, 매핑된 채널 **하나만** 삭제
+- 상시 오픈채팅 채널 3개 확인/생성 (중복 생성 없음, 삭제 보호)
+- Discord 채널 삭제가 확인된 뒤에만 `discord_deleted_at` 기록
 
-메시지 **본문은 저장하지 않습니다.**  
-상시모임의 활동 여부 판단에는 마지막 활동 시각만 사용합니다.
+메시지 **본문은 저장하지 않습니다.**
+활동 여부 판단에는 마지막 활동 시각만 사용합니다.
 
 ---
 
@@ -78,15 +78,15 @@ PlayMate 공식 Discord 서버
 ### 구현됨 (자동 테스트로 확인)
 
 - Discord Bot 로그인 / Guild 연결
-- regular 모임 카테고리 + 채팅 + 음성 채널 생성 (DB에서 감지, 중복 생성 방지, 실패 복구)
-- short 모임은 Discord 공간도, `recruit_discord_channels` 행도 만들지 않음
+- 모집 마감(`deadline_at`) 기준 모임 채널 생성 (마감 전에는 생성 안 함, 놓친 마감 복구, 중복 생성 방지, 실패 복구)
+- Category / 음성 채널 없이 **모임 하나에 채널 하나**, 채널 ID는 `recruit_discord_channels.discord_text_channel_id`에 저장
+- 최종 참여자 권한 부여 (`recruit_members` → `members.discord_id`), HOST는 일반 참여자, 취소·무효 ID·`member_id=-1` 제외
 - PUBLIC / PRIVATE 권한 정책 (코드 유지, 현재 DB 연동은 임시로 PUBLIC)
-- 참여자 권한 부여 / 회수 (`members.discord_id` 기반, 카테고리·텍스트·음성 전체 위치 검증)
-- 활동 감지 → `last_activity_at` 갱신
-- HOST 조회: `recruit_members`(role='HOST', status='JOINED') + `members.discord_id`를 저장소가 직접 조회
-  (lifecycle 목록 조회 한 번에 함께 가져옴), 새 공간 생성 직후 HOST 사용 권한 부여
-- regular 모임 라이프사이클 (30일 → HOST DM → 7일 유예 → 삭제), 상태는 DB에 저장되어 재시작 후에도 유지
-- 실패 복구: 생성 실패 정리, `FAILED` / `MANUAL` / `ABORTED` 구분, row lock, timeout, 취소 안전성
+- 활동 감지 → 채널 ID로 모임을 찾아 `last_activity_at` 갱신
+- 7일 무활동 → 모임 채널 경고 → 24시간 뒤 삭제, 활동 시 취소, 삭제 직전 재확인, 상태는 DB에 저장되어 재시작 후에도 유지
+- 삭제는 DB에 매핑된 채널 하나만 (카테고리나 다른 채널은 절대 지우지 않음, 주제 표지와 보호 목록으로 이중 확인)
+- 상시 오픈채팅(자격증 / 기술스택 / 직무) 확인·생성, 자동삭제 제외
+- 실패 복구: `FAILED` / `MANUAL` / `ABORTED` 구분, row lock, timeout, 취소 안전성
 
 자동 테스트는 두 종류입니다.
 
@@ -96,27 +96,23 @@ PlayMate 공식 Discord 서버
 
 ### 실환경에서 확인된 것 / 아직 확인하지 못한 것
 
-실제 Discord 서버와 공용 PostgreSQL로 팀이 확인한 결과이며, 자세한 내용은 13절에 있습니다.
-
-- 확인됨: Bot 로그인과 Gateway 연결, DB polling, regular 모임 채널 자동 생성(재시작 후 중복 없음),
-  `members.discord_id` 기반 JOINED 참여자 권한 부여, 실제 메시지로 `last_activity_at` 갱신,
-  CANCELED 감지와 PUBLIC 읽기 전용 처리 로직 실행, short 모임에 채널과 DB 행이 생기지 않음.
-- 확인하지 못함: 일반 사용자 계정의 실제 쓰기·음성 차단 (테스트 계정이 서버 Owner라서),
-  HOST 권한과 HOST DM (DB 조회 연결 후 실서버에서는 아직 확인하지 않음), 그 밖의 아래 미확인 항목.
+**#45 모임 채널 구조 개편은 실제 Discord 서버에서 아직 확인하지 않았습니다.** 자동 테스트(mock과 일회용
+PostgreSQL + 가짜 Discord)만 통과한 상태이며, 실서버 확인 항목은 13절에 정리했습니다.
+13절의 "DB 연동 이후" 표는 이전 구조(카테고리 방식)에서 팀이 확인한 결과입니다.
 
 ### 아직 하지 않은 것 (미완료)
 
-- **HOST 권한의 범위**: HOST 권한은 **새 공간을 만든 직후 한 번만** 부여합니다.
-  - 이미 만들어진 공간에는 소급 적용하지 않습니다.
-  - 그 순간 HOST가 서버에 없거나 Discord 호출이 실패하면 다시 시도하지 않습니다.
-    참여자 권한 동기화는 HOST 권한을 덮어쓰지 않도록 HOST 행을 제외하기 때문입니다.
-  - HOST 권한 부여는 아직 `regular_lock` 밖에서 실행됩니다.
-- **HOST 행이 없는 과거 모임**(Backend가 HOST를 저장하기 전에 만든 모임)은 HOST를 알 수 없어
-  경고/유예 예약을 하지 않습니다.
 - **PUBLIC / PRIVATE 저장 위치**: 미확정입니다. `config.DEFAULT_VISIBILITY="PUBLIC"` 임시 정책을 사용합니다.
-- **실제 로그인 사용자 기반 참여/취소**: Backend가 `member_id=-1`로 고정되어 있어
-  `member_id=-1`, `discord_id`가 없거나 숫자가 아닌 회원은 권한 동기화에서 제외합니다.
-- Backend → Bot 내부 API 호출 방식은 이번 단계에서 도입하지 않았습니다 (현재는 DB polling).
+- **실제 로그인 사용자 기반 참여/취소**: Backend의 참여(`join`)와 취소(`cancel_join`)가 아직 `member_id=-1`로 고정되어 있어
+  실제 사용자가 참여해도 Discord 참여자로 연결되지 않습니다. `member_id=-1`, `discord_id`가 없거나 숫자가 아닌 회원은 권한 동기화에서 제외합니다.
+  **Discord 참여자 권한 동기화 로직은 구현되어 있으나, 현재 Backend 참여/취소가 실제 로그인 member_id 대신 -1을 사용하므로
+  운영 적용 전 실제 회원 연동 수정이 필요합니다.** (별도 Backend Issue로 처리 예정, #45에서는 수정하지 않았습니다.)
+- **마감 이후 자동 마감 상태**: Backend에 `deadline_at` 이후 `state`를 자동으로 닫는 로직이 없습니다. Bot은 `state`가 아니라
+  `deadline_at`을 직접 기준으로 쓰므로 영향은 없지만, 화면 표시와 어긋날 수 있습니다 (Backend 담당).
+- 이전 구조(모임별 Category + 채팅 + 음성)로 만들어진 행(`discord_category_id`가 있는 행)은 새 로직이 **관리하지 않고 건드리지 않습니다.**
+  해당 Discord 카테고리는 운영자가 직접 정리해야 합니다.
+- 공용 카테고리 "모임별 채널"은 채널 50개가 한도라서 가득 차면 "모임별 채널 2"처럼 늘립니다 (서버 전체 채널 500개 한도는 별도).
+- Backend → Bot 내부 API 호출 방식은 도입하지 않았습니다 (현재는 DB polling).
 
 ## 3. 프로젝트 구조
 
@@ -132,6 +128,7 @@ playmate-discord-bot/
 │  ├─ permissions.py
 │  ├─ lifecycle.py
 │  ├─ db_sync.py
+│  ├─ official_channels.py
 │  ├─ notification_service.py
 │  ├─ hot_content_service.py
 │  └─ career_content_service.py
@@ -168,13 +165,14 @@ playmate-discord-bot/
 
 | 파일 | 역할 |
 | --- | --- |
-| `bot.py` | Discord Client 생성, 저장소 선택, 이벤트 등록, DB 동기화·라이프사이클 Task 시작 |
+| `bot.py` | Discord Client 생성, 저장소 선택, 이벤트 등록, 상시 채널 확인, DB 동기화·라이프사이클 Task 시작 |
 | `config.py` | 환경변수와 시간 정책 관리 |
-| `services/meeting_space.py` | Discord 모임 공간 생성 / 삭제 |
-| `services/permissions.py` | 참여자 / 참여 취소 / HOST 권한 처리 |
-| `services/lifecycle.py` | regular 모임 30일 경고 / 7일 유예 / 삭제 정책과 주기 검사 |
-| `services/db_sync.py` | DB polling: regular 모임 Discord 생성, 참여자 권한 동기화 |
-| `handlers/message_handler.py` | Discord 사용자 활동 감지 및 활동 재개 처리 |
+| `services/meeting_space.py` | 모임 채널 1개 생성 / 매핑된 채널 하나만 삭제 (공용 카테고리 확보, 삭제 안전 확인) |
+| `services/permissions.py` | 참여자 / 참여 취소 권한 처리 (HOST도 같은 정책) |
+| `services/lifecycle.py` | 7일 무활동 채널 경고 / 24시간 뒤 삭제 정책과 주기 검사 |
+| `services/db_sync.py` | DB polling: 마감된 모임의 채널 생성, 참여자 권한 동기화 |
+| `services/official_channels.py` | 상시 오픈채팅 채널 확인/생성, 삭제 보호 목록 |
+| `handlers/message_handler.py` | 모임 채널(채널 ID 기준) 활동 감지, 삭제 예약 취소와 안내 메시지 |
 | `repositories/meeting_repository.py` | 저장소 경계. 메모리 구현(DB 설정 없을 때)과 PostgreSQL 구현 |
 | `repositories/db.py` | 알림 / 공식 채널 기능 전용 DB 연결 (모임 저장소와 분리) |
 | `services/notification_service.py`, `handlers/notification_command_handler.py`, `repositories/notification_repository.py` | `/알림설정`, notifications polling (19절) |
@@ -191,107 +189,131 @@ playmate-discord-bot/
 
 ### PUBLIC 모임
 
-비참여자도 모임의 존재와 대화를 볼 수 있지만 직접 참여하기 전에는 활동할 수 없습니다.
+비참여자도 모임의 존재와 대화를 볼 수 있지만 직접 참여하기 전에는 글을 쓸 수 없습니다.
 
-| 사용자 | 채널 보기 | 메시지 읽기 | 메시지 쓰기 | 음성 연결 |
-| --- | --- | --- | --- | --- |
-| 비참여자 | O | O | X | X |
-| 참여자 | O | O | O | O |
-| HOST | O | O | O | O |
+| 사용자 | 채널 보기 | 메시지 읽기 | 메시지 쓰기 |
+| --- | --- | --- | --- |
+| 비참여자 | O | O | X |
+| 참여자 (HOST 포함) | O | O | O |
 
 ### PRIVATE 모임
 
-비참여자에게는 모임 공간 자체가 보이지 않습니다.
+비참여자에게는 모임 채널 자체가 보이지 않습니다.
 
-| 사용자 | 채널 보기 | 메시지 쓰기 | 음성 연결 |
-| --- | --- | --- | --- |
-| 비참여자 | X | X | X |
-| 참여자 | O | O | O |
-| HOST | O | O | O |
+| 사용자 | 채널 보기 | 메시지 쓰기 |
+| --- | --- | --- |
+| 비참여자 | X | X |
+| 참여자 (HOST 포함) | O | O |
 
-### HOST 권한
+### HOST도 일반 참여자입니다
 
-HOST는 참여자와 같은 사용 권한만 받습니다 (확정 정책).
+`recruit_members`에서 `JOINED`인 모든 사용자(HOST 포함)가 같은 권한을 받습니다.
 
 ```text
-view_channel / read_message_history / send_messages / connect / speak = True
-manage_channels = 미부여
-manage_messages = 미설정(None)
+view_channel / read_message_history / send_messages = True
+manage_channels / manage_messages = 부여하지 않음 (None)
 ```
 
-`None`은 이 overwrite에서 허용도 거부도 하지 않고 상위 Discord 권한 설정을 따른다는 뜻입니다.
-
-채널 관리 권한(`manage_channels`)을 주지 않는 이유:
-Bot은 세 리소스(카테고리·채팅·음성)가 모두 사라져야 공간 삭제로 판단하고, 일부 삭제는 복구하거나 다시 만들지 않습니다.
-HOST가 채팅 채널이나 카테고리만 지우거나 채널을 다른 카테고리로 옮기면 활동 감지가 끊기거나
-다른 모임의 활동으로 기록될 수 있습니다.
+HOST 전용 권한과 HOST DM은 없습니다. 채널 관리 권한을 주지 않는 이유: HOST가 채널을 지우거나 옮기면
+Bot의 활동 감지와 삭제 대상 추적이 어긋날 수 있습니다. 음성 채널은 만들지 않으므로 `connect` / `speak` 권한도 없습니다.
 
 ---
 
-## 5. 모임 라이프사이클
+## 5. 모임 채널 라이프사이클
 
-### short 모임
-
-Discord 공간을 **만들지 않으며**, Bot의 어떤 경로(생성 / 권한 / 활동 / 삭제)에서도 다루지 않습니다.
-`meeting_end`는 Bot에서 사용하지 않습니다. 모임이 생성된 뒤 `short`로 바뀌어도 Bot은 더 이상 관리하지 않습니다.
-
-### regular 모임
+### 채널 생성 (모집 마감 시점)
 
 ```text
-Discord 채팅 활동 → last_activity_at 갱신 (메시지 본문은 저장 안 함)
+모임 생성 (recruits.deadline_at = 모집 마감 시각)
+    ↓  (모집 중에는 Discord 채널 없음)
+deadline_at 도달
     ↓
-30일 동안 활동 없음
+Bot polling이 "마감이 지났고 채널 행이 없는 모임"을 조회 (재시작/장애로 놓친 모임도 같은 조회로 복구)
     ↓
-HOST에게 DM 경고 → inactivity_warned_at 기록, scheduled_delete_at = 7일 후
-    ↓
-7일 유예
-    ├─ 활동 발생 → inactivity_warned_at / scheduled_delete_at 초기화 (삭제 예약 취소)
-    │
-    └─ 활동 없음 → 삭제 직전 DB 상태 재확인
-                          ↓
-                    Discord 공간 삭제 → 삭제가 확인된 뒤 discord_deleted_at 기록
+PENDING 행 선점 (중복 생성 방지) → 최종 JOINED 참여자 조회 (HOST 포함) → 채널 생성 + 권한 → 채널 ID 저장 (SUCCESS)
 ```
 
-- `recruits.state`(모집 상태)는 삭제 기준이 아닙니다.
+- 마감 시각은 `deadline_at`입니다. **`deadline_at`이 없는 예전 데이터만** regular는 `regular_start_date` 당일 00:00,
+  short는 `meeting_start` 날짜 00:00을 대신 씁니다. 기준이 전혀 없으면 임의로 지금 만들지 않고
+  `sync_error`가 `MANUAL:`로 시작하는 실패 행을 남깁니다.
+- 시각은 Backend와 같은 기준(timezone 없는 한국 시각)으로 비교합니다. `deadline_at`은 프론트가 보낸 한국 시각이 timezone 없이
+  저장된 값입니다. Bot은 서버 timezone과 무관하게 KST 시각에서 timezone만 떼서 비교하고, Backend의 마감 후 참여 차단도 같은 기준
+  (`kst_now()`)으로 비교합니다. 서버가 UTC로 실행돼도 마감 판단이 9시간 어긋나지 않습니다.
+- **복구에는 기간 제한이 없습니다.** "마감이 지났고, 채널이 아직 없고, 글이 삭제되지 않은 모임"이면 얼마나 오래전에 마감됐든 만듭니다
+  (7일 같은 값은 회의에서 정한 정책이 아니므로 코드에 고정하지 않았습니다). 대신 과거 데이터가 한꺼번에 채널이 되지 않도록
+  **한 번의 polling에서 5개까지만**(`PLAYMATE_PROVISION_BATCH_LIMIT`) 마감이 오래된 순서로 만들고 나머지는 다음 polling에서 만듭니다.
+  Backend의 `state` / 종료 상태가 아직 완전하지 않아 "지금도 채널이 필요한 모임인지"를 정확히 가를 수 없기 때문입니다.
+  **처음 배포할 때** 오래된 모임이 많다면 환경변수 `PLAYMATE_CATCHUP_DAYS=<일>`로 복구 범위를 정할 수 있습니다 (기본값은 제한 없음).
+- **생성 중 상태 변경 재검증**: 채널을 만든 뒤 SUCCESS로 확정하기 직전에, 같은 트랜잭션에서 `recruits` 행을 잠그고
+  ① 대상 모임 방식 ② 글이 삭제되지 않았는지 ③ `deadline_at`이 지났는지를 다시 확인합니다. 그 사이 마감이 연장되었거나 글이 삭제되었다면
+  SUCCESS로 기록하지 않고 **방금 만든 그 채널만** 삭제합니다 (`sync_error`는 `RECHECK:`, 조건이 다시 맞으면 5분 뒤 자동 재시도).
+  모임 방식이 바뀐 경우는 `ABORTED:`, 정리에 실패하면 `MANUAL:`입니다.
+- 참여자는 채널 생성 시점에 한 번 조회해서 권한을 줍니다. 이후에도 polling이 JOINED / CANCELED 변화를 같은 정책으로 반영합니다
+  (취소한 사람의 권한 회수 등). `recruits.state`는 보지 않습니다.
+- 채널은 공용 카테고리(`MEMBER`가 아닌 모두가 쓰는 "모임별 채널") 아래에 만들고, 채널 주제에 `PlayMate 모임 #<recruit_id>` 표지를 남깁니다.
+
+### 비활성 정책 (프로젝트 / 스터디 공통)
+
+```text
+모임 채널에 7일 동안 메시지 없음
+    ↓
+해당 모임 채널에 Bot 경고 메시지 (DM 아님) → inactivity_warned_at 기록, scheduled_delete_at = 24시간 후
+    ↓
+24시간 대기
+    ├─ 메시지 발생 → 삭제 예약 취소 (경고/예약 초기화) + "삭제 예약이 취소되었습니다" Bot 메시지
+    │
+    └─ 메시지 없음 → 삭제 직전 DB 상태 재확인 → 모임 채널 삭제 → 삭제 확인 후 discord_deleted_at 기록
+```
+
+경고 문구: "최근 7일 동안 대화가 없어 이 채널은 삭제 예정입니다. 24시간 이내에 대화가 발생하면 삭제가 자동으로 취소됩니다."
+점검 주기는 24시간 유예를 지키려고 **1시간**입니다 (테스트 모드 1분).
+
+- Bot 메시지는 활동으로 세지 않습니다. 활동 감지는 `message.channel.id`로 모임을 찾습니다.
 - 상태 변경은 목적별 **조건부 UPDATE**로만 하므로, 오래된 값이 최신 활동을 덮어쓰지 못합니다.
-- **Discord는 카테고리를 삭제해도 하위 채널을 자동 삭제하지 않습니다.**
-  그래서 삭제 완료 여부를 카테고리 하나로 판단하지 않고, DB에 저장된 세 리소스
-  (`discord_category_id`, `discord_text_channel_id`, `discord_voice_channel_id`)를 각각 삭제·확인합니다.
-  `discord_deleted_at`은 **세 리소스 모두 Discord API가 NotFound를 돌려준 경우에만** 기록합니다.
-  권한 부여/회수도 같은 원칙으로 **DB에 저장된 세 ID가 기준**입니다: 카테고리 하위 목록이나 캐시에 의존하지 않고,
-  캐시에 없으면 API로 조회하며, 채널이 다른 카테고리로 옮겨져 있어도 해당 채널의 overwrite를 부여/회수합니다.
-  NotFound는 "그 리소스가 없음", Forbidden/HTTP 오류/타임아웃은 "불명확"이며 불명확하면 완료로 보지 않고 다음 poll에 다시 시도합니다.
-  캐시에 없다는 것은 "없음"의 근거가 아닙니다: 캐시에 없으면 `fetch_channel`로 실제 존재를 확인하고,
-  Forbidden / HTTP 오류 / 타임아웃 등 불명확한 응답은 "삭제 미완료"로 취급합니다.
-  카테고리만 없고 text/voice가 남아 있으면 남은 채널을 계속 정리합니다.
-- 일부 채널 삭제가 실패하면 `discord_deleted_at`을 기록하지 않고(나머지 채널은 계속 시도),
-  다음 검사 주기 또는 재시작 후 DB 상태를 기준으로 남은 리소스를 다시 정리합니다.
-- **regular → short 직렬화 (DB row lock)**: 삭제와 참여/취소 권한 변경 같은 Discord 부수효과는
-  `recruits` 행에 `SELECT ... FOR SHARE`를 잡은 트랜잭션 안에서 실행합니다. 모임이 regular이고 Discord 공간이
-  SUCCESS/미삭제인지 확인한 뒤 **작업이 끝날 때까지 락을 유지**하므로, Backend의 `recruit_mode='short'` UPDATE는
-  그 작업이 끝날 때까지 대기합니다. short가 먼저 commit되었다면 Bot은 락을 얻은 뒤 이를 확인하고 Discord를 건드리지 않습니다.
-  타임아웃은 세 가지로 구분됩니다.
+- 경고 메시지를 보내지 못하면(권한 없음 등) 삭제 예약을 저장하지 않고 다음 주기에 다시 시도합니다.
+- **삭제는 DB에 매핑된 채널 하나만** 대상입니다. 카테고리나 하위 채널 전체를 지우는 로직은 없으며, 삭제 직전에
+  ① 보호 목록(상시 오픈채팅 등) ② 텍스트 채널 여부 ③ 채널 주제의 `PlayMate 모임 #<recruit_id>` 표지를 다시 확인합니다.
+  어느 하나라도 맞지 않으면 삭제하지 않고 삭제 완료로도 기록하지 않습니다.
+- 채널이 캐시에 없다는 것은 "없음"의 근거가 아닙니다. `fetch_channel`로 확인하고, Forbidden / HTTP 오류 / 타임아웃은
+  "삭제 미완료"로 취급합니다. `discord_deleted_at`은 API가 NotFound를 돌려준 뒤에만 기록합니다.
+- **모임 방식 변경 직렬화 (DB row lock)**: 삭제와 참여/취소 권한 변경은 `recruits` 행에 `SELECT ... FOR SHARE`를 잡은 트랜잭션 안에서
+  실행합니다. 작업이 끝날 때까지 락을 유지하므로 Backend의 모임 방식 변경 UPDATE는 그동안 대기하고, 이미 대상이 아니게 commit되었다면
+  Bot은 락을 얻은 뒤 이를 확인하고 Discord를 건드리지 않습니다. 타임아웃은 세 가지로 구분됩니다.
   - **DB 락 대기 5초** (`lock_timeout`): Backend가 해당 행을 잡고 있어 락을 못 얻으면 이번 주기는 건너뛰고 다음 주기에 재시도합니다.
-  - **Discord 작업 전체 30초** (`DISCORD_LOCK_HOLD_SECONDS`): 락을 얻은 *이후*의 전체 구간 — 채널 조회/fetch, 하위 채널·카테고리 삭제,
-    삭제 후 세 리소스의 최종 fetch 확인, `discord_deleted_at` 기록 — 이 하나의 예산입니다. 초과하면 작업을 중단하고
-    `discord_deleted_at`을 기록하지 않으며 트랜잭션을 rollback해 락을 풀고, 다음 주기에 재시도합니다 (Bot loop는 계속 동작).
-    권한 변경(참여/취소)도 같은 30초 예산을 씁니다.
-  - **서버 안전망 60초** (`idle_in_transaction_session_timeout`): 정상 해제 경로가 아니라, Bot이 비정상 종료되었을 때를 위한 최후 수단입니다.
-- **취소(cancel) 안전성**: 락 획득은 worker thread에서 진행되므로, 획득 도중 작업이 취소되어도 세션의 소유권이 한 곳으로만 넘어가도록
-  했습니다. 취소를 알게 된 쪽이 "포기(abandoned)" 표시를 하고, 이후 worker가 뒤늦게 락을 얻으면 스스로 rollback/close 하며,
-  이미 획득을 마친 경우에는 호출자가 해제합니다. 어느 시점에 취소되어도 열린 트랜잭션과 연결이 남지 않습니다.
-- `discord_deleted_at`을 기록하는 SQL(`mark_deleted`)도 `recruit_mode='regular'`일 때만 성공합니다.
-  0행이면 기록하지 않고 로그만 남기며 Bot은 계속 동작합니다.
-- **삭제 기록은 락과 같은 트랜잭션에서만 합니다.** 삭제 lifecycle에서는 `mark_deleted`가 별도 autocommit 연결이 아니라
-  `regular_lock`이 잡고 있는 **같은 DB 연결·같은 트랜잭션** 안에서 실행되고, 블록이 오류 없이 끝날 때 한 번 COMMIT됩니다.
-  순서: `BEGIN → recruits 행 FOR SHARE → regular/SUCCESS/미삭제 확인 → Discord 삭제 → 세 리소스 NotFound 확인 → mark_deleted(같은 트랜잭션) → COMMIT`.
-  timeout·취소·오류가 나면 진행 중인 SQL을 서버에서 취소(`cancel_safe`)하고, worker thread가 그 SQL을 실제로 끝낸 뒤에야
-  ROLLBACK/close 하므로, 대기 중이던 UPDATE가 나중에 살아나 COMMIT되는 일이 없습니다.
-  SQL에는 남은 시간 예산만큼의 서버 `statement_timeout`도 설정합니다.
-  (Discord 공간이 이미 사라졌는데 기록만 실패한 경우는 다음 주기에 "이미 없음"으로 기록됩니다.)
+  - **Discord 작업 전체 30초** (`DISCORD_LOCK_HOLD_SECONDS`): 락을 얻은 *이후*의 전체 구간(채널 조회, 삭제, 최종 확인, `discord_deleted_at` 기록)이
+    하나의 예산입니다. 초과하면 중단하고 기록 없이 rollback해 락을 풀며 다음 주기에 재시도합니다. 권한 변경도 같은 예산을 씁니다.
+  - **서버 안전망 60초** (`idle_in_transaction_session_timeout`): Bot이 비정상 종료되었을 때를 위한 최후 수단입니다.
+- **취소(cancel) 안전성**: 락 획득이 worker thread에서 진행되므로, 획득 도중 작업이 취소되어도 세션의 소유권이 한 곳으로만 넘어가도록
+  했습니다. 어느 시점에 취소되어도 열린 트랜잭션과 연결이 남지 않습니다.
+- **삭제 기록은 락과 같은 트랜잭션에서만** 합니다 (`mark_deleted`). timeout·취소·오류가 나면 진행 중인 SQL을 서버에서 취소하고
+  ROLLBACK하므로 대기 중이던 UPDATE가 나중에 COMMIT되는 일이 없습니다. Discord 채널이 이미 사라졌는데 기록만 실패한 경우는 다음 주기에
+  "이미 없음"으로 기록됩니다.
 - 삭제 시도 중 들어온 활동은 거부되지 않고 기록되며, 삭제가 실패하면 최신 활동 기준으로 다시 계산됩니다.
-- HOST를 알 수 없는 모임(HOST 행이나 `discord_id` 없음)은 경고/유예 예약을 하지 않습니다.
-  HOST가 서버에 없거나 DM이 막히면 경고를 저장하지 않고 다음 주기에 다시 시도합니다.
+- **활동 처리와 삭제의 경쟁 방지**: 삭제 직전에 ① Discord 채널의 최근 메시지(최신 50개) 중 경고 이후의 **사용자** 메시지가 있는지
+  확인하고(Bot 메시지는 활동으로 세지 않음), ② DB의 삭제 예약 상태를 다시 읽고, ③ 메시지 이벤트가 도착했는지 확인한 뒤
+  ④ `channel.delete()` 호출 직전에 한 번 더 확인합니다. 활동 처리(`message_handler`)와 lifecycle은 **같은 채널 락**을 쓰므로,
+  활동이 먼저 처리되어 예약이 취소되면 삭제 작업은 그 결과를 보고 중단하고, 삭제가 이미 진행 중이면 활동 처리는 삭제가 끝난 뒤에
+  실행되어 이미 삭제된 모임에는 "취소되었습니다" 안내를 보내지 않습니다. Discord 최근 메시지를 확인할 수 없으면(권한/HTTP 오류)
+  삭제하지 않고 다음 주기에 다시 시도합니다. 이 보호는 Bot 프로세스 하나 기준입니다 (Bot을 여러 개 동시에 실행하는 구성은 지원하지 않음).
+
+### 상시 오픈채팅
+
+모임과 무관한 채널입니다 (1차는 큰 분류 3개만, 세분화는 범위 밖).
+
+```text
+상시 오픈채팅 (카테고리)
+├─ #자격증-정보공유
+├─ #기술스택-정보공유
+└─ #직무-정보공유
+```
+
+- Bot이 시작할 때(`on_ready`) 카테고리와 채널이 있는지 확인하고, **없는 것만** 만듭니다. 같은 이름의 채널이 서버에 이미 있으면 그것을 재사용하므로
+  재시작해도 중복 생성되지 않습니다. 채널 하나의 생성이 실패해도 나머지는 계속 시도하고, 실패해도 모임 기능은 그대로 동작합니다.
+- `recruit_id`와 연결하지 않고 `recruit_discord_channels` 행도 만들지 않으므로 비활성 자동삭제 대상이 될 수 없습니다.
+  추가로 채널 ID를 삭제 보호 목록에 넣어, 모임 채널 삭제 함수가 이 채널들(그리고 HOT / 취업 소식 채널)을 거부합니다.
+- **필수 3개가 모두 있을 때만 완료**로 봅니다. 일부만 만들어졌다면 완료로 보지 않고, 10분마다(`OFFICIAL_RETRY_MINUTES`) 또는 다음 `on_ready`에
+  없는 채널만 다시 만듭니다 (있는 채널은 재사용하므로 중복되지 않음). 모두 준비되면 재시도가 멈춥니다.
+- 이름은 `config.OFFICIAL_CATEGORY_NAME`, `config.OFFICIAL_CHANNEL_NAMES`에서 바꿉니다.
 
 ---
 
@@ -468,9 +490,10 @@ Bot 로그인 성공: PlayMate Bot#....
 서버 연결 성공: PlayMate Bot Test
 PlayMate Discord Bot 라이프사이클 관리 준비 완료
 PlayMate DB 동기화 시작            (DB_* 설정이 있을 때만)
-모임 라이프사이클 검사 시작 (실서비스: 하루 1회)
+상시 오픈채팅 채널 확인 완료: 자격증-정보공유, 기술스택-정보공유, 직무-정보공유
+모임 라이프사이클 검사 시작 (실서비스: 1시간 주기)
 
-[모임 라이프사이클 검사] YYYY-MM-DD HH:MM:SS
+[모임 채널 라이프사이클 검사] YYYY-MM-DD HH:MM:SS
 ```
 
 라이프사이클 Task는 시작 직후 한 번 실행되고,
@@ -480,19 +503,23 @@ PlayMate DB 동기화 시작            (DB_* 설정이 있을 때만)
 
 ---
 
-## 11. "실행했는데 모임이 자동으로 안 생겨요"
+## 11. "실행했는데 모임 채널이 안 생겨요"
 
-`DB_*` 환경변수가 설정되어 있으면 Bot은 약 10초마다(`PLAYMATE_SYNC_INTERVAL_SECONDS`) 공용 DB를 조회해서
-**`recruit_mode='regular'`이고 삭제되지 않은 모임**에 Discord 공간을 자동으로 만듭니다
-(Backend 호출이 필요하지 않습니다). 만들어지지 않는다면 아래를 확인하세요.
+모임 채널은 모임 생성 즉시가 아니라 **모집 마감(`deadline_at`)이 지난 뒤**에 만들어집니다. `DB_*` 환경변수가 설정되어 있으면 Bot은
+약 10초마다(`PLAYMATE_SYNC_INTERVAL_SECONDS`) 공용 DB를 조회해서 마감이 지난 모임에 채널을 만듭니다. 만들어지지 않는다면 아래를 확인하세요.
 
 - `DB_*`가 없으면 메모리 저장소로 시작하며 "DB 설정이 없어 메모리 저장소를 사용합니다" 로그가 나옵니다.
-- `recruit_mode='short'` 모임은 만들지 않습니다.
+- `deadline_at`이 아직 지나지 않았나요? (마감 전에는 만들지 않습니다.)
+- 한 번의 polling에서는 최대 5개까지만 만듭니다 (`PLAYMATE_PROVISION_BATCH_LIMIT`). 밀린 모임이 많으면 몇 번의 polling에 걸쳐 만들어집니다.
+  `PLAYMATE_CATCHUP_DAYS`를 지정했다면 그보다 오래된 마감은 만들지 않습니다.
+- 글이 삭제 상태이거나 `recruit_mode`가 `regular` / `short`가 아니면 만들지 않습니다.
 - `recruit_discord_channels`에 이미 행이 있으면 건너뜁니다.
   - `FAILED`: 일반 오류는 5분 뒤 자동 재시도합니다.
   - `sync_error`가 `MANUAL:` 또는 `ABORTED:`로 시작하면 **자동 재시도하지 않습니다** (운영자 확인 필요, 아래 15절).
+    마감 기준(`deadline_at` / 시작일)이 전혀 없는 모임도 `MANUAL:`로 남습니다.
   - `PENDING`이 10분 넘게 남아 있으면 중단된 것으로 보고 `MANUAL:`로 표시합니다.
-- Bot 계정이 채널 생성 권한을 가지고 있는지 확인하세요.
+- 이전 구조(카테고리 방식)로 만든 행이 있는 모임은 새로 만들지 않습니다.
+- Bot 계정이 채널 생성 / 삭제 / 권한 관리 권한을 가지고 있는지 확인하세요.
 
 ---
 
@@ -508,16 +535,15 @@ python tests/test_refactor.py
 
 검증 내용 예시:
 
-- 30일 / 7일 경계값
-- PUBLIC / PRIVATE 권한
-- 삭제 성공 / 실패
-- 활동 재개
-- HOST 조회 / DM 오류
-- 운영 저장소의 HOST 조회 연결 (`bot.py`가 resolver 없이 만들고, 저장소가 SQL로 조회)
-- Bot 메시지 / DM / 미등록 채널 무시
+- 7일 / 24시간 경계값, 모임 채널에 경고 메시지(DM 아님), 24시간 전 삭제 없음
+- 채널 구조: Category / 음성 채널을 만들지 않고 모임 채널 하나만 생성, 공용 카테고리 재사용·확장
+- 삭제 안전: 매핑된 채널 하나만 삭제, 다른 모임 채널·카테고리·보호된 채널은 삭제 거부
+- 활동 재개와 취소 안내 메시지, 채널 ID 기준 활동 감지 (Bot / DM / 다른 채널 무시)
+- 삭제 성공 / 실패 / 서버 미조회
+- 상시 오픈채팅 3개 확인·생성(중복 없음, 보호 목록 등록)
 - 중복 Task 시작 방지
 
-현재 **50개 단언을 통과**한 상태입니다.
+현재 **88개 단언을 통과**한 상태입니다.
 
 ### 알림 / 공식 채널 정책 테스트 (mock)
 
@@ -537,8 +563,8 @@ python tests/test_safety.py
 검증 내용:
 
 - `PLAYMATE_TEST_MODE` 기본값
-- 운영 검사주기 86,400초
-- HOST 권한 설정
+- 운영 검사주기 3,600초 (24시간 유예를 지키기 위한 1시간 주기)
+- HOST 전용 함수와 채널 관리 권한이 없고, 참여자 권한이 보기/읽기/쓰기뿐인지
 - 의존성 버전
 - `.env` 배포 제외 등
 
@@ -552,14 +578,33 @@ $env:PLAYMATE_TEST_PG_DSN = "host=127.0.0.1 port=55432 user=postgres password=te
 python tests/test_db_integration.py
 ```
 
-`PLAYMATE_TEST_PG_DSN`이 없으면 건너뜁니다. 검증 내용: regular만 생성 / 중복 생성 방지 / 응답 유실·정리 실패·ID 저장 실패 복구 /
-참여·취소 권한 전체 위치 검증 / 활동·경고·삭제 경쟁 조건 / DB 장애 후 loop 유지 / regular→short 경쟁.
+`PLAYMATE_TEST_PG_DSN`이 없으면 건너뜁니다. 검증 내용:
+
+- 마감 전 미생성 / 마감 후 생성 / 놓친 마감 복구(기간 제한 없음, poll당 상한, 운영자 지정 범위) / 중복 생성 방지 / fallback(시작일) / 기준 없음 → `MANUAL:`
+- 생성 중 마감 연장·글 삭제·방식 변경 → SUCCESS 미기록 + 만든 채널만 정리 (다른 모임/공식 채널 불변), `RECHECK:` 재시도·`MANUAL:`
+- 최종 참여자 권한 (HOST 포함, CANCELED·`-1`·무효 ID 제외), 채널 하나·공용 카테고리·음성 없음
+- 7일 경고 / 24시간 삭제 / 활동 시 취소 / 삭제 직전 활동 경쟁 / 경고 전송 실패·전송 중 활동
+- 단일 채널 삭제(다른 채널·카테고리 불변), 주제 표지 불일치·보호 채널 삭제 거부, 예전 카테고리 방식 행 제외
+- 선점 동시성 / 응답 유실 / 저장 실패 정리 / `MANUAL:` · `ABORTED:` 재시도 제외
+- row lock 직렬화(Backend와 두 연결 경쟁), 취소·timeout 시 연결 누수 없음, `mark_deleted`가 락 트랜잭션 안에서만 COMMIT됨
 
 ---
 
 ## 13. 실환경에서 확인된 내용
 
-### DB 연동 이후: 실제 Discord 서버 + 공용 PostgreSQL (팀 확인 결과)
+### #45 개편 이후 (모임 하나에 채널 하나, 마감 시점 생성)
+
+**실제 Discord 서버 확인은 아직 하지 않았습니다.** 테스트 서버에서 확인할 항목은 다음과 같습니다.
+
+- 마감 전 모임에는 채널이 없고, 마감이 지나면 "모임별 채널" 아래에 채널이 하나만 생기는지 (Category / 음성 없음)
+- 최종 참여자만 글을 쓸 수 있고 비참여자는 읽기만 되는지 (**Owner가 아닌 일반 사용자 계정으로** 확인)
+- 7일 무활동 시 채널에 경고가 올라오고, 24시간 안에 메시지를 보내면 취소 안내가 올라오는지, 아니면 그 채널만 삭제되는지
+- 상시 오픈채팅 채널 3개가 시작 때 한 번만 만들어지고 재시작해도 중복되지 않는지
+- Bot 역할에 채널 관리(생성 / 삭제 / 권한) 권한이 있는지, 공용 카테고리가 50개를 넘을 때 동작
+
+### 이전 구조(모임별 Category) — 실제 Discord 서버 + 공용 PostgreSQL (팀 확인 결과)
+
+아래는 #45 이전의 카테고리 방식 기준 결과이며, 새 구조의 검증이 아닙니다.
 
 | 항목 | 결과 |
 | --- | --- |
@@ -638,17 +683,18 @@ Discord Developer Portal에서 Token을 재발급해야 합니다.
 
 | `sync_status` / `sync_error` | 자동 재시도 |
 | --- | --- |
-| `FAILED` + 일반 오류 (`CREATE ...`, `SAVE ...`) | 5분 뒤 재시도 (Discord ID가 없는 경우에 한함) |
-| `FAILED` + `MANUAL: ...` | **안 함** |
+| `FAILED` + 일반 오류 (`CREATE ...`, `SAVE ...`) | 5분 뒤 재시도 (채널 ID가 없는 경우에 한함) |
+| `FAILED` + `MANUAL: ...` (정리 실패, 저장 결과 불명, 마감 기준 없음) | **안 함** |
 | `FAILED` + `ABORTED: ...` | **안 함** |
+| `FAILED` + `RECHECK: ...` (생성 중 마감 연장 / 글 삭제) | 5분 뒤, 마감이 지났고 글이 있을 때 재시도 |
 | `PENDING` 10분 초과 | 중단된 것으로 보고 `MANUAL:`로 변경 |
 
 ### `MANUAL:` / `ABORTED:` 행 — 운영자 확인 필요
 
 - `MANUAL:` — 생성 도중 실패했고 정리도 실패했거나, DB 저장 결과를 확인할 수 없는 경우입니다.
   Discord에 공간이 남아 있을 수 있어 중복 생성을 막기 위해 자동 재시도하지 않습니다.
-  `sync_error`에 남은 category/channel ID가 있으면 Discord 서버에서 해당 리소스를 확인하고 수동으로 정리하세요.
-- `ABORTED:` — 생성 중 모임이 regular가 아니게 되어(예: short로 수정) 만든 공간을 정리한 경우입니다.
+  `sync_error`에 남은 channel ID가 있으면 Discord 서버에서 해당 채널을 확인하고 수동으로 정리하세요.
+- `ABORTED:` — 생성 중 모임이 채널 대상이 아니게 되어 만든 채널을 정리한 경우입니다.
   이후 다시 regular로 바뀌어도 **자동으로 재생성하지 않습니다.** 다시 만들려면 사람이 상황을 확인한 뒤
   해당 행을 정리해야 합니다 (수동 recovery 기능은 아직 없습니다).
 
@@ -656,25 +702,26 @@ Discord Developer Portal에서 Token을 재발급해야 합니다.
 
 ## 16. 연결 구조와 앞으로의 계획
 
-현재 (DB polling, Backend 수정 없음):
+현재 (DB polling):
 
 ```text
-Backend가 posts / recruits / recruit_members 저장
+Backend가 posts / recruits / recruit_members 저장 (모집 중에는 Discord 채널 없음)
         ↓  (Bot이 주기적으로 조회)
-regular 모임 → Discord 카테고리/채팅/음성 생성 → recruit_discord_channels에 ID 저장
+deadline_at 도달 → 최종 참여자 조회 → 모임 채널 1개 생성 → recruit_discord_channels에 채널 ID 저장
 참여/취소 → members.discord_id로 Discord 권한 부여/회수
-Discord 채팅 → last_activity_at 갱신
-30일 비활성 → HOST DM → 7일 유예 → 삭제 확인 후 discord_deleted_at 기록
+Discord 채팅 → 채널 ID로 모임을 찾아 last_activity_at 갱신
+7일 비활성 → 모임 채널 경고 → 24시간 뒤 삭제 확인 후 discord_deleted_at 기록
 ```
 
-Discord resource ID는 `recruit_discord_channels`에 `varchar`로 저장하고(`str`로 쓰고 `int`로 읽음),
-중복 방지는 모임 이름이 아니라 `recruit_id`(PK)와 Discord resource ID의 연결을 기준으로 합니다.
+Discord 채널 ID는 `recruit_discord_channels.discord_text_channel_id`(varchar)에 저장하고(`str`로 쓰고 `int`로 읽음),
+`discord_category_id` / `discord_voice_channel_id`는 새 구조에서 쓰지 않고 NULL로 둡니다 (스키마 변경 없음).
+중복 방지는 모임 이름이 아니라 `recruit_id`(PK)와 채널 ID의 연결을 기준으로 합니다.
 
 Backend 담당자와 협의 후 진행할 항목:
 
-1. 기존 공간 HOST 권한 소급, HOST 권한 실패 재시도, HOST 권한 부여를 `regular_lock` 안에서 처리
-2. PUBLIC/PRIVATE 저장 위치 결정 → `DEFAULT_VISIBILITY` 대체
-3. 참여/취소가 실제 로그인 사용자(`member_id`)를 쓰도록 변경
+1. PUBLIC/PRIVATE 저장 위치 결정 → `DEFAULT_VISIBILITY` 대체
+2. 참여/취소가 실제 로그인 사용자(`member_id`)를 쓰도록 변경 (현재 `-1` 고정)
+3. 마감(`deadline_at`) 이후 모임 `state`를 자동으로 닫는 처리 (Backend 담당)
 4. 필요하면 DB polling을 Backend → Bot 내부 API 호출로 교체
 
 ---
@@ -683,19 +730,17 @@ Backend 담당자와 협의 후 진행할 항목:
 
 ### 모임 이름은 식별자가 아닙니다
 
-Discord 카테고리 이름을 이용해 동일 모임인지 판단하지 않습니다.
+Discord 채널 이름을 이용해 동일 모임인지 판단하지 않습니다.
 
 실제 서비스에서는:
 
 ```text
 recruit_id
 ↕
-discord_category_id
-discord_text_channel_id
-discord_voice_channel_id
+discord_text_channel_id   (모임 채널 ID)
 ```
 
-형태로 연결할 예정입니다.
+형태로 연결합니다. 채널 주제의 `PlayMate 모임 #<recruit_id>`는 삭제 직전에 "이 채널이 정말 그 모임의 채널인지" 확인하는 표지입니다.
 
 ### Discord 메시지 본문은 저장하지 않습니다
 
@@ -711,8 +756,8 @@ last_activity_at
 
 ### 삭제된 Discord 공간은 보관하지 않습니다
 
-Discord 서버의 카테고리 수에는 제한이 있으므로,
-비활성으로 삭제 대상이 된 regular 모임은 Discord 공간을 계속 쌓아두지 않고 삭제합니다.
+Discord 서버의 채널 수에는 제한(서버 500개, 카테고리 50개)이 있으므로,
+7일 동안 대화가 없다가 24시간 안에도 대화가 없는 모임 채널은 계속 쌓아두지 않고 삭제합니다.
 
 필요한 활동 기록은 향후 PlayMate 서비스의 후기/활동 기록 기능으로 관리하는 것을 전제로 합니다.
 

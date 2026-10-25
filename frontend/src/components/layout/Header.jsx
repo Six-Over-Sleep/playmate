@@ -1,15 +1,26 @@
+
 import { useState } from 'react'
 import '../../styles/header.css'
 import logo from '../../assets/playmate-logo.png'
 
-export default function Header({ activeSection, onNavigate, nickname, avatarUrl, onLogout }) {
+export default function Header({
+  activeSection,
+  onNavigate,
+  nickname,
+  avatarUrl,
+  onLogout,
+}) {
   const [profileOpen, setProfileOpen] = useState(false)
+
+  // 메뉴 이동
   const go = (section) => {
+    setProfileOpen(false)
     onNavigate?.(section)
   }
 
   return (
     <header className="app-header">
+      {/* PLAYMATE 로고 */}
       <a
         className="brand"
         href="/"
@@ -27,6 +38,7 @@ export default function Header({ activeSection, onNavigate, nickname, avatarUrl,
         />
       </a>
 
+      {/* 상단 메뉴 */}
       <nav className="app-nav" aria-label="주 메뉴">
         <button
           type="button"
@@ -34,6 +46,15 @@ export default function Header({ activeSection, onNavigate, nickname, avatarUrl,
           onClick={() => go('board')}
         >
           게시판
+        </button>
+
+        {/* 취업 카테고리 추가 */}
+        <button
+          type="button"
+          className={activeSection === 'career' ? 'active' : ''}
+          onClick={() => go('career')}
+        >
+          취업
         </button>
 
         <button
@@ -44,9 +65,16 @@ export default function Header({ activeSection, onNavigate, nickname, avatarUrl,
           모임
         </button>
 
-        <span>마이페이지</span>
+        <button
+          type="button"
+          className={activeSection === 'mypage' ? 'active' : ''}
+          onClick={() => go('mypage')}
+        >
+          마이페이지
+        </button>
       </nav>
 
+      {/* 프로필 영역 */}
       <div className="profile-container">
         <button
           type="button"
@@ -57,7 +85,11 @@ export default function Header({ activeSection, onNavigate, nickname, avatarUrl,
           onClick={() => setProfileOpen((open) => !open)}
         >
           {avatarUrl ? (
-            <img src={avatarUrl} alt="" className="profile-avatar-image" />
+            <img
+              src={avatarUrl}
+              alt=""
+              className="profile-avatar-image"
+            />
           ) : (
             nickname?.charAt(0) || 'U'
           )}
@@ -65,17 +97,36 @@ export default function Header({ activeSection, onNavigate, nickname, avatarUrl,
 
         {profileOpen && (
           <div className="profile-dropdown">
+            {/* 사용자 정보 */}
             <div className="profile-user-info">
               {avatarUrl ? (
-                <img src={avatarUrl} alt="Discord 프로필 사진" className="profile-user-avatar" />
+                <img
+                  src={avatarUrl}
+                  alt="Discord 프로필 사진"
+                  className="profile-user-avatar"
+                />
               ) : (
                 <div className="profile-user-avatar profile-user-fallback">
                   {nickname?.charAt(0) || 'U'}
                 </div>
               )}
-              <span className="profile-nickname">{nickname || '사용자'}</span>
+
+              <span className="profile-nickname">
+                {nickname || '사용자'}
+              </span>
             </div>
+
             <hr />
+
+            {/* 마이페이지 이동 */}
+            <button
+              type="button"
+              onClick={() => go('mypage')}
+            >
+              마이페이지
+            </button>
+
+            {/* 로그아웃 */}
             <button
               type="button"
               onClick={() => {
@@ -85,8 +136,14 @@ export default function Header({ activeSection, onNavigate, nickname, avatarUrl,
             >
               로그아웃
             </button>
-            {/* 탈퇴 정책 협의 전: 기능이 없는 버튼은 비활성화 */}
-            <button type="button" className="withdraw-button" disabled title="회원 탈퇴 정책 협의 중">
+
+            {/* 회원 탈퇴 - 추후 구현 */}
+            <button
+              type="button"
+              className="withdraw-button"
+              disabled
+              title="회원 탈퇴 정책 협의 중"
+            >
               회원 탈퇴 (준비 중)
             </button>
           </div>

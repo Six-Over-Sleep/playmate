@@ -62,4 +62,61 @@ export const meetupApi = {
     apiRequest(`/recruits/${id}/count`, {
       credentials: 'include',
     }),
+
+  // 모임 좋아요
+  like: (id) =>
+    apiRequest(`/recruits/${id}/like`, {
+      method: 'PUT',
+      credentials: 'include',
+    }),
+
+  // 모임 좋아요 취소
+  unlike: (id) =>
+    apiRequest(`/recruits/${id}/like`, {
+      method: 'DELETE',
+      credentials: 'include',
+    }),
+
+  // 모임 스크랩
+  scrap: (id) =>
+    apiRequest(`/recruits/${id}/scrap`, {
+      method: 'PUT',
+      credentials: 'include',
+    }),
+
+  // 모임 스크랩 취소
+  unscrap: (id) =>
+    apiRequest(`/recruits/${id}/scrap`, {
+      method: 'DELETE',
+      credentials: 'include',
+    }),
+
+  // 댓글 목록 조회 (부모 → 대댓글 순서)
+  comments: (id) =>
+    apiRequest(`/recruits/${id}/comments`, {
+      credentials: 'include',
+    }),
+
+  // 댓글·대댓글 작성 (parent_comment_id가 있으면 대댓글)
+  createComment: (id, payload) =>
+    apiRequest(`/recruits/${id}/comments`, {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    }),
+
+  // 댓글 수정
+  updateComment: (id, commentId, payload) =>
+    apiRequest(`/recruits/${id}/comments/${commentId}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    }),
+
+  // 댓글 삭제
+  removeComment: (id, commentId) =>
+    apiRequest(`/recruits/${id}/comments/${commentId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    }),
 }

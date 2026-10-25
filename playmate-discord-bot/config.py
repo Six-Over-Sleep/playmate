@@ -1,4 +1,4 @@
-"""환경변수 설정과 regular 모임의 시간 정책(비활성 기준, 점검/동기화 주기, timeout)을 모아 둔다."""
+"""환경변수 설정과 모임 채널의 시간 정책(생성 기준, 비활성 기준, 점검/동기화 주기, timeout)을 모아 둔다."""
 import os
 from datetime import time
 from zoneinfo import ZoneInfo
@@ -18,10 +18,33 @@ GUILD_ID = int(GUILD_ID)
 
 # 운영 기본값을 안전하게 유지한다: 테스트 모드(1분 주기)는 환경변수로 명시했을 때만 켜진다.
 KST = ZoneInfo("Asia/Seoul")
-INACTIVITY_DAYS = 30
-INACTIVITY_GRACE_DAYS = 7
 TEST_MODE = os.getenv("PLAYMATE_TEST_MODE", "false").lower() == "true"
-CHECK_INTERVAL_SECONDS = 60 if TEST_MODE else 60 * 60 * 24
+
+# 모임 채널 비활성 정책: INACTIVITY_DAYS일 동안 메시지가 없으면 채널에 경고하고,
+# INACTIVITY_GRACE_HOURS시간 안에 메시지가 없으면 채널을 삭제한다.
+INACTIVITY_DAYS = 7
+INACTIVITY_GRACE_HOURS = 24
+# 24시간 유예를 크게 어기지 않도록 하루 1번이 아니라 1시간마다 점검한다 (테스트 모드는 1분).
+CHECK_INTERVAL_SECONDS = 60 if TEST_MODE else 60 * 60
+
+# Discord 채널을 만드는 모임 방식. 모집 마감(deadline_at) 시점에 방식과 관계없이 모임 채널 하나를 만든다.
+CHANNEL_RECRUIT_MODES = ("regular", "short")
+# 마감을 놓친 모임(Bot 장애/재시작)은 기간 제한 없이 "마감이 지났고 채널이 없는 모임"으로 복구한다.
+# 오래된 데이터에 채널이 한꺼번에 생기지 않도록 한 번의 동기화(poll)에서 만드는 채널 수에 상한을 둔다.
+CHANNEL_PROVISION_BATCH_LIMIT = int(os.getenv("PLAYMATE_PROVISION_BATCH_LIMIT") or 5)
+# 운영자가 처음 배포할 때 아주 오래된 과거 모임을 제외하고 싶다면 환경변수로 복구 범위(일)를 지정한다.
+# 기본값은 None(제한 없음)이다. 정책으로 확정된 값이 아니므로 코드에 고정하지 않는다.
+CHANNEL_CATCHUP_DAYS = int(os.getenv("PLAYMATE_CATCHUP_DAYS") or 0) or None
+
+# 공식 서버 구조. 모임 채널은 모임별 Category 없이 이 공용 카테고리 아래에 채널 하나씩 만든다.
+# Discord 카테고리는 채널 50개가 한도라서, 가득 차면 "모임별 채널 2"처럼 공용 카테고리를 늘린다.
+MEETING_CATEGORY_NAME = "모임별 채널"
+MEETING_CATEGORY_CHANNEL_LIMIT = 50
+# 상시 오픈채팅: 모임과 무관하게 항상 있는 채널. recruit_id와 연결하지 않고 자동 삭제하지 않는다.
+OFFICIAL_CATEGORY_NAME = "상시 오픈채팅"
+OFFICIAL_CHANNEL_NAMES = ("자격증-정보공유", "기술스택-정보공유", "직무-정보공유")
+# 필수 상시 채널이 모두 준비될 때까지 누락된 채널을 다시 만들어 보는 간격(분).
+OFFICIAL_RETRY_MINUTES = 10
 
 # PostgreSQL (Backend와 같은 변수 이름). 네 값이 모두 있어야 DB를 쓰고, 없으면 메모리 저장소로 동작한다.
 DB_HOST = os.getenv("DB_HOST")

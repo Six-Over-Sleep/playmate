@@ -10,7 +10,7 @@ from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from backend.app.models.post import Comment
+from backend.app.models.comment import Comment
 from backend.app.repositories import recruit as recruit_repo
 from backend.app.schemas.recruit import RecruitCommentCreate, RecruitCommentUpdate
 from backend.app.services.recruit import get_recruit_post

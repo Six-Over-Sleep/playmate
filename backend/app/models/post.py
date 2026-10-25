@@ -1,67 +1,43 @@
-# 모임 게시글의 제목, 본문, 작성자, 조회수 등을 관리하는 모델
-from sqlalchemy import Column, BigInteger, Integer, String, Text, DateTime, ForeignKey, func
+
+# 게시글의 제목, 본문, 작성자, 조회수 및 게시 상태 등을 관리하는 모델
+from sqlalchemy import Column, BigInteger, Integer, String, Text, DateTime, ForeignKey
 from backend.app.core.database import Base
+
 
 class Post(Base):
     __tablename__ = "posts"
 
-    # post_id : 게시글 고유 번호
+    # post_id : 게시글 고유 번호 (기본키)
+    # board_id : 게시글이 속한 게시판 번호
     post_id = Column(BigInteger, primary_key=True)
     board_id = Column(BigInteger)
 
-    # author_member_id : 게시글 작성자
-    # ForeignKey() : 다른 테이블과 연결하는 키
+    # author_member_id : 게시글 작성자 회원 번호
+    # ForeignKey() : members 테이블의 member_id와 연결
+    # post_type : 게시글 유형 (일반 게시글, 모임 게시글 등)
     author_member_id = Column(BigInteger, ForeignKey("members.member_id"), nullable=False)
     post_type = Column(String)
 
-    # title, body : 제목과 본문
+    # title : 게시글 제목 (필수 입력)
+    # body : 게시글 본문
+    # tag_name : 게시글 분류 및 검색용 태그
     title = Column(String, nullable=False)
     body = Column(Text)
     tag_name = Column(String)
+
+    # source_type : 게시글 작성 또는 수집 출처 구분
+    # post_status : 게시글 상태 (게시, 숨김, 삭제 등)
     source_type = Column(String)
     post_status = Column(String)
 
-    # view_count : 조회수
+    # view_count : 게시글 조회수
     view_count = Column(Integer)
+
+    # published_at : 게시글 공개 시간
+    # created_at : 게시글 최초 생성 시간
+    # updated_at : 게시글 마지막 수정 시간
+    # deleted_at : 게시글 삭제 처리 시간
     published_at = Column(DateTime)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
-    deleted_at = Column(DateTime)
-
-
-class PostLike(Base):
-    """게시글 좋아요. (post_id, member_id) 기본키로 같은 회원의 중복 좋아요를 막음."""
-
-    __tablename__ = "post_likes"
-
-    post_id = Column(BigInteger, ForeignKey("posts.post_id"), primary_key=True)
-    member_id = Column(BigInteger, ForeignKey("members.member_id"), primary_key=True)
-    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
-
-
-class PostScrap(Base):
-    """게시글 스크랩. 좋아요와 같은 구조로 회원별 한 번만 저장됨."""
-
-    __tablename__ = "post_scraps"
-
-    post_id = Column(BigInteger, ForeignKey("posts.post_id"), primary_key=True)
-    member_id = Column(BigInteger, ForeignKey("members.member_id"), primary_key=True)
-    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
-
-
-class Comment(Base):
-    """게시글 댓글. parent_comment_id가 있으면 그 댓글의 대댓글임.
-
-    삭제는 deleted_at을 기록하는 논리삭제이며 행은 남겨 둠.
-    """
-
-    __tablename__ = "comments"
-
-    comment_id = Column(BigInteger, primary_key=True)
-    post_id = Column(BigInteger, ForeignKey("posts.post_id"), nullable=False)
-    author_member_id = Column(BigInteger, ForeignKey("members.member_id"), nullable=False)
-    parent_comment_id = Column(BigInteger, ForeignKey("comments.comment_id"))
-    body = Column(Text, nullable=False)
-    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
-    updated_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
     deleted_at = Column(DateTime)

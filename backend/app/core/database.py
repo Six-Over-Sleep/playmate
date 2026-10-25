@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-from app.core.config import (
+from .config import (
     DB_HOST,
     DB_PORT,
     DB_USER,

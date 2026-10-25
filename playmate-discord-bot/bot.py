@@ -5,6 +5,7 @@ DB_* 환경변수가 있으면 공용 PostgreSQL, 없으면 메모리 저장소�
 """
 import discord
 from discord import app_commands
+from discord.ext import tasks
 
 from config import (
     ADMIN_ROLE_ID,
@@ -12,6 +13,8 @@ from config import (
     DB_CONFIGURED,
     GUILD_ID,
     HOT_CHANNEL_ID,
+    OFFICIAL_CHANNEL_NAMES,
+    OFFICIAL_RETRY_MINUTES,
     TEST_MODE,
     TOKEN,
 )
@@ -31,6 +34,7 @@ from services.db_sync import create_sync_task
 from services.hot_content_service import HotContentService, create_hot_task
 from services.lifecycle import create_lifecycle_task
 from services.notification_service import NotificationService, create_notification_task
+from services.official_channels import ensure_official_channels
 
 # 기본 intents만 사용한다. 메시지 본문(message content)은 필요하지도, 저장하지도 않는다.
 intents = discord.Intents.default()
@@ -49,6 +53,7 @@ tree = app_commands.CommandTree(client)
 guild_object = discord.Object(id=GUILD_ID)
 feature_tasks: list[tuple[str, object]] = []
 commands_synced = False
+official_channels_ready = False
 if DB_CONFIGURED:
     feature_db = Database.from_env()
     notification_service = NotificationService(client, PostgresNotificationRepository(feature_db))
@@ -65,6 +70,46 @@ if CAREER_CHANNEL_ID is not None and career_repository.connected:
     career_new, career_reminder = create_career_tasks(client, career_service)
     feature_tasks.append(("취업 소식 신규 포워딩", career_new))
     feature_tasks.append(("취업 소식 마감 재노출 (13:00)", career_reminder))
+
+
+async def ensure_official_channels_once(guild: discord.Guild) -> None:
+    """상시 오픈채팅 채널(자격증/기술스택/직무)을 확인하고 없으면 만든다 (필수 3개가 모두 있을 때까지 반복).
+
+    필수 채널이 하나라도 없으면 완료로 보지 않는다. 실패하면 로그만 남기고 모임 기능은 그대로 동작하며,
+    다음 on_ready 또는 재시도 task(`retry_official_channels`)가 없는 채널만 다시 만든다 (있는 채널은 재사용).
+    """
+    global official_channels_ready
+    if official_channels_ready:
+        return
+    try:
+        channels = await ensure_official_channels(guild)
+    except Exception as error:
+        print(f'상시 오픈채팅 채널 확인 실패: {error!r}')
+        return
+    present = {channel.name for channel in channels}
+    missing = [name for name in OFFICIAL_CHANNEL_NAMES if name not in present]
+    if missing:
+        print(f'상시 오픈채팅 채널 일부 누락, 다시 시도합니다: {", ".join(missing)}')
+        return
+    official_channels_ready = True
+    print(f'상시 오픈채팅 채널 확인 완료: {", ".join(channel.name for channel in channels)}')
+
+
+@tasks.loop(minutes=OFFICIAL_RETRY_MINUTES)
+async def retry_official_channels():
+    """상시 채널 확인이 끝나지 않았을 때 주기적으로 다시 시도하고, 완료되면 스스로 멈춘다."""
+    if retry_official_channels.current_loop == 0:
+        return  # 시작 직후는 on_ready가 방금 시도했다
+    guild = client.get_guild(GUILD_ID)
+    if guild is not None:
+        await ensure_official_channels_once(guild)
+    if official_channels_ready:
+        retry_official_channels.cancel()
+
+
+@retry_official_channels.before_loop
+async def before_retry_official_channels():
+    await client.wait_until_ready()
 
 
 async def start_feature_tasks() -> None:
@@ -86,7 +131,7 @@ async def start_feature_tasks() -> None:
 
 @client.event
 async def on_message(message: discord.Message):
-    """regular 모임 채널의 활동 기록을 message_handler에 넘긴다."""
+    """모임 채널의 활동 기록을 message_handler에 넘긴다."""
     await handle_message(message, repository)
 
 
@@ -100,6 +145,9 @@ async def on_ready():
         return
     print(f'서버 연결 성공: {guild.name}')
     print('PlayMate Discord Bot 라이프사이클 관리 준비 완료')
+    await ensure_official_channels_once(guild)
+    if not official_channels_ready and not retry_official_channels.is_running():
+        retry_official_channels.start()
     if sync_db is not None and not sync_db.is_running():
         sync_db.start()
         print('PlayMate DB 동기화 시작')
@@ -108,7 +156,7 @@ async def on_ready():
         if TEST_MODE:
             print('모임 라이프사이클 검사 시작 (테스트: 1분 주기)')
         else:
-            print('모임 라이프사이클 검사 시작 (실서비스: 하루 1회)')
+            print('모임 라이프사이클 검사 시작 (실서비스: 1시간 주기)')
     try:
         await start_feature_tasks()
     except Exception as error:

@@ -64,12 +64,35 @@ export const boardApi = {
     return request(`/boards/${boardId}/posts/${postId}/comments`, options)
   },
 
-  /** 댓글 본문을 저장하고 생성 응답을 반환해 화면에서 추가 GET 없이 반영하게 한다. */
-  createComment(boardId, postId, body) {
+  /**
+   * 댓글 본문을 저장하고 생성 응답을 반환해 화면에서 추가 GET 없이 반영하게 한다.
+   * parentCommentId를 주면 그 댓글의 대댓글로 저장한다. (서버는 1단계 대댓글만 허용)
+   */
+  createComment(boardId, postId, body, parentCommentId = null) {
     return request(`/boards/${boardId}/posts/${postId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, parent_comment_id: parentCommentId }),
     })
+  },
+
+  /** 게시글 좋아요를 등록하고 { post_id, like_count, liked_by_me }를 반환한다. 반복 요청해도 한 번만 반영된다. */
+  likePost(boardId, postId) {
+    return request(`/boards/${boardId}/posts/${postId}/like`, { method: 'PUT' })
+  },
+
+  /** 게시글 좋아요를 취소하고 같은 형태의 현재 상태를 반환한다. */
+  unlikePost(boardId, postId) {
+    return request(`/boards/${boardId}/posts/${postId}/like`, { method: 'DELETE' })
+  },
+
+  /** 게시글 스크랩을 등록하고 { post_id, scrapped_by_me }를 반환한다. 스크랩 수는 제공하지 않는다. */
+  scrapPost(boardId, postId) {
+    return request(`/boards/${boardId}/posts/${postId}/scrap`, { method: 'PUT' })
+  },
+
+  /** 게시글 스크랩을 취소하고 같은 형태의 현재 상태를 반환한다. */
+  unscrapPost(boardId, postId) {
+    return request(`/boards/${boardId}/posts/${postId}/scrap`, { method: 'DELETE' })
   },
 
   /** 댓글 id와 수정 본문을 보내며 수정된 댓글을 반환한다. */

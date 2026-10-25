@@ -171,8 +171,25 @@ def create_recruit(
         raise
 
 
-def get_recruit(db: Session, recruit_id: int):
-    """게시글·모임·카테고리 상세를 조회한 후 기존 응답 형태로 구성함."""
+def get_recruit_post(db: Session, recruit_id: int) -> Post:
+    """삭제되지 않은 모임의 게시글을 반환함. 없거나 삭제되었으면 404.
+
+    좋아요·스크랩·댓글 테이블은 모임 ID가 아니라 게시글 ID(post_id)를 사용하므로
+    모임 ID를 게시글로 바꿀 때 사용함.
+    """
+    result = recruit_repo.find_recruit_with_post(db, recruit_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="모임이 없습니다.")
+    post, _ = result
+    return post
+
+
+def get_recruit(db: Session, recruit_id: int, member_id: int | None = None):
+    """게시글·모임·카테고리 상세를 조회한 후 기존 응답 형태로 구성함.
+
+    member_id는 로그인한 경우에만 전달되며, 좋아요·스크랩 여부 계산에 사용함.
+    로그인하지 않았으면 두 값 모두 False임.
+    """
     # 삭제되지 않은 게시글과 모임 정보를 JOIN하여 함께 조회함.
     result = recruit_repo.find_recruit_with_post(db, recruit_id)
     if result is None:
@@ -210,6 +227,11 @@ def get_recruit(db: Session, recruit_id: int):
         "is_online": recruit.is_online,
         "contact_method": recruit.contact_method,
         "detail": _serialize_category_detail(detail),
+        "like_count": recruit_repo.count_post_likes(db, post.post_id),
+        "liked_by_me": member_id is not None
+        and recruit_repo.has_post_like(db, post.post_id, member_id),
+        "scrapped_by_me": member_id is not None
+        and recruit_repo.has_post_scrap(db, post.post_id, member_id),
     }
 
 
@@ -253,8 +275,9 @@ def get_recruits(db: Session):
             "regular_start_date": recruit.regular_start_date,
             "meeting_start": recruit.meeting_start,
             "meeting_end": recruit.meeting_end,
+            "like_count": int(like_count),
         }
-        for post, recruit, participant_count in results
+        for post, recruit, participant_count, like_count in results
     ]
 
 

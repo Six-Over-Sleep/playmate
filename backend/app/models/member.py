@@ -36,3 +36,5 @@ class Member(Base):
     # external_dm_opt_in : Discord 개인 DM 알림 수신 동의 여부
     # True : 수신 동의 / False : 수신 거부
     external_dm_opt_in = Column(Boolean)
+    # 댓글 작성자 이름 표시에 사용함. (members 테이블의 실제 컬럼)
+    nickname = Column(String)

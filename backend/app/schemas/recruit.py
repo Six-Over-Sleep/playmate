@@ -177,6 +177,37 @@ class RecruitUpdate(BaseModel):
         return validate_regular_days(days)
 
 
+def validate_comment_body(body: str) -> str:
+    """댓글 본문의 앞뒤 공백을 제거하고, 공백만 있으면 오류를 발생시킴."""
+    body = body.strip()
+    if not body:
+        raise ValueError("댓글 내용은 공백일 수 없습니다.")
+    return body
+
+
+class RecruitCommentCreate(BaseModel):
+    """모임 댓글 작성 요청. parent_comment_id가 있으면 그 댓글의 대댓글로 저장함."""
+
+    body: str = Field(min_length=1, max_length=2000)
+    parent_comment_id: int | None = None
+
+    @field_validator("body")
+    @classmethod
+    def check_body(cls, body: str) -> str:
+        return validate_comment_body(body)
+
+
+class RecruitCommentUpdate(BaseModel):
+    """모임 댓글 수정 요청. 본문만 바꿀 수 있고 부모 댓글은 바꿀 수 없음."""
+
+    body: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("body")
+    @classmethod
+    def check_body(cls, body: str) -> str:
+        return validate_comment_body(body)
+
+
 # 모임 생성 결과를 반환할 때 사용하는 응답 모델
 class RecruitResponse(RecruitCreate):
     """모임 생성 응답 등에 사용할 수 있는 형태. 생성 필드와 검증 규칙을 상속함."""

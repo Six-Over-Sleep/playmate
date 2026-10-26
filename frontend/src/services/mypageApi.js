@@ -77,6 +77,7 @@ const ACTIVITY_PATHS = {
   posts: '/mypage/posts',
   comments: '/mypage/comments',
   scraps: '/mypage/scraps',
+  likes: '/mypage/likes', 
   meetups: '/mypage/meetups',
 }
 

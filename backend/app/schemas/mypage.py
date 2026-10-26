@@ -1,9 +1,12 @@
 # PLAYMATE_ACTIVITY_V2
+from datetime import date, datetime
 
-# 마이페이지 프로필 응답 스키마
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 
+# =========================================================
+# 1. 마이페이지 프로필
+# =========================================================
 class MyProfileResponse(BaseModel):
     member_id: int
     nickname: str
@@ -14,35 +17,27 @@ class MyProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-from pydantic import Field, field_validator
-
-
 class MyProfileUpdate(BaseModel):
     nickname: str = Field(min_length=1)
 
-    @field_validator("nickname")
+    @field_validator('nickname')
     @classmethod
-    def validate_nickname(cls, value):
+    def validate_nickname(cls, value: str) -> str:
         value = value.strip()
-
         if not value:
-            raise ValueError("닉네임을 입력해주세요.")
-
+            raise ValueError('닉네임을 입력해주세요.')
         return value
 
 
-# 회원 종합 레벨 응답
-
+# =========================================================
+# 2. 종합 레벨 및 경험치
+# =========================================================
 class MyLevelResponse(BaseModel):
     level: int
     total_xp: int
     next_level_xp: int | None
     remaining_xp: int
     progress_percent: float
-
-
-
-from datetime import date, datetime
 
 
 class MyXPHistoryResponse(BaseModel):
@@ -53,8 +48,9 @@ class MyXPHistoryResponse(BaseModel):
     created_at: datetime
 
 
-
-# 연속 출석 현황 응답
+# =========================================================
+# 3. 출석 현황
+# =========================================================
 class MyAttendanceResponse(BaseModel):
     attended_today: bool
     streak_days: int
@@ -62,28 +58,19 @@ class MyAttendanceResponse(BaseModel):
     achieved_30_days: bool
 
 
-# 회원 스킬 레벨 응답
+# =========================================================
+# 4. 스킬 레벨
+# =========================================================
 class MySkillResponse(BaseModel):
     skill_code: str
     skill_name: str
     level: int
     total_xp: int
-
-
-
-class MySkillResponse(BaseModel):
-    skill_code: str
-    skill_name: str
-    level: int
-    total_xp: int
-
-    # 추가할 필드
     next_level_xp: int | None
     remaining_xp: int
     progress_percent: float
 
 
-# 스킬별 세부 학습 영역 조회
 class MySkillTopicResponse(BaseModel):
     skill_code: str
     topic_code: str
@@ -91,8 +78,6 @@ class MySkillTopicResponse(BaseModel):
     earned_xp: int
 
 
-
-# 스킬별 세부 학습 영역 정답률
 class MySkillAccuracyResponse(BaseModel):
     skill_code: str
     topic_code: str
@@ -102,7 +87,9 @@ class MySkillAccuracyResponse(BaseModel):
     accuracy_percent: float
 
 
-
+# =========================================================
+# 5. 내가 작성한 게시글
+# =========================================================
 class MyPostResponse(BaseModel):
     post_id: int
     board_id: int | None = None
@@ -114,7 +101,6 @@ class MyPostResponse(BaseModel):
     created_at: datetime | None = None
 
 
-# 내 게시글 페이지네이션 응답
 class MyPostPageResponse(BaseModel):
     items: list[MyPostResponse]
     total: int
@@ -123,33 +109,54 @@ class MyPostPageResponse(BaseModel):
     career_category: str | None = None
 
 
-# 내가 작성한 댓글 및 대댓글 응답
+# =========================================================
+# 6. 내가 작성한 댓글 및 대댓글
+# =========================================================
 class MyCommentResponse(BaseModel):
     comment_id: int
     post_id: int
     board_id: int | None = None
+    board_name: str | None = None
     post_type: str | None = None
+    career_category: str | None = None
+    recruit_id: int | None = None
     post_title: str
     body: str
     parent_comment_id: int | None = None
     created_at: datetime | None = None
-    career_category: str | None = None
-    recruit_id: int | None = None
 
 
+class MyCommentPageResponse(BaseModel):
+    items: list[MyCommentResponse]
+    total: int
+    page: int
+    page_size: int
 
-# 내가 스크랩한 게시글 응답
+
+# =========================================================
+# 7. 내가 스크랩한 게시글
+# =========================================================
 class MyScrapResponse(BaseModel):
     post_id: int
     board_id: int | None = None
+    board_name: str | None = None
     post_type: str | None = None
-    title: str
-    scrapped_at: datetime
     career_category: str | None = None
     recruit_id: int | None = None
+    title: str
+    scrapped_at: datetime
 
 
-# 내가 생성하거나 참여한 모임
+class MyScrapPageResponse(BaseModel):
+    items: list[MyScrapResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+# =========================================================
+# 8. 내가 참여하거나 생성한 모임
+# =========================================================
 class MyMeetupResponse(BaseModel):
     recruit_id: int
     post_id: int
@@ -162,35 +169,19 @@ class MyMeetupResponse(BaseModel):
     created_at: datetime | None = None
 
 
-class MyCommentPageResponse(BaseModel):
-    items: list[MyCommentResponse]
-    total: int
-    page: int
-    page_size: int
-
-
-# 스크랩·모임도 게시글·댓글과 같은 페이지 응답을 사용합니다.
-class MyScrapPageResponse(BaseModel):
-    items: list[MyScrapResponse]
-    total: int
-    page: int
-    page_size: int
-
-
 class MyMeetupPageResponse(BaseModel):
     items: list[MyMeetupResponse]
     total: int
     page: int
     page_size: int
 
-# =========================================================
-# 취업 스펙 등록 및 수정
-# =========================================================
 
+# =========================================================
+# 9. 취업 스펙
+# =========================================================
 class MyCareerSpecUpdate(BaseModel):
     """내 취업 스펙 등록·수정 요청"""
-
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra='forbid')
 
     desired_job: str | None = Field(default=None, max_length=100)
     education: str | None = Field(default=None, max_length=200)
@@ -201,30 +192,17 @@ class MyCareerSpecUpdate(BaseModel):
     introduction: str | None = None
 
     @field_validator(
-        "desired_job",
-        "education",
-        "certifications",
-        "language_scores",
-        "tech_stack",
-        "projects",
-        "introduction",
+        'desired_job', 'education', 'certifications', 'language_scores',
+        'tech_stack', 'projects', 'introduction',
     )
     @classmethod
-    def strip_text(cls, value):
-        if isinstance(value, str):
-            return value.strip()
-        return value
+    def strip_text(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) else value
 
-
-# =========================================================
-# 취업 스펙 조회 응답
-# =========================================================
 
 class MyCareerSpecResponse(BaseModel):
     """내 취업 스펙 조회 응답"""
-
     member_id: int
-
     desired_job: str | None = None
     education: str | None = None
     certifications: str | None = None
@@ -232,7 +210,6 @@ class MyCareerSpecResponse(BaseModel):
     tech_stack: str | None = None
     projects: str | None = None
     introduction: str | None = None
-
     is_public: bool = False
     first_published_at: datetime | None = None
     updated_at: datetime
@@ -240,23 +217,15 @@ class MyCareerSpecResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# =========================================================
-# 취업 스펙 공개 여부 변경
-# =========================================================
-
-from pydantic import StrictBool
-
-
 class MyCareerSpecVisibilityUpdate(BaseModel):
     """취업 스펙 공개·비공개 변경 요청"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    # True: 공개 / False: 비공개
+    model_config = ConfigDict(extra='forbid')
     is_public: StrictBool
 
 
-# 마이페이지: 내 활동 요약 응답 (본인 데이터만 반환)
+# =========================================================
+# 10. 내 활동 요약
+# =========================================================
 class MyActivitySummaryResponse(BaseModel):
     posts_count: int
     comments_count: int

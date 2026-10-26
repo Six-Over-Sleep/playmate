@@ -32,11 +32,12 @@ function getPostUrl(item) {
   if (postType === 'CAREER') {
     const names = {
       '취준도감': 'reviews',
+      '취준 도감': 'reviews',
       '커리어 톡톡': 'talk',
       '현직자 라운지': 'lounge',
       '커리어 연구소': 'lab',
     }
-    const category = String(item.career_category || names[item.board_name] || '').toLowerCase()
+    const category = String(item.career_category || item.category_code || names[item.board_name] || '').toLowerCase()
     if (['reviews', 'talk', 'lounge', 'lab'].includes(category)) {
       return `/career/${category}/${postId}`
     }
@@ -112,7 +113,7 @@ function normalizePage(data, page) {
   throw new Error('활동 조회 응답 형식이 올바르지 않습니다.')
 }
 
-export default function MyActivity({ onOpenMeetup }) {
+export default function MyActivity({ onOpenMeetup, onOpenPost }) {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('comments')
   const [items, setItems] = useState([])
@@ -165,8 +166,13 @@ export default function MyActivity({ onOpenMeetup }) {
 
   const openOriginal = (item, url) => {
     if (!url) return
-    if (url.startsWith('/meetup/')) openMeetup(item.recruit_id)
-    else navigate(url)
+    if (url.startsWith('/meetup/')) {
+      openMeetup(item.recruit_id)
+    } else if (typeof onOpenPost === 'function') {
+      onOpenPost(item)
+    } else {
+      navigate(url)
+    }
   }
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)

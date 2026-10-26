@@ -19,8 +19,20 @@ export default function MeetupMemberList({
       <h2>참여 멤버 ({currentCount})</h2>
       {members.length > 0 ? (
         <ul className="meetup-member-list">
-          {members.map((member, index) => (
-            <li key={member.member_id ?? member.id ?? index}>
+          {members.map((member, index) => {
+            // 표시 이름이 같아도 같은 회원으로 간주하지 않는다.
+            // API의 실제 회원 ID를 행 식별 기준으로 유지한다.
+            const rowMemberId =
+              member?.member_id ??
+              member?.id
+
+            const rowKey =
+              rowMemberId != null
+                ? `member-${String(rowMemberId)}`
+                : `member-row-${index}`
+
+            return (
+            <li key={rowKey}>
               <div className="meetup-member-info">
                 <span
                   className="meetup-member-avatar"
@@ -32,7 +44,8 @@ export default function MeetupMemberList({
                 <span className="meetup-host-badge">모임장</span>
               )}
             </li>
-          ))}
+            )
+          })}
         </ul>
       ) : (
         <div className="meetup-member-empty">아직 참여 멤버 정보가 없어요.</div>

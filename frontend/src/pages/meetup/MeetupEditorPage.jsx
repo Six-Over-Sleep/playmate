@@ -2,18 +2,34 @@ import { EDITOR_CATEGORY_OPTIONS, WEEKDAYS } from '../../utils/meetup'
 
 import useMeetupEditor from '../../hooks/meetup/useMeetupEditor'
 
+function getSkillId(skill) {
+  return Number(skill?.skill_id ?? skill?.id ?? skill?.value)
+}
+
+function getSkillName(skill) {
+  return (
+    skill?.name ||
+    skill?.skill_name ||
+    skill?.label ||
+    String(skill?.skill_id ?? skill?.id ?? '')
+  )
+}
+
 // 모임 생성·수정 입력 화면
 export default function MeetupEditorPage({
   meetup = null,
   busy,
   onBack,
   onSubmit,
+  skillOptions = [],
 }) {
   // 편집 훅의 폼 상태와 이벤트 연결
   const {
     form,
     isEdit,
     isGroupBuy,
+    isProject,
+    isStudy,
 
     placeResults,
     placeSearchStatus,
@@ -28,6 +44,8 @@ export default function MeetupEditorPage({
     setPlaceType,
 
     toggleRegularDay,
+    toggleRequiredSkill,
+    toggleCreatorSkill,
 
     searchPlace,
     selectPlace,
@@ -151,7 +169,8 @@ export default function MeetupEditorPage({
               <input
                 type="number"
                 name="capacity"
-                min="1"
+                min={isProject || isStudy ? '2' : '1'}
+                max={isProject || isStudy ? '5' : undefined}
                 value={form.capacity}
                 onChange={change}
                 required
@@ -328,6 +347,26 @@ export default function MeetupEditorPage({
                 required
               />
             </div>
+
+            {(isProject || isStudy) && (
+              <label className="meetup-field">
+                <span>
+                  전체 모임 종료 일시 <b>*</b>
+                </span>
+
+                <input
+                  type="datetime-local"
+                  name="ends_at"
+                  value={form.ends_at ?? ''}
+                  onChange={change}
+                  required
+                />
+
+                <small className="meetup-type-help">
+                  프로젝트·스터디는 반복 일정과 별도로 전체 운영 종료 시점을 저장해요.
+                </small>
+              </label>
+            )}
           </div>
         )}
 
@@ -365,6 +404,128 @@ export default function MeetupEditorPage({
         )}
 
         {/* 선택한 카테고리별 추가 입력 항목 */}
+        {isProject && (
+          <div className="meetup-form-section compact">
+            <div className="meetup-field-title">
+              프로젝트 기술 구성 <span>*</span>
+            </div>
+
+            <div className="meetup-field">
+              <span>
+                필수 기술 <b>*</b>
+              </span>
+
+              {skillOptions.length > 0 ? (
+                <div
+                  className="meetup-skill-select-list"
+                  aria-label="프로젝트 필수 기술 선택"
+                >
+                  {skillOptions.map((skill) => {
+                    const skillId = getSkillId(skill)
+                    const skillName = getSkillName(skill)
+                    const selected =
+                      form.required_skill_ids?.includes(skillId)
+
+                    return (
+                      <button
+                        key={skillId}
+                        type="button"
+                        className={[
+                          'meetup-skill-select-button',
+                          selected ? 'active' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        aria-pressed={selected}
+                        onClick={() => toggleRequiredSkill(skillId)}
+                      >
+                        {skillName}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="meetup-type-help">
+                  기술 목록 API가 연결되면 여기에서 프로젝트 필수 기술을 선택합니다.
+                  기술 ID를 화면에 임의로 하드코딩하지 않습니다.
+                </p>
+              )}
+            </div>
+
+            {!isEdit && (
+              <>
+                <div className="meetup-field">
+                  <span>
+                    내가 맡을 기술 <b>*</b>
+                  </span>
+
+                  {form.required_skill_ids?.length > 0 ? (
+                    <div
+                      className="meetup-skill-select-list"
+                      aria-label="개설자 담당 기술 선택"
+                    >
+                      {skillOptions
+                        .filter((skill) =>
+                          form.required_skill_ids.includes(
+                            getSkillId(skill),
+                          ),
+                        )
+                        .map((skill) => {
+                          const skillId = getSkillId(skill)
+                          const skillName = getSkillName(skill)
+                          const selected =
+                            form.creator_skill_ids?.includes(skillId)
+
+                          return (
+                            <button
+                              key={skillId}
+                              type="button"
+                              className={[
+                                'meetup-skill-select-button',
+                                'creator',
+                                selected ? 'active' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                              aria-pressed={selected}
+                              onClick={() => toggleCreatorSkill(skillId)}
+                            >
+                              {skillName}
+                            </button>
+                          )
+                        })}
+                    </div>
+                  ) : (
+                    <p className="meetup-type-help">
+                      먼저 위에서 프로젝트 필수 기술을 하나 이상 선택해주세요.
+                    </p>
+                  )}
+                </div>
+
+                <label className="meetup-leader-volunteer">
+                  <input
+                    type="checkbox"
+                    name="leader_volunteer"
+                    checked={Boolean(form.leader_volunteer)}
+                    onChange={change}
+                  />
+
+                  <span>
+                    프로젝트 팀장을 맡을 수 있어요
+                    <small>
+                      시작 24시간 전 서버가 확정 참여자와 신청 순서를 기준으로 실제 팀장을 결정합니다.
+                    </small>
+                  </span>
+                </label>
+              </>
+            )}
+
+            <p className="meetup-type-help">
+              프로젝트는 확정 참여자 최소 2명과 모든 필수 기술 담당자가 충족되어야 정상 시작할 수 있어요.
+            </p>
+          </div>
+        )}
+
         {form.category === 'sports' && (
           <div className="meetup-form-section compact">
             <label className="meetup-field">
@@ -401,19 +562,69 @@ export default function MeetupEditorPage({
           </div>
         )}
 
-        {form.category === 'study' && (
+        {isStudy && (
           <div className="meetup-form-section compact">
             <div className="meetup-form-grid two">
               <label className="meetup-field">
                 <span>
-                  스터디 주제 <b>*</b>
+                  스터디 종류 <b>*</b>
+                </span>
+
+                <select
+                  name="study_type"
+                  value={form.study_type ?? 'TECHNOLOGY'}
+                  onChange={change}
+                  required
+                >
+                  <option value="TECHNOLOGY">기술 공부</option>
+                  <option value="CERTIFICATE">자격증</option>
+                </select>
+              </label>
+
+              {(form.study_type ?? 'TECHNOLOGY') === 'TECHNOLOGY' ? (
+                <label className="meetup-field">
+                  <span>
+                    난이도 <b>*</b>
+                  </span>
+
+                  <select
+                    name="difficulty"
+                    value={form.difficulty ?? 'BEGINNER'}
+                    onChange={change}
+                    required
+                  >
+                    <option value="BEGINNER">기초</option>
+                    <option value="ADVANCED">심화</option>
+                  </select>
+                </label>
+              ) : (
+                <div className="meetup-field">
+                  <span>난이도</span>
+                  <p className="meetup-type-help">
+                    자격증 스터디는 별도의 기술 난이도를 사용하지 않아요.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="meetup-form-grid two">
+              <label className="meetup-field">
+                <span>
+                  {(form.study_type ?? 'TECHNOLOGY') === 'CERTIFICATE'
+                    ? '자격증명'
+                    : '스터디 주제'}{' '}
+                  <b>*</b>
                 </span>
 
                 <input
                   name="study_topic"
-                  value={form.study_topic}
+                  value={form.study_topic ?? ''}
                   onChange={change}
-                  placeholder="예) SQLD"
+                  placeholder={
+                    (form.study_type ?? 'TECHNOLOGY') === 'CERTIFICATE'
+                      ? '예) SQLD'
+                      : '예) React 상태 관리'
+                  }
                   required
                 />
               </label>
@@ -423,12 +634,23 @@ export default function MeetupEditorPage({
 
                 <input
                   name="study_period"
-                  value={form.study_period}
+                  value={form.study_period ?? ''}
                   onChange={change}
                   placeholder="예) 4주"
                 />
               </label>
             </div>
+
+            <label className="meetup-field">
+              <span>진행 방법</span>
+
+              <input
+                name="study_method"
+                value={form.study_method ?? ''}
+                onChange={change}
+                placeholder="예) 주 1회 온라인 모임 + 주간 과제"
+              />
+            </label>
           </div>
         )}
 

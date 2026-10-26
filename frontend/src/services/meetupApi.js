@@ -1,122 +1,82 @@
 import { apiRequest } from './apiClient'
 
-// 로그인 세션 쿠키를 포함한 모임 API 요청
 export const meetupApi = {
-  // 참여 인원수를 포함한 모임 목록 조회
   list: () =>
-    apiRequest('/recruits', {
-      credentials: 'include',
-    }),
+    apiRequest('/recruits'),
 
-  // 모임 상세 조회
   detail: (id) =>
-    apiRequest(`/recruits/${id}`, {
-      credentials: 'include',
-    }),
+    apiRequest(`/recruits/${id}`),
 
-  // 모임 등록
   create: (payload) =>
     apiRequest('/recruits', {
       method: 'POST',
-      credentials: 'include',
       body: JSON.stringify(payload),
     }),
 
-  // 모임 정보 수정
   update: (id, payload) =>
     apiRequest(`/recruits/${id}`, {
       method: 'PATCH',
-      credentials: 'include',
       body: JSON.stringify(payload),
     }),
 
-  // 모임 삭제
+  // 기존 DELETE /recruits/{id}는 게시글 논리 삭제용이다.
+  // 프로젝트 운영 취소는 cancelProject()를 사용한다.
   remove: (id) =>
     apiRequest(`/recruits/${id}`, {
       method: 'DELETE',
-      credentials: 'include',
     }),
 
-  // 모임 참여
-  join: (id) =>
+  // 프로젝트는 신청서 payload를 전달하고,
+  // 스터디는 본문 없이 신청할 수 있다.
+  join: (id, payload = null) =>
     apiRequest(`/recruits/${id}/join`, {
       method: 'POST',
-      credentials: 'include',
+      ...(payload != null
+        ? {
+            body: JSON.stringify(payload),
+          }
+        : {}),
     }),
 
-  // 모임 참여 취소
+  // 시작 전 신청 취소와 시작 후 자발적 중도이탈은
+  // 동일한 DELETE /join을 사용하고 서버가 상태를 구분한다.
   cancelJoin: (id) =>
     apiRequest(`/recruits/${id}/join`, {
       method: 'DELETE',
-      credentials: 'include',
     }),
 
-  // 참여 멤버 목록 조회
   members: (id) =>
-    apiRequest(`/recruits/${id}/members`, {
-      credentials: 'include',
-    }),
+    apiRequest(`/recruits/${id}/members`),
 
-  // 상세 화면의 참여 인원 조회
   count: (id) =>
-    apiRequest(`/recruits/${id}/count`, {
-      credentials: 'include',
-    }),
+    apiRequest(`/recruits/${id}/count`),
 
-  // 모임 좋아요
-  like: (id) =>
-    apiRequest(`/recruits/${id}/like`, {
-      method: 'PUT',
-      credentials: 'include',
-    }),
-
-  // 모임 좋아요 취소
-  unlike: (id) =>
-    apiRequest(`/recruits/${id}/like`, {
-      method: 'DELETE',
-      credentials: 'include',
-    }),
-
-  // 모임 스크랩
-  scrap: (id) =>
-    apiRequest(`/recruits/${id}/scrap`, {
-      method: 'PUT',
-      credentials: 'include',
-    }),
-
-  // 모임 스크랩 취소
-  unscrap: (id) =>
-    apiRequest(`/recruits/${id}/scrap`, {
-      method: 'DELETE',
-      credentials: 'include',
-    }),
-
-  // 댓글 목록 조회 (부모 → 대댓글 순서)
-  comments: (id) =>
-    apiRequest(`/recruits/${id}/comments`, {
-      credentials: 'include',
-    }),
-
-  // 댓글·대댓글 작성 (parent_comment_id가 있으면 대댓글)
-  createComment: (id, payload) =>
-    apiRequest(`/recruits/${id}/comments`, {
+  // 프로젝트 일정 연장
+  extendProject: (id, payload) =>
+    apiRequest(`/recruits/${id}/extension`, {
       method: 'POST',
-      credentials: 'include',
       body: JSON.stringify(payload),
     }),
 
-  // 댓글 수정
-  updateComment: (id, commentId, payload) =>
-    apiRequest(`/recruits/${id}/comments/${commentId}`, {
-      method: 'PATCH',
-      credentials: 'include',
+  // 2회 연장 후 필수 기술만 부족한 경우
+  // 현재 확정 구성으로 예정 시각에 시작하도록 결정
+  chooseExceptionStart: (id, payload) =>
+    apiRequest(`/recruits/${id}/exception-start`, {
+      method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  // 댓글 삭제
-  removeComment: (id, commentId) =>
-    apiRequest(`/recruits/${id}/comments/${commentId}`, {
-      method: 'DELETE',
-      credentials: 'include',
+  // 팀장의 시작 전 프로젝트 운영 취소
+  cancelProject: (id, payload) =>
+    apiRequest(`/recruits/${id}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // 진행 중 1인 프로젝트의 중도 종료
+  abortProject: (id, payload) =>
+    apiRequest(`/recruits/${id}/abort`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 }

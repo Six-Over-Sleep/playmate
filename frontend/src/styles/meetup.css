@@ -1528,3 +1528,1430 @@ button {
     font-size: 13px;
   }
 }
+
+
+/* =========================================================
+   모임 카드 - 프로젝트 기술 / 스터디 정보 / 신규 상태
+   ========================================================= */
+
+/* 프로젝트 필수 기술 칩 */
+.meetup-card-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.meetup-skill-chip,
+.meetup-skill-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* 필수 기술 충족 */
+.meetup-skill-filled {
+  background: #edf7f4;
+  color: #438d81;
+}
+
+/* 아직 담당자가 없는 필수 기술 */
+.meetup-skill-missing {
+  background: #f4f0fa;
+  color: #7657a8;
+}
+
+/* 표시되지 않은 추가 기술 개수 */
+.meetup-skill-more {
+  background: #f1eff4;
+  color: #8e8699;
+}
+
+/* 첫 번째 featured 카드에서는 배경 위에서도 읽기 쉽게 처리 */
+.meetup-card:first-child .meetup-skill-filled,
+.meetup-card-featured .meetup-skill-filled {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+.meetup-card:first-child .meetup-skill-missing,
+.meetup-card-featured .meetup-skill-missing {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  outline: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.meetup-card:first-child .meetup-skill-more,
+.meetup-card-featured .meetup-skill-more {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* 스터디 주제 / 종류 / 난이도 */
+.meetup-card-study-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.meetup-study-topic,
+.meetup-study-meta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.meetup-study-topic {
+  background: #edf7f4;
+  color: #438d81;
+}
+
+.meetup-study-meta {
+  background: #f4f0fa;
+  color: #7657a8;
+}
+
+.meetup-card:first-child .meetup-study-topic,
+.meetup-card:first-child .meetup-study-meta,
+.meetup-card-featured .meetup-study-topic,
+.meetup-card-featured .meetup-study-meta {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+/* lifecycle_status 신규 상태 */
+.meetup-status.ready {
+  background: #6d5b9c;
+  color: #ffffff;
+}
+
+.meetup-status.full {
+  background: #7c69a8;
+  color: #ffffff;
+}
+
+.meetup-status.progress {
+  background: #39786f;
+  color: #ffffff;
+}
+
+.meetup-status.completed {
+  background: #77717f;
+  color: #ffffff;
+}
+
+/* 상세 화면 상단에서도 동일한 신규 상태를 사용할 수 있도록 대응 */
+.meetup-detail-card > .meetup-detail-top > .meetup-status.ready {
+  background: #6d5b9c;
+}
+
+.meetup-detail-card > .meetup-detail-top > .meetup-status.full {
+  background: #7c69a8;
+}
+
+.meetup-detail-card > .meetup-detail-top > .meetup-status.progress {
+  background: #39786f;
+}
+
+.meetup-detail-card > .meetup-detail-top > .meetup-status.completed {
+  background: #77717f;
+}
+
+/* featured 카드의 상태 배지는 기존 흰색 반투명 스타일 유지 */
+.meetup-card:first-child .meetup-status.ready,
+.meetup-card:first-child .meetup-status.full,
+.meetup-card:first-child .meetup-status.progress,
+.meetup-card:first-child .meetup-status.completed,
+.meetup-card-featured .meetup-status.ready,
+.meetup-card-featured .meetup-status.full,
+.meetup-card-featured .meetup-status.progress,
+.meetup-card-featured .meetup-status.completed {
+  background: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+
+@media (max-width: 768px) {
+  .meetup-card-skills,
+  .meetup-card-study-info {
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .meetup-skill-chip,
+  .meetup-skill-more,
+  .meetup-study-topic,
+  .meetup-study-meta {
+    min-height: 26px;
+    padding: 5px 9px;
+    font-size: 11px;
+  }
+}
+
+/* =========================================================
+   모임 작성 - 프로젝트 기술 선택 / 팀장 지원
+   ========================================================= */
+
+/* 필수 기술 / 개설자 담당 기술 선택 영역 */
+.meetup-skill-select-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.meetup-skill-select-button {
+  min-height: 40px;
+  border: 1px solid #e8e4ef;
+  border-radius: 999px;
+  padding: 9px 15px;
+  background: #f7f7fa;
+  color: #7d7489;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.meetup-skill-select-button:hover {
+  transform: translateY(-1px);
+  border-color: #cfc5df;
+  background: #f2eef8;
+  color: #5d477f;
+}
+
+.meetup-skill-select-button.active {
+  border-color: #493278;
+  background: #493278;
+  color: #ffffff;
+}
+
+/* 개설자 담당 기술은 같은 선택 방식이지만 약간 다른 보조 톤 */
+.meetup-skill-select-button.creator {
+  background: #f2f8f6;
+  border-color: #dceee9;
+  color: #53867d;
+}
+
+.meetup-skill-select-button.creator:hover {
+  background: #eaf5f1;
+  border-color: #bfded5;
+  color: #3e756b;
+}
+
+.meetup-skill-select-button.creator.active {
+  border-color: #5f9e92;
+  background: #5f9e92;
+  color: #ffffff;
+}
+
+/* 팀장 가능 체크 */
+.meetup-leader-volunteer {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid #ece8f2;
+  border-radius: 16px;
+  background: #f8f7fa;
+  cursor: pointer;
+}
+
+.meetup-leader-volunteer input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin: 2px 0 0;
+  accent-color: #493278;
+  cursor: pointer;
+}
+
+.meetup-leader-volunteer > span {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #30283f;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.meetup-leader-volunteer small {
+  color: #948b9f;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.meetup-leader-volunteer:hover {
+  border-color: #d7cfe2;
+  background: #f5f2f9;
+}
+
+/* 프로젝트/스터디 입력 도움말이 필드 안에서 자연스럽게 붙도록 보정 */
+.meetup-field .meetup-type-help {
+  margin-top: 0;
+}
+
+/* 모바일 */
+@media (max-width: 768px) {
+  .meetup-skill-select-list {
+    gap: 8px;
+  }
+
+  .meetup-skill-select-button {
+    min-height: 38px;
+    padding: 8px 13px;
+    font-size: 12px;
+  }
+
+  .meetup-leader-volunteer {
+    padding: 14px 15px;
+    border-radius: 14px;
+  }
+
+  .meetup-leader-volunteer > span {
+    font-size: 13px;
+  }
+
+  .meetup-leader-volunteer small {
+    font-size: 11px;
+  }
+}
+
+/* =========================================================
+   참여 멤버 - 개설자 / 팀장 / 담당 기술
+   ========================================================= */
+
+/* 이름, 역할 배지, 담당 기술을 세로로 자연스럽게 배치 */
+.meetup-member-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.meetup-member-name-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
+.meetup-member-name-row > span:first-child {
+  overflow: hidden;
+  min-width: 0;
+  color: #443c50;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meetup-member-badges {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 기존 meetup-host-badge 디자인은 개설자 배지로 그대로 재사용 */
+.meetup-host-badge {
+  flex: 0 0 auto;
+}
+
+/* 프로젝트 팀장 배지 */
+.meetup-leader-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #eaf5f1;
+  color: #477d73;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* 확정 참여자의 담당 기술 */
+.meetup-member-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.meetup-member-skill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #f1eef8;
+  color: #665180;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* 기존 멤버 행은 역할/기술 정보가 늘어나도 중앙 정렬 유지 */
+.meetup-member-list li {
+  align-items: center;
+}
+
+/* 기존 avatar + 텍스트 묶음이 남은 공간을 사용할 수 있게 함 */
+.meetup-member-info {
+  flex: 1;
+}
+
+@media (max-width: 768px) {
+  .meetup-member-list li {
+    align-items: flex-start;
+    padding: 12px 14px;
+  }
+
+  .meetup-member-info {
+    align-items: flex-start;
+  }
+
+  .meetup-member-name-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .meetup-member-badges {
+    gap: 5px;
+  }
+
+  .meetup-member-skills {
+    gap: 5px;
+  }
+
+  .meetup-leader-badge,
+  .meetup-member-skill {
+    min-height: 22px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+}
+
+/* =========================================================
+   프로젝트 참여 신청 모달
+   ========================================================= */
+
+/* 프로젝트 참여 신청 모달 */
+
+.meetup-application-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(24, 20, 34, 0.42);
+}
+
+.meetup-application-modal {
+  display: flex;
+  width: min(760px, 100%);
+  max-height: calc(100vh - 56px);
+  overflow: hidden;
+  border-radius: 26px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(31, 24, 49, 0.18);
+  flex-direction: column;
+}
+
+.meetup-application-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 26px 30px 20px;
+  border-bottom: 1px solid #efedf3;
+}
+
+.meetup-application-eyebrow {
+  display: block;
+  margin-bottom: 6px;
+  color: #8c82a0;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.meetup-application-header h2 {
+  margin: 0;
+  color: #2b2444;
+  font-size: 22px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.meetup-application-close {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border: 0;
+  border-radius: 50%;
+  background: #f5f3f8;
+  color: #71687e;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.meetup-application-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.meetup-application-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 16px 30px 0;
+}
+
+.meetup-application-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #aaa3b4;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.meetup-application-step > span {
+  display: inline-flex;
+  width: 25px;
+  height: 25px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 25px;
+  border-radius: 50%;
+  background: #f1eff4;
+  color: #91899f;
+}
+
+.meetup-application-step.active,
+.meetup-application-step.done {
+  color: #493278;
+}
+
+.meetup-application-step.active > span,
+.meetup-application-step.done > span {
+  background: #493278;
+  color: #ffffff;
+}
+
+.meetup-application-body {
+  overflow-y: auto;
+  padding: 26px 30px;
+}
+
+.meetup-application-section {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.meetup-application-section-heading h3 {
+  margin: 0 0 7px;
+  color: #30283f;
+  font-size: 18px;
+  font-weight: 850;
+}
+
+.meetup-application-section-heading p {
+  margin: 0;
+  color: #91899f;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.meetup-application-skill-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.meetup-application-skill {
+  display: flex;
+  min-height: 64px;
+  align-items: flex-start;
+  justify-content: center;
+  border: 1px solid #ece8f2;
+  border-radius: 15px;
+  padding: 12px 14px;
+  background: #f8f7fa;
+  color: #625a6d;
+  text-align: left;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meetup-application-skill span {
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.meetup-application-skill small {
+  color: #a29aa9;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.meetup-application-skill.active {
+  border-color: #493278;
+  background: #493278;
+  color: #ffffff;
+}
+
+.meetup-application-skill.active small {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.meetup-application-leader {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid #dfeeea;
+  border-radius: 16px;
+  background: #f1f8f6;
+  cursor: pointer;
+}
+
+.meetup-application-leader input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin: 2px 0 0;
+  accent-color: #493278;
+}
+
+.meetup-application-leader > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meetup-application-leader strong {
+  color: #3f5f58;
+  font-size: 14px;
+}
+
+.meetup-application-leader small {
+  color: #758c87;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.meetup-career-disabled {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 17px 18px;
+  border-radius: 16px;
+  background: #f7f7fa;
+}
+
+.meetup-career-disabled > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meetup-career-disabled strong {
+  color: #40384d;
+  font-size: 14px;
+}
+
+.meetup-career-disabled span {
+  color: #958e9e;
+  font-size: 12px;
+}
+
+.meetup-career-disabled button {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 14px;
+  background: #e7e4ea;
+  color: #98919e;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: not-allowed;
+}
+
+.meetup-application-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.meetup-application-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.meetup-application-field.full {
+  grid-column: 1 / -1;
+}
+
+.meetup-application-field > span {
+  color: #30283f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.meetup-application-field input,
+.meetup-application-field textarea {
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  padding: 13px 15px;
+  background: #f7f7fa;
+  color: #30283f;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.meetup-application-field textarea {
+  min-height: 104px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.meetup-application-field input:focus,
+.meetup-application-field textarea:focus {
+  outline: 2px solid rgba(73, 50, 120, 0.15);
+  background: #fbfaff;
+}
+
+.meetup-application-field small {
+  color: #a29aa9;
+  font-size: 11px;
+}
+
+.meetup-application-review {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.meetup-application-review-item {
+  padding: 17px 18px;
+  border-radius: 16px;
+  background: #f7f7fa;
+}
+
+.meetup-application-review-item.full {
+  grid-column: 1 / -1;
+}
+
+.meetup-application-review-item > span {
+  display: block;
+  margin-bottom: 8px;
+  color: #958e9e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.meetup-application-review-item > strong {
+  color: #352d45;
+  font-size: 14px;
+}
+
+.meetup-application-review-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.meetup-application-review-chips strong {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eaf5f1;
+  color: #477d73;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.meetup-application-review-list {
+  display: grid;
+  margin: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+}
+
+.meetup-application-review-list > div {
+  min-width: 0;
+}
+
+.meetup-application-review-list dt {
+  margin-bottom: 4px;
+  color: #9b94a2;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.meetup-application-review-list dd {
+  margin: 0;
+  color: #433b4e;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.meetup-application-policy {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #fff6ef;
+  color: #875b3d;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.65;
+}
+
+.meetup-application-error {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff0f0;
+  color: #9a1d1d;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.meetup-application-empty {
+  padding: 28px 18px;
+  border-radius: 16px;
+  background: #f7f7fa;
+  color: #958e9e;
+  font-size: 13px;
+  text-align: center;
+}
+
+.meetup-application-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 18px 30px 22px;
+  border-top: 1px solid #efedf3;
+  background: #ffffff;
+}
+
+.meetup-application-footer button {
+  min-width: 96px;
+  min-height: 42px;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.meetup-application-footer .secondary {
+  background: #efedf3;
+  color: #655d70;
+}
+
+.meetup-application-footer .primary {
+  background: #493278;
+  color: #ffffff;
+}
+
+.meetup-application-footer button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .meetup-application-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .meetup-application-modal {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 24px 24px 0 0;
+  }
+
+  .meetup-application-header {
+    padding: 22px 20px 17px;
+  }
+
+  .meetup-application-header h2 {
+    font-size: 19px;
+  }
+
+  .meetup-application-steps {
+    padding: 14px 20px 0;
+  }
+
+  .meetup-application-step strong {
+    display: none;
+  }
+
+  .meetup-application-body {
+    padding: 22px 20px;
+  }
+
+  .meetup-application-skill-list,
+  .meetup-application-form-grid,
+  .meetup-application-review,
+  .meetup-application-review-list {
+    grid-template-columns: 1fr;
+  }
+
+  .meetup-application-field.full,
+  .meetup-application-review-item.full {
+    grid-column: auto;
+  }
+
+  .meetup-career-disabled {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .meetup-career-disabled button {
+    width: 100%;
+  }
+
+  .meetup-application-footer {
+    padding: 15px 20px 20px;
+  }
+
+  .meetup-application-footer button {
+    flex: 1;
+  }
+}
+
+/* =========================================================
+   최신 lifecycle 상태 / 프로젝트 운영 안내
+   ========================================================= */
+
+.meetup-status.aborted {
+  background: #f1eef3;
+  color: #706776;
+}
+
+.meetup-detail-card > .meetup-detail-top > .meetup-status.aborted {
+  background: #f1eef3;
+  color: #706776;
+}
+
+.meetup-card:first-child .meetup-status.aborted,
+.meetup-card-featured .meetup-status.aborted {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.meetup-project-policy {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 17px 18px;
+  border: 1px solid #ece8f2;
+  border-radius: 16px;
+  background: #f8f7fa;
+}
+
+.meetup-project-policy p {
+  margin: 0;
+  color: #655d70;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.65;
+}
+
+.meetup-project-policy p + p {
+  padding-top: 9px;
+  border-top: 1px solid #efedf3;
+}
+
+@media (max-width: 768px) {
+  .meetup-project-policy {
+    padding: 15px;
+    border-radius: 14px;
+  }
+
+  .meetup-project-policy p {
+    font-size: 11px;
+  }
+}
+
+/* =========================================================
+   신청 결과 / lifecycle / 신청 제한
+   ========================================================= */
+
+.meetup-lifecycle-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 0 2px;
+  padding: 12px 14px;
+  border-radius: 13px;
+  background: #f7f6f9;
+}
+
+.meetup-lifecycle-note strong {
+  flex: 0 0 auto;
+  color: #493278;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.meetup-lifecycle-note span {
+  color: #766f7d;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.meetup-join-restriction {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 15px;
+  background: #fff6ef;
+}
+
+.meetup-join-restriction strong {
+  color: #7d5135;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.meetup-join-restriction span {
+  color: #875f46;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.6;
+}
+
+.meetup-join-restriction small {
+  color: #a4826e;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.meetup-application-result-view {
+  display: flex;
+  min-height: 310px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+}
+
+.meetup-application-result-icon {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 18px;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 27px;
+  font-weight: 900;
+}
+
+.meetup-application-result-icon.accepted {
+  background: #e9f5f1;
+  color: #3f7e70;
+}
+
+.meetup-application-result-icon.waiting {
+  background: #fff5df;
+  color: #997027;
+}
+
+.meetup-application-result-view h3 {
+  margin: 0;
+  color: #332b40;
+  font-size: 21px;
+}
+
+.meetup-application-result-view > p {
+  max-width: 480px;
+  margin: 10px 0 0;
+  color: #817987;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.65;
+}
+
+.meetup-application-server-message {
+  margin-top: 18px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: #f7f7fa;
+  color: #615a69;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.meetup-application-reason-code {
+  margin-top: 8px;
+  color: #a099a7;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+/* =========================================================
+   프로젝트 팀장 작업 패널
+   ========================================================= */
+
+.meetup-project-action-panel,
+.meetup-solo-action-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 14px;
+  padding: 16px 18px;
+  border: 1px solid #ece9f0;
+  border-radius: 15px;
+  background: #ffffff;
+}
+
+.meetup-project-action-panel > div:first-child,
+.meetup-solo-action-panel > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.meetup-project-action-panel strong,
+.meetup-solo-action-panel strong {
+  color: #3b3348;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.meetup-project-action-panel span,
+.meetup-solo-action-panel span {
+  color: #8c8492;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.meetup-project-action-panel > small {
+  align-self: center;
+  color: #aaa3af;
+  font-size: 10px;
+}
+
+.meetup-project-action-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.meetup-project-action-buttons button {
+  min-height: 37px;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 13px;
+  background: #ece8f3;
+  color: #58456f;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.meetup-project-action-buttons button.danger {
+  background: #fff0f0;
+  color: #9a4040;
+}
+
+.meetup-project-action-buttons button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* =========================================================
+   프로젝트 일정 연장 모달
+   ========================================================= */
+
+.meetup-extension-overlay {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(27, 24, 32, 0.38);
+}
+
+.meetup-extension-modal {
+  width: min(620px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(35, 29, 45, 0.18);
+}
+
+.meetup-extension-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 24px 28px 18px;
+  border-bottom: 1px solid #efedf3;
+}
+
+.meetup-extension-header span {
+  color: #8f8797;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.meetup-extension-header h2 {
+  margin: 5px 0 0;
+  color: #30283f;
+  font-size: 20px;
+}
+
+.meetup-extension-header > button {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: #f2f0f4;
+  color: #625a69;
+  font-size: 20px;
+}
+
+.meetup-extension-body {
+  padding: 24px 28px 28px;
+}
+
+.meetup-extension-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 15px;
+  border-radius: 13px;
+  background: #f4f1f7;
+}
+
+.meetup-extension-count strong {
+  color: #493278;
+  font-size: 12px;
+}
+
+.meetup-extension-count span {
+  color: #817589;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.meetup-extension-schedule {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.meetup-extension-schedule > div {
+  padding: 14px 15px;
+  border-radius: 13px;
+  background: #f8f7fa;
+}
+
+.meetup-extension-schedule span {
+  display: block;
+  margin-bottom: 5px;
+  color: #9b93a2;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.meetup-extension-schedule strong {
+  color: #443b4f;
+  font-size: 12px;
+}
+
+.meetup-extension-range {
+  margin-top: 16px;
+  padding: 13px 15px;
+  border-radius: 13px;
+  background: #eef6ff;
+  color: #556e87;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.6;
+}
+
+.meetup-extension-form {
+  display: grid;
+  gap: 15px;
+  margin-top: 18px;
+}
+
+.meetup-extension-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.meetup-extension-form label > span {
+  color: #403747;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.meetup-extension-form input {
+  width: 100%;
+  border: 0;
+  border-radius: 13px;
+  padding: 12px 14px;
+  background: #f7f7fa;
+  color: #3f3748;
+  font-size: 12px;
+}
+
+.meetup-extension-form small {
+  color: #9c94a2;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.meetup-extension-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 18px;
+  padding: 14px 15px;
+  border-radius: 13px;
+  background: #fff8ed;
+}
+
+.meetup-extension-notice p {
+  margin: 0;
+  color: #896a45;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.meetup-extension-error {
+  margin-top: 14px;
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: #fff0f0;
+  color: #9a1d1d;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.meetup-extension-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 16px 28px 22px;
+  border-top: 1px solid #efedf3;
+}
+
+.meetup-extension-footer button {
+  min-width: 94px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.meetup-extension-footer .secondary {
+  background: #efedf3;
+  color: #655d70;
+}
+
+.meetup-extension-footer .primary {
+  background: #493278;
+  color: #ffffff;
+}
+
+.meetup-extension-footer button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .meetup-lifecycle-note,
+  .meetup-project-action-panel,
+  .meetup-solo-action-panel {
+    flex-direction: column;
+  }
+
+  .meetup-project-action-buttons {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .meetup-project-action-buttons button {
+    flex: 1;
+  }
+
+  .meetup-extension-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .meetup-extension-modal {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 24px 24px 0 0;
+  }
+
+  .meetup-extension-header,
+  .meetup-extension-body,
+  .meetup-extension-footer {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .meetup-extension-schedule {
+    grid-template-columns: 1fr;
+  }
+
+  .meetup-extension-footer button {
+    flex: 1;
+  }
+}

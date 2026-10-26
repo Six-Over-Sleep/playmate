@@ -394,8 +394,8 @@ function CategoryIcon({ type }) {
     )
 }
 
-export default function CareerPage() {
-    const [activeId, setActiveId] = useState(() => {
+export default function CareerPage({ openPostTarget }) {
+        const [activeId, setActiveId] = useState(() => {
         const saved = sessionStorage.getItem('playmate-career-category')
         return CATEGORIES.some((category) => category.id === saved) ? saved : 'talk'
     })
@@ -458,6 +458,43 @@ export default function CareerPage() {
     const labDetailRequest = useRef(0)
 
     const active = CATEGORIES.find((item) => item.id === activeId)
+
+    // 마이페이지에서 선택한 취업 게시글 상세 열기
+    useEffect(() => {
+        if (!openPostTarget) return
+        if (openPostTarget.postType !== 'CAREER') return
+
+        const { postId, careerCategory } = openPostTarget
+
+        if (!postId) return
+
+        // 취업 게시판 종류 확인
+        const categories = ['reviews', 'talk', 'lounge', 'lab']
+
+        if (!categories.includes(careerCategory)) {
+            setNotice('게시글의 카테고리를 확인할 수 없습니다.')
+            return
+        }
+
+        // 선택한 게시판으로 전환
+        selectCategory(careerCategory)
+
+        // 기존 상세 조회 함수 재사용
+        const item = { id: postId }
+
+        if (careerCategory === 'reviews') {
+            openReview(item)
+        } else if (careerCategory === 'talk') {
+            openTalk(item)
+        } else if (careerCategory === 'lounge') {
+            openLoungePost(item)
+        } else if (careerCategory === 'lab') {
+            openLabPost(item)
+        }
+
+    }, [openPostTarget])
+
+
 
     // 취업 탭 내부에서 선택한 카테고리도 새로고침 후 유지
     useEffect(() => {

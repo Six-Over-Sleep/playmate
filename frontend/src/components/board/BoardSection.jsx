@@ -3,14 +3,50 @@ import BoardPage from '../../pages/board/BoardPage'
 import PostDetailPage from '../../pages/board/PostDetailPage'
 import PostEditorPage from '../../pages/board/PostEditorPage'
 import { useBoard } from '../../hooks/board/useBoard'
+import { useEffect, useRef } from 'react'
 
 /** 게시판 전용 hook의 상태와 화면만 연결한다. 인증·모임 상태는 여기서 관리하지 않는다. */
-export default function BoardSection({ resetVersion }) {
+export default function BoardSection({ resetVersion, openPostTarget }) {
   const boardState = useBoard(resetVersion)
   const {
     boards, board, posts, post, comments, view, query, loading,
     detailLoading, busy, modal, error, success, initialized,
   } = boardState
+
+
+    // 마이페이지에서 선택한 게시글 중복 처리 방지
+  const openedTarget = useRef(null)
+
+  // 일반 게시판 게시글 상세 화면 자동 열기
+  useEffect(() => {
+    if (!initialized || !openPostTarget) return
+
+    const { postId, boardId, postType } = openPostTarget
+
+    // 취업 게시글과 모임은 별도 화면에서 처리
+    if (postType === 'CAREER' || postType === 'RECRUIT') return
+
+    if (postId == null || boardId == null) return
+
+    // 해당 게시글이 속한 게시판 찾기
+    const targetBoard = boards.find(
+      (item) => Number(item.id) === Number(boardId)
+    )
+
+    if (!targetBoard) return
+
+    // 동일한 이동 요청 중복 실행 방지
+    const targetKey = `${boardId}-${postId}`
+
+    if (openedTarget.current === targetKey) return
+
+    openedTarget.current = targetKey
+
+    // 기존 상세 조회 함수 호출
+    boardState.openPost({ id: postId }, targetBoard)
+
+  }, [initialized, boards, openPostTarget])
+  
   const unavailable = initialized && !board && error
 
   return (

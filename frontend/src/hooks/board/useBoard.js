@@ -169,29 +169,55 @@ export function useBoard(resetVersion) {
   }
 
   /** 상세와 댓글은 병렬 조회하되 선택이 바뀌면 이전 결과를 폐기한다. */
-  async function openPost(item) {
-    if (mutationLock.current) return
+  /** 선택한 게시글의 상세와 댓글을 조회한다. */
+  async function openPost(item, targetBoard = board) {
+    if (mutationLock.current || !targetBoard) return
+
+    // 마이페이지에서 다른 게시판의 글을 선택한 경우
+    if (board?.id !== targetBoard.id) {
+      selectBoard(targetBoard)
+    }
+
     cancelDetail()
+
     const controller = new AbortController()
     const id = detailRequest.current.id
     detailRequest.current.controller = controller
+
     setDetailLoading(true)
     setError('')
+
     try {
       const [detail, replies] = await Promise.all([
-        boardApi.post(board.id, item.id, { signal: controller.signal }),
-        boardApi.comments(board.id, item.id, { signal: controller.signal }),
+        boardApi.post(targetBoard.id, item.id, {
+          signal: controller.signal,
+        }),
+        boardApi.comments(targetBoard.id, item.id, {
+          signal: controller.signal,
+        }),
       ])
-      if (!mounted.current || id !== detailRequest.current.id) return
+
+      if (!mounted.current || id !== detailRequest.current.id) {
+        return
+      }
+
       setPost(detail)
       setComments(replies)
       setView('detail')
+
     } catch (cause) {
-      if (mounted.current && id === detailRequest.current.id && cause.name !== 'AbortError') {
+      if (
+        mounted.current &&
+        id === detailRequest.current.id &&
+        cause.name !== 'AbortError'
+      ) {
         setError(cause.message)
       }
+
     } finally {
-      if (mounted.current && id === detailRequest.current.id) setDetailLoading(false)
+      if (mounted.current && id === detailRequest.current.id) {
+        setDetailLoading(false)
+      }
     }
   }
 

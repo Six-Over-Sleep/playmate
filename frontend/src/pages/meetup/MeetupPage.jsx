@@ -25,15 +25,19 @@ export default function MeetupPage({
             (meetup) => normalizeCategory(meetup.category) === category,
           )
 
-    // 모집 중인 모임 우선, 동일 상태에서는 모임 ID 내림차순 정렬
+    // 모집 가능한 모임 우선,
+    // 동일한 상태에서는 최근 생성된 모임(recruit_id가 큰 값)을 먼저 표시
     return filtered.sort((a, b) => {
       const aClosed = isClosedMeetup(a)
       const bClosed = isClosedMeetup(b)
 
-      if (aClosed !== bClosed) return aClosed ? 1 : -1
+      if (aClosed !== bClosed) {
+        return aClosed ? 1 : -1
+      }
 
       const aId = Number(a.recruit_id ?? a.id ?? 0)
       const bId = Number(b.recruit_id ?? b.id ?? 0)
+
       return bId - aId
     })
   }, [meetups, category])
@@ -63,7 +67,9 @@ export default function MeetupPage({
 
       {/* 로딩·빈 목록·카드 목록 분기 */}
       {loading ? (
-        <div className="meetup-empty">모임을 불러오는 중이에요.</div>
+        <div className="meetup-empty">
+          모임을 불러오는 중이에요.
+        </div>
       ) : visibleMeetups.length === 0 ? (
         <div className="meetup-empty">
           이 카테고리에 등록된 모임이 아직 없어요.

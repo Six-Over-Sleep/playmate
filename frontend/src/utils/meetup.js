@@ -1,9 +1,10 @@
 // 목록 카테고리 선택 항목
 export const CATEGORY_OPTIONS = [
   { value: 'all', label: '전체' },
+  { value: 'study', label: '📖 스터디' },
+  { value: 'project', label: '💻 프로젝트' },
   { value: 'sports', label: '🏃 운동' },
   { value: 'game', label: '🎮 게임' },
-  { value: 'study', label: '📖 스터디' },
   { value: 'group_buy', label: '🛒 공동구매' },
 ]
 
@@ -16,14 +17,16 @@ export const EDITOR_CATEGORY_OPTIONS = CATEGORY_OPTIONS.filter(
 export const WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일']
 
 const CATEGORY_META = {
+  study: { icon: '📖', label: '스터디' },
+
+  project: { icon: '💻', label: '프로젝트' },
+
   sports: { icon: '🏃', label: '운동' },
   sport: { icon: '🏃', label: '운동' },
   exercise: { icon: '🏃', label: '운동' },
 
   game: { icon: '🎮', label: '게임' },
   gaming: { icon: '🎮', label: '게임' },
-
-  study: { icon: '📖', label: '스터디' },
 
   group_buy: { icon: '🛒', label: '공동구매' },
   groupbuy: { icon: '🛒', label: '공동구매' },
@@ -36,16 +39,20 @@ export function normalizeCategory(value) {
 
   const category = String(value).toLowerCase()
 
+  if (['study', '스터디'].includes(category)) {
+    return 'study'
+  }
+
+  if (['project', '프로젝트'].includes(category)) {
+    return 'project'
+  }
+
   if (['sports', 'sport', 'exercise', '운동'].includes(category)) {
     return 'sports'
   }
 
   if (['game', 'gaming', '게임'].includes(category)) {
     return 'game'
-  }
-
-  if (['study', '스터디'].includes(category)) {
-    return 'study'
   }
 
   if (['group_buy', 'groupbuy', 'purchase', '공동구매'].includes(category)) {
@@ -77,15 +84,20 @@ export function formatDateTime(value, fallback = '') {
     return String(value)
   }
 
-  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const parts = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date)
 
-  const day = String(date.getDate()).padStart(2, '0')
+  const result = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  )
 
-  const hour = String(date.getHours()).padStart(2, '0')
-
-  const minute = String(date.getMinutes()).padStart(2, '0')
-
-  return `${month}/${day} ${hour}:${minute}`
+  return `${result.month}/${result.day} ${result.hour}:${result.minute}`
 }
 
 // 날짜 표시 형식 변환
@@ -114,7 +126,9 @@ export function getMeetingSchedule(meetup) {
   const mode = String(meetup?.recruit_mode ?? '').toLowerCase()
 
   if (mode === 'regular') {
-    const days = Array.isArray(meetup?.regular_days) ? meetup.regular_days : []
+    const days = Array.isArray(meetup?.regular_days)
+      ? meetup.regular_days
+      : []
 
     const time = formatTime(meetup?.regular_time)
 
@@ -136,7 +150,9 @@ export function getMeetingSchedule(meetup) {
       ? formatDateTime(meetup.meeting_start)
       : ''
 
-    const end = meetup?.meeting_end ? formatDateTime(meetup.meeting_end) : ''
+    const end = meetup?.meeting_end
+      ? formatDateTime(meetup.meeting_end)
+      : ''
 
     if (start && end) {
       return `${start} ~ ${end}`
@@ -152,6 +168,23 @@ export function getMeetingSchedule(meetup) {
   }
 
   return '일정 협의'
+}
+
+// 프로젝트·스터디 전체 운영 기간
+export function getMeetupPeriod(meetup) {
+  const start = meetup?.starts_at
+    ? formatDateTime(meetup.starts_at)
+    : ''
+
+  const end = meetup?.ends_at
+    ? formatDateTime(meetup.ends_at)
+    : ''
+
+  if (start && end) {
+    return `${start} ~ ${end}`
+  }
+
+  return start || end || ''
 }
 
 // 모임 방식 표시 이름
@@ -186,9 +219,61 @@ export function getPlace(meetup) {
   return `${place} (오프라인)`
 }
 
-// 모임 상태·모집 마감·정원 기준 상태 판별
+// 새 프로젝트·스터디 진행 상태.
+// 기존 state와 lifecycle_status는 서로 다른 값이므로 lifecycle_status가 있을 때만 우선 사용함.
+export function getLifecycleStatus(meetup) {
+  return String(meetup?.lifecycle_status ?? '').toUpperCase()
+}
+
+// 프로젝트·스터디는 정원이 찬 상태에서도 대기 신청이 가능함.
+// 실제 신청 가능 여부는 상세 응답의 permissions.can_join이 최종 기준임.
+export function supportsWaitingApplication(meetup) {
+  const category = normalizeCategory(meetup?.category)
+  return category === 'project' || category === 'study'
+}
+
+// 모임 상태 표시
 export function getMeetupStatus(meetup, currentCount = null) {
-  const raw = String(meetup?.state ?? meetup?.status ?? 'OPEN').toUpperCase()
+  const lifecycle = getLifecycleStatus(meetup)
+
+  if (lifecycle === 'CANCELED' || lifecycle === 'CANCELLED') {
+    return {
+      className: 'closed',
+      label: '취소',
+    }
+  }
+
+  if (lifecycle === 'ABORTED') {
+    return {
+      className: 'aborted',
+      label: '중도 종료',
+    }
+  }
+
+  if (lifecycle === 'COMPLETED') {
+    return {
+      className: 'completed',
+      label: '완료',
+    }
+  }
+
+  if (lifecycle === 'IN_PROGRESS') {
+    return {
+      className: 'progress',
+      label: '진행 중',
+    }
+  }
+
+  if (lifecycle === 'READY') {
+    return {
+      className: 'ready',
+      label: '시작 대기',
+    }
+  }
+
+  const raw = String(
+    meetup?.state ?? meetup?.status ?? 'OPEN',
+  ).toUpperCase()
 
   const current = Number(
     currentCount ??
@@ -208,17 +293,38 @@ export function getMeetupStatus(meetup, currentCount = null) {
     }
   }
 
+  if (raw === 'ABORTED') {
+    return {
+      className: 'aborted',
+      label: '중도 종료',
+    }
+  }
+
+  if (raw === 'COMPLETED') {
+    return {
+      className: 'completed',
+      label: '완료',
+    }
+  }
+
+  if (raw === 'IN_PROGRESS') {
+    return {
+      className: 'progress',
+      label: '진행 중',
+    }
+  }
+
+  if (raw === 'READY') {
+    return {
+      className: 'ready',
+      label: '시작 대기',
+    }
+  }
+
   if (['EXPIRED', 'DEADLINE'].includes(raw)) {
     return {
       className: 'deadline',
       label: '기한마감',
-    }
-  }
-
-  if (raw === 'FULL' || (capacity > 0 && current >= capacity)) {
-    return {
-      className: 'closed',
-      label: '정원마감',
     }
   }
 
@@ -229,15 +335,71 @@ export function getMeetupStatus(meetup, currentCount = null) {
     }
   }
 
+  if (raw === 'FULL' || (capacity > 0 && current >= capacity)) {
+    if (supportsWaitingApplication(meetup)) {
+      return {
+        className: 'full',
+        label: '정원 충족',
+      }
+    }
+
+    return {
+      className: 'closed',
+      label: '정원마감',
+    }
+  }
+
   return {
     className: 'open',
     label: '모집중',
   }
 }
 
-// 모집 종료 여부
+// 목록에서 뒤로 정렬할 종료 상태.
+// 프로젝트·스터디의 full/ready는 대기 또는 추가 신청 가능성이 있으므로 닫힌 상태로 보지 않음.
 export function isClosedMeetup(meetup) {
-  return getMeetupStatus(meetup).className !== 'open'
+  return [
+    'closed',
+    'deadline',
+    'progress',
+    'completed',
+    'aborted',
+  ].includes(getMeetupStatus(meetup).className)
+}
+
+// 프로젝트 필수 기술 배열
+export function getRequiredSkills(meetup) {
+  if (Array.isArray(meetup?.required_skills)) {
+    return meetup.required_skills
+  }
+
+  return []
+}
+
+// 아직 담당자가 없는 필수 기술 ID
+export function getMissingSkillIds(meetup) {
+  if (!Array.isArray(meetup?.missing_skill_ids)) {
+    return []
+  }
+
+  return meetup.missing_skill_ids
+    .map((id) => Number(id))
+    .filter(Number.isInteger)
+}
+
+// 특정 기술의 미충족 여부
+export function isMissingSkill(meetup, skill) {
+  const skillId = Number(
+    skill?.skill_id ??
+      skill?.id ??
+      skill,
+  )
+
+  if (!Number.isInteger(skillId)) {
+    return false
+  }
+
+  return getMissingSkillIds(meetup).includes(skillId)
 }
 
 // 목록 카드의 일정·장소 표시 문구
@@ -266,6 +428,7 @@ export function getCardSchedule(meetup) {
 // 참여자 이름과 기본 표시 이름
 export function getMemberName(member, index) {
   return (
+    member?.display_name ||
     member?.nickname ||
     member?.name ||
     member?.member_name ||

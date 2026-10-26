@@ -394,10 +394,8 @@ function CategoryIcon({ type }) {
 }
 
 export default function CareerPage() {
-    const [activeId, setActiveId] = useState(() => {
-        const saved = sessionStorage.getItem('playmate-career-category')
-        return CATEGORIES.some((category) => category.id === saved) ? saved : 'talk'
-    })
+    // 취업 페이지에 들어올 때는 항상 채용 인사이트부터 보여준다.
+    const [activeId, setActiveId] = useState('insights')
     const [activeMenu, setActiveMenu] = useState('전체')
     const [input, setInput] = useState('')
     const [keyword, setKeyword] = useState('')
@@ -457,11 +455,6 @@ export default function CareerPage() {
     const labDetailRequest = useRef(0)
 
     const active = CATEGORIES.find((item) => item.id === activeId)
-
-    // 취업 탭 내부에서 선택한 카테고리도 새로고침 후 유지
-    useEffect(() => {
-        sessionStorage.setItem('playmate-career-category', activeId)
-    }, [activeId])
 
     // 취준 도감 목록 조회: 메뉴/검색/페이지 변경 시 서버에서 다시 받아온다.
     useEffect(() => {

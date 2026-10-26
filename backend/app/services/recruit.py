@@ -260,10 +260,10 @@ def _serialize_category_detail(detail):
     }
 
 
-def get_recruits(db: Session):
+def get_recruits(db: Session, category: str | None = None):
     """삭제되지 않은 모임을 읽고 목록 화면용 필드를 반환함."""
     # Repository에서 모임 게시글과 JOINED 참여 인원 집계 결과를 함께 조회함.
-    results = recruit_repo.list_recruits_with_posts(db)
+    results = recruit_repo.list_recruits_with_posts(db, category)
 
     # SQLAlchemy 조회 결과를 프론트엔드에서 사용하기 쉬운 딕셔너리 목록으로 변환함.
     return [

@@ -14,7 +14,9 @@ class Recruit(Base):
     # recruit_id : 모임 고유 번호 (기본키)
     # post_id : 모임과 연결된 게시글 번호 (중복 연결 불가)
     recruit_id = Column(BigInteger, primary_key=True)
-    post_id = Column(BigInteger, ForeignKey("posts.post_id"), unique=True, nullable=False)
+    post_id = Column(
+        BigInteger, ForeignKey("posts.post_id"), unique=True, nullable=False
+    )
 
     # recruit_mode : 모임 운영 유형 (일회성, 정기, 상시 등)
     # category : 모임 카테고리 (운동, 게임, 스터디, 공동구매)

@@ -304,6 +304,7 @@ def create_comment(
     body: str,
     member_id: int,
     parent_comment_id: int | None = None,
+    is_anonymous: bool = False,
 ) -> dict[str, Any]:
     """게시글·부모 댓글 확인, 댓글 저장, 응답 조회를 한 트랜잭션에서 수행한다."""
     with db_cursor(commit=True) as cursor:
@@ -320,7 +321,8 @@ def create_comment(
             post_id,
             body,
             member_id,
-            parent_comment_id
+            parent_comment_id,
+            is_anonymous,
         )
 
         comment = _comment_detail(

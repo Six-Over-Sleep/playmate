@@ -1,5 +1,7 @@
+
 import { useEffect, useRef, useState } from 'react'
 import '../../styles/CareerReactions.css'
+
 import {
     createCareerComment,
     deleteCareerComment,
@@ -13,52 +15,84 @@ import {
 
 
 function formatCommentDate(value) {
-    return value ? new Date(value).toLocaleString('ko-KR') : ''
+    if (!value) return ''
+
+    // 시간대 정보가 없으면 UTC로 해석
+    const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value)
+    const dateValue = hasTimezone ? value : `${value}Z`
+
+    return new Date(dateValue).toLocaleString('ko-KR', {
+        timeZone: 'Asia/Seoul',
+    })
 }
 
 
 /**
- * 취업 게시글 4종 상세 하단의 좋아요·스크랩·댓글 영역.
+ * 취업 게시글 4종 공통 좋아요·스크랩·댓글 영역.
  *
- * - 좋아요·스크랩은 서버 응답 값으로 상위 상세 state를 갱신한다. (onChange)
- * - 댓글은 작성·수정·삭제 후 서버에서 다시 조회한다.
- *   삭제된 부모 댓글의 자리표시 여부도 서버 목록 응답을 그대로 따른다.
- * - 대댓글은 1단계까지만 허용되므로 최상위 댓글에만 답글 버튼을 둔다.
+ * - 댓글과 대댓글의 익명 여부를 각각 선택
+ * - 댓글 작성 후 서버에서 댓글 목록 재조회
+ * - 댓글 수정·삭제 및 XP 기능 유지
+ * - 대댓글은 1단계까지만 허용
  */
 export default function CareerReactions({ post, onChange }) {
+
     const [comments, setComments] = useState([])
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+
+    // 일반 댓글
     const [body, setBody] = useState('')
+    const [isAnonymous, setIsAnonymous] = useState(false)
+
+    // 대댓글
     const [replyTargetId, setReplyTargetId] = useState(null)
     const [replyBody, setReplyBody] = useState('')
+    const [replyAnonymous, setReplyAnonymous] = useState(false)
+
+    // 댓글 수정
     const [editingId, setEditingId] = useState(null)
     const [editBody, setEditBody] = useState('')
+
     const mutationLock = useRef(false)
 
-    // 상세 글이 바뀌면 해당 글의 댓글을 서버에서 받아온다.
+
+    // =========================================
+    // 1. 댓글 목록 조회
+    // =========================================
     useEffect(() => {
         let canceled = false
 
         getCareerComments(post.id)
             .then((data) => {
-                if (!canceled) setComments(Array.isArray(data) ? data : [])
+                if (!canceled) {
+                    setComments(Array.isArray(data) ? data : [])
+                }
             })
             .catch((cause) => {
-                if (!canceled) setError(`댓글 조회 실패: ${cause.message}`)
+                if (!canceled) {
+                    setError(`댓글 조회 실패: ${cause.message}`)
+                }
             })
 
-        return () => { canceled = true }
+        return () => {
+            canceled = true
+        }
     }, [post.id])
+
 
     async function loadComments() {
         const data = await getCareerComments(post.id)
         setComments(Array.isArray(data) ? data : [])
     }
 
-    // 연속 클릭을 막고 실패 메시지를 표시하는 공통 처리. 성공하면 true를 반환한다.
+
+    // =========================================
+    // 2. 중복 요청 방지
+    // =========================================
     async function mutate(task, failMessage) {
         if (mutationLock.current) return false
+
         mutationLock.current = true
         setBusy(true)
         setError('')
@@ -75,6 +109,10 @@ export default function CareerReactions({ post, onChange }) {
         }
     }
 
+
+    // =========================================
+    // 3. 좋아요
+    // =========================================
     function toggleLike() {
         return mutate(async () => {
             const result = post.liked_by_me
@@ -88,23 +126,47 @@ export default function CareerReactions({ post, onChange }) {
         }, '좋아요 처리 실패')
     }
 
+
+    // =========================================
+    // 4. 스크랩
+    // =========================================
     function toggleScrap() {
         return mutate(async () => {
             const result = post.scrapped_by_me
                 ? await unscrapCareerPost(post.id)
                 : await scrapCareerPost(post.id)
 
-            onChange({ scrapped_by_me: result.scrapped_by_me })
+            onChange({
+                scrapped_by_me: result.scrapped_by_me,
+            })
         }, '스크랩 처리 실패')
     }
 
-    function addComment(text, parentCommentId = null) {
+
+    // =========================================
+    // 5. 댓글·대댓글 작성
+    // =========================================
+    function addComment(
+        text,
+        parentCommentId = null,
+        anonymous = false
+    ) {
         return mutate(async () => {
-            await createCareerComment(post.id, text, parentCommentId)
+            await createCareerComment(
+                post.id,
+                text,
+                parentCommentId,
+                anonymous
+            )
+
             await loadComments()
         }, '댓글 작성 실패')
     }
 
+
+    // =========================================
+    // 6. 댓글 수정
+    // =========================================
     function editComment(commentId, text) {
         return mutate(async () => {
             await updateCareerComment(commentId, text)
@@ -112,43 +174,107 @@ export default function CareerReactions({ post, onChange }) {
         }, '댓글 수정 실패')
     }
 
+
+    // =========================================
+    // 7. 댓글 삭제
+    // =========================================
     async function deleteComment(commentId) {
-        if (!window.confirm('이 댓글을 삭제할까요?')) return
+        if (!window.confirm('이 댓글을 삭제할까요?')) {
+            return
+        }
+
         await mutate(async () => {
             await deleteCareerComment(commentId)
             await loadComments()
         }, '댓글 삭제 실패')
     }
 
+
+    // =========================================
+    // 8. 일반 댓글 제출
+    // =========================================
     async function submitComment(event) {
         event.preventDefault()
-        if (!body.trim()) return
-        if (await addComment(body.trim())) setBody('')
-    }
 
-    async function submitReply(event) {
-        event.preventDefault()
-        if (!replyBody.trim()) return
-        if (await addComment(replyBody.trim(), replyTargetId)) {
-            setReplyTargetId(null)
-            setReplyBody('')
+        if (!body.trim()) return
+
+        if (await addComment(
+            body.trim(),
+            null,
+            isAnonymous
+        )) {
+            setBody('')
+            setIsAnonymous(false)
         }
     }
 
+
+    // =========================================
+    // 9. 대댓글 제출
+    // =========================================
+    async function submitReply(event) {
+        event.preventDefault()
+
+        if (!replyBody.trim() || replyTargetId === null) {
+            return
+        }
+
+        if (await addComment(
+            replyBody.trim(),
+            replyTargetId,
+            replyAnonymous
+        )) {
+            setReplyTargetId(null)
+            setReplyBody('')
+            setReplyAnonymous(false)
+        }
+    }
+
+
+    // =========================================
+    // 10. 수정 저장
+    // =========================================
     async function saveEdit(commentId) {
         if (!editBody.trim()) return
-        if (await editComment(commentId, editBody.trim())) setEditingId(null)
+
+        if (await editComment(commentId, editBody.trim())) {
+            setEditingId(null)
+        }
     }
 
+
+    // =========================================
+    // 11. 답글 입력창 열기·닫기
+    // =========================================
     function toggleReply(commentId) {
-        setReplyTargetId((current) => (current === commentId ? null : commentId))
+        setReplyTargetId(
+            (current) => current === commentId
+                ? null
+                : commentId
+        )
+
         setReplyBody('')
+        setReplyAnonymous(false)
     }
 
-    // 일반 댓글과 답글이 같은 입력 모양을 사용한다.
-    function renderForm(value, setValue, onSubmit, placeholder, label) {
+
+    // =========================================
+    // 12. 댓글·대댓글 공통 입력 폼
+    // =========================================
+    function renderForm(
+        value,
+        setValue,
+        onSubmit,
+        placeholder,
+        label,
+        anonymous,
+        setAnonymous,
+    ) {
         return (
-            <form className="career-comment-form" onSubmit={onSubmit}>
+            <form
+                className="career-comment-form"
+                onSubmit={onSubmit}
+            >
                 <textarea
                     aria-label={placeholder}
                     rows={3}
@@ -156,20 +282,49 @@ export default function CareerReactions({ post, onChange }) {
                     value={value}
                     disabled={busy}
                     placeholder={placeholder}
-                    onChange={(event) => setValue(event.target.value)}
+                    onChange={(event) =>
+                        setValue(event.target.value)
+                    }
                 />
-                <button type="submit" disabled={busy || !value.trim()}>
-                    {label}
-                </button>
+
+                <div className="career-comment-form-footer">
+                    <label className="career-comment-anonymous">
+                        <input
+                            type="checkbox"
+                            checked={anonymous}
+                            disabled={busy}
+                            onChange={(event) =>
+                                setAnonymous(event.target.checked)
+                            }
+                        />
+                        익명으로 작성
+                    </label>
+
+                    <button
+                        type="submit"
+                        disabled={busy || !value.trim()}
+                    >
+                        {label}
+                    </button>
+                </div>
             </form>
         )
     }
 
-    // 삭제 자리표시는 실제 댓글이 아니므로 개수에서 제외한다.
-    const commentCount = comments.filter((comment) => !comment.is_deleted).length
 
+    // 삭제된 부모 댓글은 댓글 수에서 제외
+    const commentCount = comments.filter(
+        (comment) => !comment.is_deleted
+    ).length
+
+
+    // =========================================
+    // 13. 화면
+    // =========================================
     return (
         <section className="career-reactions">
+
+            {/* 좋아요·스크랩 */}
             <div className="career-reaction-buttons">
                 <button
                     type="button"
@@ -180,6 +335,7 @@ export default function CareerReactions({ post, onChange }) {
                 >
                     {post.liked_by_me ? '♥' : '♡'} 좋아요 {post.like_count ?? 0}
                 </button>
+
                 <button
                     type="button"
                     className={post.scrapped_by_me ? 'active' : ''}
@@ -191,19 +347,31 @@ export default function CareerReactions({ post, onChange }) {
                 </button>
             </div>
 
-            {error && <p className="career-reaction-error" role="alert">{error}</p>}
+            {error && (
+                <p
+                    className="career-reaction-error"
+                    role="alert"
+                >
+                    {error}
+                </p>
+            )}
 
             <h4>댓글 {commentCount}</h4>
 
+            {/* 댓글·대댓글 목록 */}
             {comments.length > 0 ? (
                 <ul className="career-comment-list">
                     {comments.map((comment) => {
-                        const isReply = comment.parent_comment_id != null
+                        const isReply =
+                            comment.parent_comment_id != null
 
-                        // 삭제된 부모 댓글은 살아 있는 대댓글이 있을 때만 서버가 자리표시로 내려준다.
+                        // 삭제된 부모 댓글
                         if (comment.is_deleted) {
                             return (
-                                <li key={comment.id} className="career-comment deleted">
+                                <li
+                                    key={comment.id}
+                                    className="career-comment deleted"
+                                >
                                     <p>삭제된 댓글입니다.</p>
                                 </li>
                             )
@@ -212,11 +380,17 @@ export default function CareerReactions({ post, onChange }) {
                         return (
                             <li
                                 key={comment.id}
-                                className={isReply ? 'career-comment reply' : 'career-comment'}
+                                className={
+                                    isReply
+                                        ? 'career-comment reply'
+                                        : 'career-comment'
+                                }
                             >
                                 <div className="career-comment-head">
                                     <strong>{comment.author_name}</strong>
-                                    <span>{formatCommentDate(comment.created_at)}</span>
+                                    <span>
+                                        {formatCommentDate(comment.created_at)}
+                                    </span>
                                 </div>
 
                                 {editingId === comment.id ? (
@@ -227,20 +401,28 @@ export default function CareerReactions({ post, onChange }) {
                                             maxLength={2000}
                                             value={editBody}
                                             disabled={busy}
-                                            onChange={(event) => setEditBody(event.target.value)}
+                                            onChange={(event) =>
+                                                setEditBody(event.target.value)
+                                            }
                                         />
+
                                         <div className="career-comment-actions">
                                             <button
                                                 type="button"
                                                 disabled={busy || !editBody.trim()}
-                                                onClick={() => saveEdit(comment.id)}
+                                                onClick={() =>
+                                                    saveEdit(comment.id)
+                                                }
                                             >
                                                 저장
                                             </button>
+
                                             <button
                                                 type="button"
                                                 disabled={busy}
-                                                onClick={() => setEditingId(null)}
+                                                onClick={() =>
+                                                    setEditingId(null)
+                                                }
                                             >
                                                 취소
                                             </button>
@@ -249,16 +431,22 @@ export default function CareerReactions({ post, onChange }) {
                                 ) : (
                                     <>
                                         <p>{comment.body}</p>
+
                                         <div className="career-comment-actions">
                                             {!isReply && (
                                                 <button
                                                     type="button"
                                                     disabled={busy}
-                                                    onClick={() => toggleReply(comment.id)}
+                                                    onClick={() =>
+                                                        toggleReply(comment.id)
+                                                    }
                                                 >
-                                                    {replyTargetId === comment.id ? '답글 취소' : '답글'}
+                                                    {replyTargetId === comment.id
+                                                        ? '답글 취소'
+                                                        : '답글'}
                                                 </button>
                                             )}
+
                                             {comment.is_owner && (
                                                 <>
                                                     <button
@@ -271,11 +459,14 @@ export default function CareerReactions({ post, onChange }) {
                                                     >
                                                         수정
                                                     </button>
+
                                                     <button
                                                         type="button"
                                                         className="delete"
                                                         disabled={busy}
-                                                        onClick={() => deleteComment(comment.id)}
+                                                        onClick={() =>
+                                                            deleteComment(comment.id)
+                                                        }
                                                     >
                                                         삭제
                                                     </button>
@@ -285,22 +476,36 @@ export default function CareerReactions({ post, onChange }) {
                                     </>
                                 )}
 
+                                {/* 대댓글 입력 폼 */}
                                 {replyTargetId === comment.id && renderForm(
                                     replyBody,
                                     setReplyBody,
                                     submitReply,
                                     '답글을 입력해 주세요.',
                                     '답글 작성',
+                                    replyAnonymous,
+                                    setReplyAnonymous,
                                 )}
                             </li>
                         )
                     })}
                 </ul>
             ) : (
-                <p className="career-comment-empty">첫 댓글을 남겨 보세요.</p>
+                <p className="career-comment-empty">
+                    첫 댓글을 남겨 보세요.
+                </p>
             )}
 
-            {renderForm(body, setBody, submitComment, '댓글을 입력해 주세요.', '댓글 작성')}
+            {/* 일반 댓글 입력 폼 */}
+            {renderForm(
+                body,
+                setBody,
+                submitComment,
+                '댓글을 입력해 주세요.',
+                '댓글 작성',
+                isAnonymous,
+                setIsAnonymous,
+            )}
         </section>
     )
 }

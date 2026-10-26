@@ -165,3 +165,28 @@
         flex: 1;
     }
 }
+
+
+.career-comment-form-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+}
+
+.career-comment-anonymous {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: #514678;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.career-comment-anonymous input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: #4b3b85;
+}

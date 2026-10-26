@@ -78,6 +78,7 @@ def create_comment(
     body: str,
     member_id: int,
     parent_comment_id: int | None = None,
+    is_anonymous: bool = False,
 ) -> dict[str, Any]:
     """게시글·부모 댓글 확인, 댓글 저장, 응답 조회 후 게시판과 같이 XP를 지급한다."""
     with db_cursor(commit=True) as cursor:
@@ -90,7 +91,12 @@ def create_comment(
 
         # 3. 댓글 또는 대댓글 저장
         comment_id = board_repository.create_comment(
-            cursor, post_id, body, member_id, parent_comment_id
+            cursor,
+            post_id,
+            body,
+            member_id,
+            parent_comment_id,
+            is_anonymous,
         )
         comment = board_service._comment_detail(cursor, comment_id, member_id)
 

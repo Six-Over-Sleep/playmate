@@ -108,23 +108,29 @@ class CommentWrite(StrictModel):
     # 일반 댓글이면 None, 대댓글이면 부모 댓글 ID
     parent_comment_id: int | None = Field(default=None, gt=0)
 
+    # 익명 작성 여부
+    # 기본값 False: 닉네임 공개
+    is_anonymous: bool = False
 
 # 댓글 조회 및 작성 결과를 반환하는 데이터
 class CommentResponse(BaseModel):
     id: int
     post_id: int
 
-    # 대댓글 관계 (일반 댓글이면 None)
+    # 대댓글 관계
     parent_comment_id: int | None = None
     body: str
 
-    # 삭제된 부모 댓글 자리표시는 작성자 정보를 숨기므로 None일 수 있음
+    # 작성자 정보
     author_id: int | None
     author_name: str
+
+    # 익명 여부
+    is_anonymous: bool = False
 
     created_at: datetime
     updated_at: datetime
     is_owner: bool = False
 
-    # 대댓글이 남아 있는 삭제된 부모 댓글 자리표시 여부
+    # 삭제된 부모 댓글 여부
     is_deleted: bool = False

@@ -249,7 +249,8 @@ def create_comment(
         post_id,
         payload.body,
         member_id,
-        payload.parent_comment_id
+        payload.parent_comment_id,
+        payload.is_anonymous,
     )
 
 

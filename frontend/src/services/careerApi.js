@@ -362,8 +362,14 @@ export function getCareerComments(postId) {
 }
 
 
-// 7-6. 댓글·대댓글 작성 (parentCommentId가 있으면 대댓글)
-export function createCareerComment(postId, body, parentCommentId = null) {
+// 7-6. 댓글·대댓글 작성 (익명 여부 포함)
+
+export function createCareerComment(
+    postId,
+    body,
+    parentCommentId = null,
+    isAnonymous = false
+) {
     return request(`${POST_URL}/${postId}/comments`, {
         method: 'POST',
         headers: {
@@ -372,6 +378,7 @@ export function createCareerComment(postId, body, parentCommentId = null) {
         body: JSON.stringify({
             body,
             parent_comment_id: parentCommentId,
+            is_anonymous: isAnonymous,
         }),
     })
 }

@@ -1,6 +1,6 @@
 
 # 댓글 및 대댓글 정보를 관리하는 SQLAlchemy 모델
-from sqlalchemy import Column, BigInteger, Text, DateTime, ForeignKey, text
+from sqlalchemy import Column, BigInteger, Text, DateTime, ForeignKey, Boolean, text
 from backend.app.core.database import Base
 
 
@@ -31,6 +31,14 @@ class Comment(Base):
     body = Column(
         Text,
         nullable=False
+    )
+
+    # 익명 작성 여부
+    # True: 익명 / False: 닉네임 공개
+    is_anonymous = Column(
+        Boolean,
+        nullable=False,
+        server_default=text("FALSE")
     )
 
     # 댓글 작성 시간

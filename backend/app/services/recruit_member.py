@@ -102,9 +102,6 @@ def join_recruit(
             )
 
         # 모집 마감 시각 이후에는 참여할 수 없음.
-        # Discord Bot이 마감 시각 기준 최종 참여자를 바탕으로
-        # 채널을 생성하므로, 마감 이후 참여를 허용하면
-        # Discord 참여자와 DB 참여자가 달라질 수 있음.
         if (
             recruit.deadline_at is not None
             and recruit.deadline_at <= kst_now()
@@ -358,8 +355,6 @@ def get_recruit_count(
     capacity = result.capacity
 
     # 남은 인원은 정원 - 현재 인원으로 계산함.
-    # max(0, ...)은 잔여 인원이 음수로
-    # 표시되지 않도록 함.
     return {
         "recruit_id": recruit_id,
         "current_members": count,

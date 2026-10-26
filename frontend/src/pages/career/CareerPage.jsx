@@ -10,6 +10,7 @@ import CareerLabForm from '../../components/career/CareerLabForm'
 import CareerLabDetailPage from './CareerLabDetailPage'
 import CareerBriefing from '../../components/career/CareerBriefing'
 import CareerInsights from '../../components/career/CareerInsights'
+import CareerReactions from '../../components/career/CareerReactions'
 import {
     createCareerReview,
     getCareerReviews,
@@ -668,6 +669,12 @@ export default function CareerPage() {
         setNotice('')
     }
 
+    // 좋아요·스크랩 응답 값을 해당 카테고리의 상세 state에 반영한다.
+    // 목록의 좋아요·댓글 수는 목록으로 돌아갈 때 서버에서 다시 조회한다.
+    function patchSelected(setSelected) {
+        return (changes) => setSelected((current) => (current ? { ...current, ...changes } : current))
+    }
+
     function openNewReview() {
         if (reviewMutationLock.current) return
         setSelectedReview(null)
@@ -1253,7 +1260,15 @@ export default function CareerPage() {
                                 onBack={backToReviews}
                                 onEdit={editReview}
                                 onDelete={deleteReview}
-                            />
+                            >
+                                {selectedReview && (
+                                    <CareerReactions
+                                        key={selectedReview.id}
+                                        post={selectedReview}
+                                        onChange={patchSelected(setSelectedReview)}
+                                    />
+                                )}
+                            </CareerReviewDetailPage>
                         </div>
                     ) : activeId === 'talk' && talkView === 'editor' ? (
                         <div className="career-talk-editor">
@@ -1284,7 +1299,15 @@ export default function CareerPage() {
                             onEdit={editTalk}
                             onDelete={deleteTalk}
                             busy={talkBusy}
-                        />
+                        >
+                            {selectedTalk && (
+                                <CareerReactions
+                                    key={selectedTalk.id}
+                                    post={selectedTalk}
+                                    onChange={patchSelected(setSelectedTalk)}
+                                />
+                            )}
+                        </CareerTalkDetailPage>
                     ) : activeId === 'lounge' && loungeView === 'editor' ? (
                         <div className="career-lounge-editor">
                             <h3>{editingLoungePost ? '현직자 라운지 글 수정' : '현직자 라운지 글쓰기'}</h3>
@@ -1314,7 +1337,15 @@ export default function CareerPage() {
                             onEdit={editLoungePost}
                             onDelete={deleteLoungePost}
                             busy={loungeBusy}
-                        />
+                        >
+                            {selectedLoungePost && (
+                                <CareerReactions
+                                    key={selectedLoungePost.id}
+                                    post={selectedLoungePost}
+                                    onChange={patchSelected(setSelectedLoungePost)}
+                                />
+                            )}
+                        </CareerLoungeDetailPage>
                     ) : activeId === 'lab' && labView === 'editor' ? (
                         <div className="career-lab-editor">
                             <h3>{editingLabPost ? '커리어 연구소 글 수정' : '커리어 연구소 글쓰기'}</h3>
@@ -1346,7 +1377,15 @@ export default function CareerPage() {
                             onVote={voteLabPoll}
                             onToggleResolved={toggleLabResolved}
                             busy={labBusy}
-                        />
+                        >
+                            {selectedLabPost && (
+                                <CareerReactions
+                                    key={selectedLabPost.id}
+                                    post={selectedLabPost}
+                                    onChange={patchSelected(setSelectedLabPost)}
+                                />
+                            )}
+                        </CareerLabDetailPage>
                     ) : activeId === 'briefing' ? (
                         <CareerBriefing menus={active.menus} />
                     ) : activeId === 'insights' ? (
@@ -1476,8 +1515,8 @@ export default function CareerPage() {
                                         <div className="career-post-footer">
                                             <strong>{item.author}</strong>
                                             <span>{item.date}</span>
-                                            {!item.isServer && <span>♡ {item.likes}</span>}
-                                            {!item.isServer && <span>♧ {item.comments}</span>}
+                                            <span>♡ {item.isServer ? item.like_count ?? 0 : item.likes}</span>
+                                            <span>♧ {item.isServer ? item.comment_count ?? 0 : item.comments}</span>
                                         </div>
                                     </article>
                                 )) : (

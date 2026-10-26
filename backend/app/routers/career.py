@@ -30,6 +30,15 @@ from app.schemas.career import (
 )
 
 from app.services import career_service
+from app.services import career_reaction_service
+
+# 좋아요·스크랩·댓글은 게시판 공통 요청·응답 형식을 그대로 사용한다.
+from app.schemas.board import (
+    CommentResponse,
+    CommentWrite,
+    PostLikeResponse,
+    PostScrapResponse,
+)
 
 from app.schemas.career import (
     CareerLoungeCreate,
@@ -681,4 +690,122 @@ async def vote_lab(
         post_id,
         payload,
         member_id,
+    )
+
+
+# =========================================================
+# 취업 게시글 4종 공통 - 좋아요·스크랩·댓글
+# 취준 도감·커리어 톡톡·현직자 라운지·커리어 연구소 모두 post_id로 처리한다.
+# 댓글 수정·삭제는 게시판 공통 API(PATCH/DELETE /api/comments/{comment_id})를 사용한다.
+# =========================================================
+
+# PUT /api/career/posts/{post_id}/like : 좋아요 등록 (중복 요청은 현재 상태 반환)
+@router.put(
+    "/posts/{post_id}/like",
+    response_model=PostLikeResponse,
+)
+async def like_post(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """취업 게시글에 좋아요를 등록하고 좋아요 수·여부를 반환한다."""
+
+    return await run_in_threadpool(
+        career_reaction_service.like_post,
+        post_id,
+        member_id,
+    )
+
+
+# DELETE /api/career/posts/{post_id}/like : 좋아요 취소 (없어도 성공)
+@router.delete(
+    "/posts/{post_id}/like",
+    response_model=PostLikeResponse,
+)
+async def unlike_post(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """취업 게시글 좋아요를 취소하고 좋아요 수·여부를 반환한다."""
+
+    return await run_in_threadpool(
+        career_reaction_service.unlike_post,
+        post_id,
+        member_id,
+    )
+
+
+# PUT /api/career/posts/{post_id}/scrap : 스크랩 등록 (중복 요청은 현재 상태 반환)
+@router.put(
+    "/posts/{post_id}/scrap",
+    response_model=PostScrapResponse,
+)
+async def scrap_post(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """취업 게시글을 스크랩하고 스크랩 여부를 반환한다."""
+
+    return await run_in_threadpool(
+        career_reaction_service.scrap_post,
+        post_id,
+        member_id,
+    )
+
+
+# DELETE /api/career/posts/{post_id}/scrap : 스크랩 취소 (없어도 성공)
+@router.delete(
+    "/posts/{post_id}/scrap",
+    response_model=PostScrapResponse,
+)
+async def unscrap_post(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """취업 게시글 스크랩을 취소하고 스크랩 여부를 반환한다."""
+
+    return await run_in_threadpool(
+        career_reaction_service.unscrap_post,
+        post_id,
+        member_id,
+    )
+
+
+# GET /api/career/posts/{post_id}/comments : 댓글 목록 (부모 → 대댓글 순서, 삭제 자리표시 포함)
+@router.get(
+    "/posts/{post_id}/comments",
+    response_model=list[CommentResponse],
+)
+async def list_comments(
+    post_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """취업 게시글의 댓글과 대댓글을 조회한다."""
+
+    return await run_in_threadpool(
+        career_reaction_service.list_comments,
+        post_id,
+        member_id,
+    )
+
+
+# POST /api/career/posts/{post_id}/comments : 댓글·대댓글 작성 (parent_comment_id가 있으면 대댓글)
+@router.post(
+    "/posts/{post_id}/comments",
+    response_model=CommentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_comment(
+    post_id: int,
+    payload: CommentWrite,
+    member_id: int = Depends(get_current_member_id),
+):
+    """취업 게시글에 댓글 또는 1단계 대댓글을 작성한다."""
+
+    return await run_in_threadpool(
+        career_reaction_service.create_comment,
+        post_id,
+        payload.body,
+        member_id,
+        payload.parent_comment_id,
     )

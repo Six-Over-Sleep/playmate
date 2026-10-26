@@ -9,6 +9,7 @@ const TABS = [
   { id: 'posts', label: '내 게시글' },
   { id: 'comments', label: '내 댓글' },
   { id: 'scraps', label: '내 스크랩' },
+  { id: 'likes', label: '내 좋아요' },
   { id: 'meetups', label: '내 모임' },
 ]
 
@@ -179,6 +180,13 @@ export default function MyActivity({ onOpenPost }) {
           title: item.title,
           description: '',
           meta: `스크랩 · ${formatDate(item.scrapped_at)}`,
+        }
+
+      case 'likes':
+        return {
+          title: item.title,
+          description: '',
+          meta: `좋아요 · ${formatDate(item.liked_at)}`,
         }
 
       default:

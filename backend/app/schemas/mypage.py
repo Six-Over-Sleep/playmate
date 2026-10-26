@@ -192,3 +192,21 @@ class MyMeetupResponse(BaseModel):
     recruit_mode: str | None = None
     state: str | None = None
     created_at: datetime | None = None
+
+
+# =========================================================
+# 9. 내가 좋아요 누른 게시글
+# =========================================================
+
+class MyLikeResponse(BaseModel):
+    post_id: int
+
+    # 게시글 이동 정보
+    board_id: int | None = None
+    post_type: str | None = None
+    career_category: str | None = None
+    board_name: str | None = None
+
+    # 게시글 정보
+    title: str
+    liked_at: datetime

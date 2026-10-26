@@ -28,6 +28,7 @@ from backend.app.schemas.mypage import MyMeetupResponse
 from fastapi import Query
 from backend.app.schemas.mypage import MyPostPageResponse
 from backend.app.schemas.mypage import MyCommentPageResponse
+from backend.app.schemas.mypage import MyLikeResponse
 
 router = APIRouter(prefix="/mypage", tags=["마이페이지"])
 
@@ -707,6 +708,69 @@ def get_my_meetups(
                     AND p.deleted_at IS NULL
                 ORDER BY r.created_at DESC NULLS LAST,
                             r.recruit_id DESC
+                LIMIT 20
+                """,
+                (member_id,)
+            )
+
+            return cursor.fetchall()
+
+# =========================================================
+# 내가 좋아요 누른 게시글 조회
+# GET /api/mypage/likes
+# =========================================================
+
+@router.get("/likes", response_model=list[MyLikeResponse])
+def get_my_likes(
+    member_id: int = Depends(get_current_member_id)
+):
+    with get_db_connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    p.post_id,
+                    p.board_id,
+                    p.post_type,
+                    cp.category_code AS career_category,
+
+                    CASE
+                        WHEN b.board_name IS NOT NULL
+                            THEN b.board_name
+                        WHEN cp.category_code = 'reviews'
+                            THEN '취준 도감'
+                        WHEN cp.category_code = 'talk'
+                            THEN '커리어 톡톡'
+                        WHEN cp.category_code = 'lounge'
+                            THEN '현직자 라운지'
+                        WHEN cp.category_code = 'lab'
+                            THEN '커리어 연구소'
+                        WHEN p.post_type = 'RECRUIT'
+                            THEN '모임'
+                        ELSE '기타 게시글'
+                    END AS board_name,
+
+                    COALESCE(p.title, '제목 없음') AS title,
+                    l.created_at AS liked_at
+
+                FROM post_likes l
+
+                JOIN posts p
+                    ON l.post_id = p.post_id
+
+                LEFT JOIN boards b
+                    ON p.board_id = b.board_id
+
+                LEFT JOIN career_posts cp
+                    ON p.post_id = cp.post_id
+
+                WHERE l.member_id = %s
+                    AND p.deleted_at IS NULL
+
+                ORDER BY
+                    l.created_at DESC,
+                    l.post_id DESC
+
                 LIMIT 20
                 """,
                 (member_id,)

@@ -69,6 +69,9 @@ from backend.app.routers.board import router as board_router  # noqa: E402
 
 # 모임
 from backend.app.routers.recruit import router as recruit_router  # noqa: E402
+from backend.app.routers.recruit_program import (  # noqa: E402
+    features_router as recruit_program_features_router,
+)
 
 # 마이페이지
 from backend.app.routers.mypage import router as mypage_router  # noqa: E402
@@ -134,6 +137,7 @@ app.include_router(board_router)
 
 # 모임 API
 app.include_router(recruit_router)
+app.include_router(recruit_program_features_router)
 
 # 취업 카테고리 API
 # 최종 주소: /api/career/...

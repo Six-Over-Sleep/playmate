@@ -1,0 +1,167 @@
+/* 취업 게시글 4종 공통 좋아요·스크랩·댓글 영역 (상세 카드 색상과 맞춤) */
+
+.career-reactions {
+    margin-top: 24px;
+    padding-top: 22px;
+    border-top: 1px solid #e9e8ee;
+}
+
+.career-reaction-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.career-reaction-buttons button,
+.career-comment-form button {
+    padding: 11px 22px;
+    border: 0;
+    border-radius: 24px;
+    background: #f2f0f6;
+    color: #514678;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-reaction-buttons button.active,
+.career-comment-form button {
+    background: #4b3b85;
+    color: #ffffff;
+}
+
+.career-reaction-buttons button:disabled,
+.career-comment-form button:disabled,
+.career-comment-actions button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.career-reaction-error {
+    margin: 14px 0 0;
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: #fff0f1;
+    color: #b44355;
+    font-size: 13px;
+}
+
+.career-reactions h4 {
+    margin: 24px 0 12px;
+    color: #39344d;
+    font-size: 15px;
+}
+
+.career-comment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0 0 16px;
+    padding: 0;
+    list-style: none;
+}
+
+.career-comment {
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: #f7f6fa;
+}
+
+.career-comment.reply {
+    margin-left: 32px;
+}
+
+.career-comment-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #8c86a0;
+    font-size: 12px;
+}
+
+.career-comment-head strong {
+    color: #39344d;
+    font-size: 13px;
+}
+
+.career-comment p {
+    margin: 6px 0 8px;
+    color: #39344d;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.career-comment.deleted p {
+    margin: 0;
+    color: #9a94ab;
+}
+
+.career-comment-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.career-comment-actions button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #8c86a0;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.career-comment-actions button.delete {
+    color: #b44355;
+}
+
+.career-comment-form,
+.career-comment-edit {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.career-comment .career-comment-form {
+    margin-top: 12px;
+}
+
+.career-comment-form textarea,
+.career-comment-edit textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 14px;
+    border: 1px solid #e9e8ee;
+    border-radius: 14px;
+    background: #ffffff;
+    color: #39344d;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.6;
+    resize: vertical;
+}
+
+.career-comment-edit .career-comment-actions {
+    align-self: flex-end;
+}
+
+.career-comment-empty {
+    margin: 0 0 16px;
+    color: #9a94ab;
+    font-size: 13px;
+}
+
+@media (max-width: 580px) {
+    .career-comment.reply {
+        margin-left: 18px;
+    }
+
+    .career-reaction-buttons button {
+        flex: 1;
+    }
+}

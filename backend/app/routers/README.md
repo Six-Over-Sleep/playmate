@@ -19,4 +19,4 @@ GET    /api/recruits/{recruit_id}/count
 ## 주의
 모임 삭제는 DB 행 삭제가 아니라 `post_status="DELETED"` 및 `recruit.state="CLOSED"` 처리임. 상세/목록 조회는 삭제된 글을 제외함.
 
-테스트용 참가자 ID `-1`은 실제 Discord 연동 때 제거해야 함. 인증·권한 검사는 아직 미구현임.
+모임 생성·참여·취소는 로그인 세션의 `member_id`를 사용함(없으면 401). 모임장은 일반 참여할 수 없음(403). 모임 수정·삭제의 작성자 권한 검사는 아직 미구현임.

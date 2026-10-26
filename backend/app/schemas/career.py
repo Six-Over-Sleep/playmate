@@ -64,6 +64,11 @@ class CareerReviewResponse(BaseModel):
     created_at: datetime
     updated_at: datetime | None = None
     is_owner: bool
+
+    # 좋아요·스크랩 (게시판 공통 post_likes·post_scraps 기준, 스크랩 수는 제공하지 않음)
+    like_count: int = 0
+    liked_by_me: bool = False
+    scrapped_by_me: bool = False
     author_name: str
 
     category_code: Literal["reviews"]
@@ -92,6 +97,10 @@ class CareerReviewListItem(BaseModel):
     created_at: datetime
 
     is_owner: bool
+
+    # 목록 카드용 좋아요 수·댓글 수 (삭제된 댓글 자리표시는 제외)
+    like_count: int = 0
+    comment_count: int = 0
     author_name: str
 
     subcategory_code: ReviewSubcategory
@@ -340,6 +349,11 @@ class CareerTalkResponse(BaseModel):
 
     author_name: str
     is_owner: bool
+
+    # 좋아요·스크랩 (게시판 공통 post_likes·post_scraps 기준, 스크랩 수는 제공하지 않음)
+    like_count: int = 0
+    liked_by_me: bool = False
+    scrapped_by_me: bool = False
     is_anonymous: bool
 
     category_code: Literal["talk"]
@@ -365,6 +379,10 @@ class CareerTalkListItem(BaseModel):
 
     author_name: str
     is_owner: bool
+
+    # 목록 카드용 좋아요 수·댓글 수 (삭제된 댓글 자리표시는 제외)
+    like_count: int = 0
+    comment_count: int = 0
     is_anonymous: bool
 
     subcategory_code: TalkSubcategory
@@ -562,6 +580,11 @@ class CareerLoungeResponse(BaseModel):
 
     author_name: str
     is_owner: bool
+
+    # 좋아요·스크랩 (게시판 공통 post_likes·post_scraps 기준, 스크랩 수는 제공하지 않음)
+    like_count: int = 0
+    liked_by_me: bool = False
+    scrapped_by_me: bool = False
     is_anonymous: bool
 
     category_code: Literal["lounge"]
@@ -588,6 +611,10 @@ class CareerLoungeListItem(BaseModel):
 
     author_name: str
     is_owner: bool
+
+    # 목록 카드용 좋아요 수·댓글 수 (삭제된 댓글 자리표시는 제외)
+    like_count: int = 0
+    comment_count: int = 0
     is_anonymous: bool
 
     subcategory_code: LoungeSubcategory
@@ -823,6 +850,11 @@ class CareerLabResponse(BaseModel):
 
     is_owner: bool
 
+    # 좋아요·스크랩 (게시판 공통 post_likes·post_scraps 기준, 스크랩 수는 제공하지 않음)
+    like_count: int = 0
+    liked_by_me: bool = False
+    scrapped_by_me: bool = False
+
     is_anonymous: bool
 
     category_code: Literal["lab"]
@@ -868,6 +900,10 @@ class CareerLabListItem(BaseModel):
     author_name: str
 
     is_owner: bool
+
+    # 목록 카드용 좋아요 수·댓글 수 (삭제된 댓글 자리표시는 제외)
+    like_count: int = 0
+    comment_count: int = 0
 
     is_anonymous: bool
 

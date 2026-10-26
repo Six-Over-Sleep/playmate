@@ -187,8 +187,8 @@ def get_recruit_post(db: Session, recruit_id: int) -> Post:
 def get_recruit(db: Session, recruit_id: int, member_id: int | None = None):
     """게시글·모임·카테고리 상세를 조회한 후 기존 응답 형태로 구성함.
 
-    member_id는 로그인한 경우에만 전달되며, 좋아요·스크랩 여부 계산에 사용함.
-    로그인하지 않았으면 두 값 모두 False임.
+    member_id는 로그인한 경우에만 전달되며, 좋아요·스크랩·참여·모임장 여부 계산에 사용함.
+    로그인하지 않았으면 네 값 모두 False임.
     """
     # 삭제되지 않은 게시글과 모임 정보를 JOIN하여 함께 조회함.
     result = recruit_repo.find_recruit_with_post(db, recruit_id)
@@ -207,6 +207,13 @@ def get_recruit(db: Session, recruit_id: int, member_id: int | None = None):
 
     # 운동·게임·스터디·공동구매 중 해당 상세 정보를 조회함.
     detail = recruit_repo.get_category_detail(db, detail_model, recruit_id)
+
+    # 로그인 회원의 참여 기록으로 참여 여부(JOINED)와 모임장(HOST) 여부를 계산함.
+    my_member = (
+        recruit_repo.find_member(db, recruit_id, member_id)
+        if member_id is not None
+        else None
+    )
 
     # 게시글 정보 + 모임 정보 + 카테고리 상세 정보를 한 응답으로 합침.
     return {
@@ -232,6 +239,8 @@ def get_recruit(db: Session, recruit_id: int, member_id: int | None = None):
         and recruit_repo.has_post_like(db, post.post_id, member_id),
         "scrapped_by_me": member_id is not None
         and recruit_repo.has_post_scrap(db, post.post_id, member_id),
+        "joined_by_me": my_member is not None and my_member.status == "JOINED",
+        "is_host": my_member is not None and my_member.role == "HOST",
     }
 
 
@@ -251,10 +260,10 @@ def _serialize_category_detail(detail):
     }
 
 
-def get_recruits(db: Session):
+def get_recruits(db: Session, category: str | None = None):
     """삭제되지 않은 모임을 읽고 목록 화면용 필드를 반환함."""
     # Repository에서 모임 게시글과 JOINED 참여 인원 집계 결과를 함께 조회함.
-    results = recruit_repo.list_recruits_with_posts(db)
+    results = recruit_repo.list_recruits_with_posts(db, category)
 
     # SQLAlchemy 조회 결과를 프론트엔드에서 사용하기 쉬운 딕셔너리 목록으로 변환함.
     return [

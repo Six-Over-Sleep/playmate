@@ -168,7 +168,7 @@ def test_get_recruits_adds_like_count(monkeypatch):
         meeting_start=NOW, meeting_end=NOW,
     )
     monkeypatch.setattr(
-        recruit_repo, "list_recruits_with_posts", lambda db: [(post, recruit, 2, 3)]
+        recruit_repo, "list_recruits_with_posts", lambda db, category=None: [(post, recruit, 2, 3)]
     )
     row = recruit_service.get_recruits(Mock())[0]
     assert row["participant_count"] == 2 and row["like_count"] == 3

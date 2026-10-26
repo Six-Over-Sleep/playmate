@@ -42,7 +42,7 @@ def find_recruit_with_post(db: Session, recruit_id: int):
     )
 
 
-def list_recruits_with_posts(db: Session):
+def list_recruits_with_posts(db: Session, category: str | None = None):
     """삭제 상태가 아닌 모임 목록과 각 모임의 참여 인원·좋아요 수를 조회함."""
     # 1단계 : 각 모임에서 JOINED 상태인 회원 수를 집계함
     # HOST도 JOINED 상태라면 인원에 포함하고, 취소한 회원은 제외함
@@ -67,7 +67,7 @@ def list_recruits_with_posts(db: Session):
     )
 
     # 2단계 : 게시글 + 모임 + 참여 인원 + 좋아요 수를 한 쿼리로 조회함
-    return (
+    query = (
         db.query(
             Post,
             Recruit,
@@ -82,12 +82,15 @@ def list_recruits_with_posts(db: Session):
             joined_counts,
             joined_counts.c.recruit_id == Recruit.recruit_id,
         )  # 참여자 집계가 없는 모임도 목록에 포함함
-        .outerjoin(like_counts, like_counts.c.post_id == Post.post_id)  # 좋아요가 없는 모임도 포함함
+        # 좋아요가 없는 모임도 포함함
+        .outerjoin(like_counts, like_counts.c.post_id == Post.post_id)
         .filter(
             or_(Post.post_status != "DELETED", Post.post_status.is_(None))
         )  # 삭제 상태인 게시글은 제외함
-        .all()  # 조건에 맞는 전체 목록 반환
     )
+    if category is not None:
+        query = query.filter(Recruit.category == category)
+    return query.all()
 
 
 def get_recruit(db: Session, recruit_id: int):

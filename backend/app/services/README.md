@@ -12,4 +12,4 @@
 ## 상세 테이블
 `sports` → `recruit_sports_details`, `game` → `recruit_game_details`, `study` → `recruit_study_details`, `group_buy` → `recruit_group_buy_details`.
 
-현재 작성자 ID는 임시 `-1`이므로 운영 전 인증 연동 필수임.
+작성자·참여자 ID는 Router가 로그인 세션에서 꺼내 전달함. `join_recruit`의 `member_id=-1` 기본값은 Service를 직접 호출하는 테스트용이며, 웹 API에서는 사용하지 않음.

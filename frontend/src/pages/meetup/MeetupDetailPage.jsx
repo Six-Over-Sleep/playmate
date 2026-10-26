@@ -928,8 +928,11 @@ export default function MeetupDetailPage({
             </div>
           )}
 
+          {/* 모임장은 생성 시 이미 참여 중이므로 참여·취소 대신 모임장 표시 */}
           <div className="meetup-action-buttons">
-            {hasActiveApplication ? (
+            {meetup.is_host ? (
+              <span className="meetup-host-badge">모임장</span>
+            ) : hasActiveApplication ? (
               <button
                 type="button"
                 className="meetup-cancel-button"

@@ -611,3 +611,30 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+.mypage-activity-link {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mypage-activity-link:hover strong {
+  color: #6b5baf;
+  text-decoration: underline;
+}
+
+/* 마이페이지 모임 카드 클릭 */
+.mypage-meetup-card {
+  cursor: pointer;
+}
+
+.mypage-meetup-card:focus-visible {
+  outline: 2px solid #7455b7;
+  outline-offset: 3px;
+}

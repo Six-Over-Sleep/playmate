@@ -5,7 +5,7 @@ import OverallLevel from '../../components/mypage/OverallLevel'
 import SkillLevels from '../../components/mypage/SkillLevels'
 import MyActivity from '../../components/mypage/MyActivity'
 
-export default function MyPage({ onOpenPost }) {
+export default function MyPage({ onOpenPost, onOpenMeetup }) {
   return (
     <main className="mypage">
       <h1>마이페이지</h1>
@@ -24,7 +24,10 @@ export default function MyPage({ onOpenPost }) {
       </section>
 
       <section className="mypage-activity-section">
-        <MyActivity onOpenPost={onOpenPost} />
+        <MyActivity
+          onOpenPost={onOpenPost}
+          onOpenMeetup={onOpenMeetup}
+        />
       </section>
     </main>
   )

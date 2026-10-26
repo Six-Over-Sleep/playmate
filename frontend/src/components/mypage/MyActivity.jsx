@@ -58,7 +58,7 @@ function getMeetupCategory(category) {
   return categories[category?.toLowerCase()] || category || '모임'
 }
 
-export default function MyActivity({ onOpenPost }) {
+export default function MyActivity({ onOpenPost, onOpenMeetup }) {
   // 현재 탭
   const [activeTab, setActiveTab] = useState('posts')
 
@@ -258,10 +258,19 @@ export default function MyActivity({ onOpenPost }) {
                 item.role?.toUpperCase() === 'HOST'
 
               return (
-                <article
-                  key={item.recruit_id}
-                  className="mypage-meetup-card"
-                >
+                  <article
+                    key={item.recruit_id}
+                    className="mypage-meetup-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onOpenMeetup?.(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        onOpenMeetup?.(item)
+                      }
+                    }}
+                  >
 
                   {/* 카테고리 + 모집 상태 */}
                   <div className="mypage-meetup-top">

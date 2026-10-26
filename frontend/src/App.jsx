@@ -79,7 +79,8 @@ export default function App() {
     // 마이페이지에서 선택한 게시글 정보
     const [openPostTarget, setOpenPostTarget] = useState(null)
 
-
+    // 마이페이지에서 선택한 모임 ID
+    const [openMeetupTarget, setOpenMeetupTarget] = useState(null)
     // =====================================================
     // 4. 현재 페이지 저장
     // =====================================================
@@ -238,6 +239,9 @@ export default function App() {
             return
         }
 
+        // 상단 메뉴로 이동할 때 이전 모임 상세 이동 요청 초기화
+        setOpenMeetupTarget(null)
+
         // 이전 게시글 이동 요청 초기화
         setOpenPostTarget(null)
 
@@ -332,6 +336,19 @@ export default function App() {
         }
     }
 
+    // 마이페이지 내 모임 → 모임 상세 이동
+    const handleOpenActivityMeetup = (item) => {
+        const recruitId = Number(item?.recruit_id)
+
+        if (!Number.isInteger(recruitId) || recruitId <= 0) {
+            alert('모임 정보를 확인할 수 없습니다.')
+            return
+        }
+
+        setOpenMeetupTarget(recruitId)
+        setSection('meetup')
+        }
+
     // =====================================================
     // 11. 로그인 상태 확인 중
     // =====================================================
@@ -399,15 +416,18 @@ export default function App() {
 
                 {/* 모임 */}
                 {section === 'meetup' && (
-                    <MeetupSection />
+                <MeetupSection
+                    openMeetupTarget={openMeetupTarget}
+                />
                 )}
 
 
                 {/* 마이페이지 */}
                 {section === 'mypage' && (
-                    <MyPage
-                        onOpenPost={handleOpenActivityPost}
-                    />
+                <MyPage
+                    onOpenPost={handleOpenActivityPost}
+                    onOpenMeetup={handleOpenActivityMeetup}
+                />
                 )}
 
             </>

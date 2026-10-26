@@ -13,6 +13,7 @@ from .config import (
     DB_SSLMODE,
 )
 
+from sqlalchemy.pool import NullPool
 
 # =========================================================
 # psycopg 직접 연결
@@ -44,9 +45,12 @@ DATABASE_URL = URL.create(
 )
 
 
+# DB 연결을 사용한 뒤 즉시 종료
+# 개발 서버 여러 개가 연결을 계속 점유하지 않도록 설정
 engine = create_engine(
     DATABASE_URL,
     connect_args={"sslmode": DB_SSLMODE},
+    poolclass=NullPool,
     pool_pre_ping=True,
 )
 

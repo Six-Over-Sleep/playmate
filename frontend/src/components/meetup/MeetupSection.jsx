@@ -2,9 +2,10 @@ import MeetupPage from '../../pages/meetup/MeetupPage'
 import MeetupDetailPage from '../../pages/meetup/MeetupDetailPage'
 import MeetupEditorPage from '../../pages/meetup/MeetupEditorPage'
 import useMeetups from '../../hooks/meetup/useMeetups'
+import { useEffect, useRef } from 'react'
 
 // 모임 훅의 상태와 동작을 목록·상세·편집 화면에 연결하는 상위 컴포넌트.
-export default function MeetupSection() {
+export default function MeetupSection({ openMeetupTarget }) {
   // 데이터 조회와 변경, 화면 전환 상태는 useMeetups에서 관리함.
   const {
     meetups,
@@ -33,6 +34,22 @@ export default function MeetupSection() {
     editComment,
     deleteComment,
   } = useMeetups()
+
+  // 마이페이지에서 전달한 모임 ID로 상세 화면 열기
+  const openedMeetupRef = useRef(null)
+
+  useEffect(() => {
+    if (!openMeetupTarget) return
+
+    // 같은 모임을 중복 조회하지 않도록 방지
+    if (openedMeetupRef.current === openMeetupTarget) return
+
+    openedMeetupRef.current = openMeetupTarget
+
+    openMeetup({
+      recruit_id: openMeetupTarget,
+    })
+  }, [openMeetupTarget, openMeetup])
 
   return (
     <>

@@ -12,7 +12,6 @@ export default function useMeetups() {
   const [busy, setBusy] = useState(false)
   const [members, setMembers] = useState([])
   const [memberCount, setMemberCount] = useState(0)
-  const [joined, setJoined] = useState(false)
   const [comments, setComments] = useState([])
   const [error, setError] = useState('')
 
@@ -50,12 +49,6 @@ export default function useMeetups() {
 
     setMembers(memberList)
     setMemberCount(normalizeMemberCount(countData))
-
-    setJoined(
-      memberList.some(
-        (member) => Number(member?.member_id ?? member?.id) === -1,
-      ),
-    )
   }
 
   // 상세 화면의 댓글 목록을 조회함. 순서와 삭제 자리표시는 서버 응답을 그대로 사용함.
@@ -93,7 +86,6 @@ export default function useMeetups() {
     setSelectedMeetup(null)
     setMembers([])
     setMemberCount(0)
-    setJoined(false)
     setComments([])
     setView('list')
     setError('')
@@ -202,7 +194,6 @@ export default function useMeetups() {
       setSelectedMeetup(null)
       setMembers([])
       setMemberCount(0)
-      setJoined(false)
       setComments([])
 
       await loadMeetups()
@@ -217,6 +208,7 @@ export default function useMeetups() {
   }
 
   // 참여·취소 후 참여 정보와 모임 목록을 갱신함.
+  // 참여 여부는 다시 받은 상세 응답의 joined_by_me로 표시함.
   const changeParticipation = async (join) => {
     if (!selectedMeetup || busy) return
 
@@ -229,8 +221,6 @@ export default function useMeetups() {
       } else {
         await meetupApi.cancelJoin(selectedMeetup.recruit_id)
       }
-
-      setJoined(join)
 
       await loadParticipation(selectedMeetup.recruit_id)
 
@@ -387,7 +377,8 @@ export default function useMeetups() {
     busy,
     members,
     memberCount,
-    joined,
+    // 로그인 회원의 참여 여부는 상세 응답(joined_by_me)을 그대로 사용함.
+    joined: Boolean(selectedMeetup?.joined_by_me),
     comments,
     error,
 

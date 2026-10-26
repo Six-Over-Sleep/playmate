@@ -116,21 +116,20 @@ def delete_recruit(recruit_id: int, db: Session = Depends(get_db)):
 # 6. 모임 참여 신청
 # POST /api/recruits/{recruit_id}/join
 @router.post("/{recruit_id}/join")
-def join_recruit(recruit_id: int, db: Session = Depends(get_db)):
-    """모임 참여를 요청함. 회원 인증 연결은 후속 작업임."""
-    # 참여 인원, 중복 참여 등 실제 처리 규칙은 member_service에서 판단함
-    # 현재 Router는 로그인 회원 ID를 Service에 전달하지 않음
-    return member_service.join_recruit(db, recruit_id)
+def join_recruit(recruit_id: int, request: Request, db: Session = Depends(get_db)):
+    """로그인한 회원으로 모임 참여를 요청함. 로그인하지 않았으면 401."""
+    # 참여 인원, 중복 참여, 모임장 여부 등 실제 처리 규칙은 member_service에서 판단함
+    # 모임 생성(HOST 등록)과 같은 세션 member_id를 사용함
+    return member_service.join_recruit(db, recruit_id, _login_member_id(request))
 
 
 # 7. 모임 참여 취소
 # DELETE /api/recruits/{recruit_id}/join
 @router.delete("/{recruit_id}/join")
-def cancel_join(recruit_id: int, db: Session = Depends(get_db)):
-    """모임 참여를 취소함."""
-    # 모임 참여 기록의 취소 처리를 member_service에 위임함
-    # 현재 Router는 로그인 회원 ID를 Service에 전달하지 않음
-    return member_service.cancel_join(db, recruit_id)
+def cancel_join(recruit_id: int, request: Request, db: Session = Depends(get_db)):
+    """로그인한 회원 본인의 모임 참여를 취소함. 로그인하지 않았으면 401."""
+    # 로그인 회원의 참여 기록만 취소하도록 member_id를 member_service에 전달함
+    return member_service.cancel_join(db, recruit_id, _login_member_id(request))
 
 
 # 8. 모임 참여자 목록 조회

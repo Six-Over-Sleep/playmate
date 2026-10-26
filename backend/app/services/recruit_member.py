@@ -64,7 +64,7 @@ def ensure_capacity_not_below_joined(
 def join_recruit(
     db: Session,
     recruit_id: int,
-    member_id: int = -1,
+    member_id: int,
 ) -> dict[str, str]:
     """모임 행을 잠근 뒤 참여 가능 여부를 확인하고 회원 참여를 저장함.
 
@@ -72,10 +72,11 @@ def join_recruit(
     따라서 동시에 참여 요청이 들어오더라도 최신 참여 인원을 기준으로
     모집 정원 초과 여부를 확인할 수 있음.
 
-    member_id의 -1 기본값은 기존 Router와의 임시 호환용임.
-    Discord 회원 인증 연결 후에는 실제 로그인 회원 ID를 전달하도록 변경해야 함.
+    member_id는 공통 인증으로 검증한 실제 회원 ID를 호출자가 전달해야 함.
     """
     try:
+        if type(member_id) is not int or member_id <= 0:
+            raise HTTPException(401, "실제 로그인 회원이 필요합니다.")
         # 모임 행을 잠그고 조회함.
         # 이 트랜잭션이 끝날 때까지 동일 모임에 대한 다른 참여 요청은 대기함.
         recruit = recruit_repo.get_recruit_for_update(db, recruit_id)
@@ -175,15 +176,16 @@ def join_recruit(
 def cancel_join(
     db: Session,
     recruit_id: int,
+    member_id: int,
 ):
     """모임 참여 취소 처리.
 
     일반 참여자(MEMBER)만 취소할 수 있음.
     모임장(HOST)은 참여를 취소할 수 없음.
     """
-    # TODO: Discord 로그인 연동 후 실제 member_id로 변경
-    # -1은 임시 회원 ID이며 현재 로그인 사용자를 식별하지는 못함.
-    member_id = -1
+    # 공통 인증에서 검증한 본인 ID만 사용하며 타인 ID를 요청 본문에서 받지 않음.
+    if type(member_id) is not int or member_id <= 0:
+        raise HTTPException(401, "실제 로그인 회원이 필요합니다.")
 
     # 해당 모임과 회원 ID로 참여 기록을 조회함.
     member = recruit_repo.find_member(

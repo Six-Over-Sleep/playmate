@@ -104,13 +104,17 @@ class RecruitDispatchService:
             )
         if data:
             raise PolicyError("기존 모임은 프로젝트 신청서를 받지 않습니다.", 422)
-        return legacy_members.join_recruit(self.db, recruit_id)
+        member_id = self.current_member()
+        self.repository.actor(member_id)
+        return legacy_members.join_recruit(self.db, recruit_id, member_id)
 
     def cancel_application(self, recruit_id):
         if self.is_program(recruit_id):
             self.require_enabled()
             return self.programs.cancel_application(recruit_id, self.current_member())
-        return legacy_members.cancel_join(self.db, recruit_id)
+        member_id = self.current_member()
+        self.repository.actor(member_id)
+        return legacy_members.cancel_join(self.db, recruit_id, member_id)
 
     def members(self, recruit_id):
         if self.is_program(recruit_id):

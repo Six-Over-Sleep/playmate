@@ -202,6 +202,59 @@ def test_main_registers_each_recruit_method_once():
     assert ("GET", "/__test__/guide") not in keys
 
 
+@pytest.mark.parametrize(
+    "category,extra",
+    [
+        ("sports", {"sport_name": "러닝"}),
+        ("game", {"game_name": "보드게임"}),
+        ("group_buy", {"product_name": "책"}),
+        ("study", {"study_topic": "기존 스터디"}),
+    ],
+)
+def test_legacy_join_and_cancel_use_authenticated_member(
+    runtime, payload, category, extra
+):
+    """같은 로그인 회원의 이중 참여를 막고 본인 참여만 취소한다."""
+    body = {
+        "title": "회원 식별 검증",
+        "body": "기존 계약",
+        "category": category,
+        "recruit_mode": "short",
+        "capacity": 4,
+        "deadline_at": payload["starts_at"].replace(tzinfo=None).isoformat(),
+        "meeting_start": payload["starts_at"].replace(tzinfo=None).isoformat(),
+        "meeting_end": payload["ends_at"].replace(tzinfo=None).isoformat(),
+        **extra,
+    }
+    created = runtime.request("POST", "/api/recruits", json=body, legacy_login=True)
+    assert created.status_code == 201, created.text
+    path = f"/api/recruits/{created.json()['recruit_id']}"
+
+    def participants():
+        return sorted(
+            item["member_id"]
+            for item in runtime.request("GET", path + "/members").json()
+        )
+
+    assert participants() == [1]
+    assert runtime.request("POST", path + "/join").status_code == 401
+    assert runtime.request("DELETE", path + "/join").status_code == 401
+    assert runtime.request("POST", path + "/join", legacy_login=True).status_code == 400
+    assert participants() == [1]
+    assert runtime.request("POST", path + "/join", member=2).status_code == 200
+    assert runtime.request("POST", path + "/join", member=2).status_code == 400
+    assert participants() == [1, 2]
+    assert runtime.request("DELETE", path + "/join", member=3).status_code == 400
+    assert participants() == [1, 2]
+    assert runtime.request("DELETE", path + "/join", member=2).status_code == 200
+    assert participants() == [1]
+    assert runtime.request("POST", path + "/join", member=2).status_code == 200
+    assert participants() == [1, 2]
+    assert (
+        runtime.request("DELETE", path + "/join", legacy_login=True).status_code == 403
+    )
+
+
 def test_main_category_filter_and_no_legacy_fallback_for_new_fields(runtime, payload):
     runtime.request("POST", "/api/recruits", json=json_payload(payload), member=1)
     assert len(runtime.request("GET", "/api/recruits?category=study").json()) == 1

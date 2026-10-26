@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from 'react'
 import { getMyActivities } from '../../services/mypageApi'
 
@@ -58,7 +57,7 @@ function getMeetupCategory(category) {
   return categories[category?.toLowerCase()] || category || '모임'
 }
 
-export default function MyActivity() {
+export default function MyActivity({ onOpenPost }) {
   // 현재 탭
   const [activeTab, setActiveTab] = useState('posts')
 
@@ -319,17 +318,23 @@ export default function MyActivity() {
                   key={id}
                   className="mypage-activity-item"
                 >
-                  <strong>{data.title}</strong>
+                  <button
+                    type="button"
+                    className="mypage-activity-link"
+                    onClick={() => onOpenPost(item)}
+                  >
+                    <strong>{data.title}</strong>
 
-                  {data.description && (
-                    <p className="mypage-activity-description">
-                      {data.description}
-                    </p>
-                  )}
+                    {data.description && (
+                      <p className="mypage-activity-description">
+                        {data.description}
+                      </p>
+                    )}
 
-                  <span className="mypage-activity-meta">
-                    {data.meta}
-                  </span>
+                    <span className="mypage-activity-meta">
+                      {data.meta}
+                    </span>
+                  </button>
                 </li>
               )
             })}

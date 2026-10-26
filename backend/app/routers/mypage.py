@@ -23,8 +23,6 @@ from backend.app.services.xp_service import calculate_attendance_streak
 from backend.app.schemas.mypage import MySkillResponse
 from backend.app.schemas.mypage import MySkillTopicResponse
 from backend.app.schemas.mypage import MySkillAccuracyResponse
-from backend.app.schemas.mypage import MyPostResponse
-from backend.app.schemas.mypage import MyCommentResponse
 from backend.app.schemas.mypage import MyScrapResponse
 from backend.app.schemas.mypage import MyMeetupResponse
 from fastapi import Query
@@ -474,9 +472,6 @@ def get_my_skill_accuracy(
 
 
 
-# 내가 작성한 게시글 조회
-@router.get("/posts", response_model=list[MyPostResponse])
-
 # 내가 작성한 게시글 조회 (페이지네이션)
 @router.get("/posts", response_model=MyPostPageResponse)
 def get_my_posts(
@@ -508,23 +503,43 @@ def get_my_posts(
                 SELECT
                     p.post_id,
                     p.board_id,
+                    p.post_type,
+                    cp.category_code AS career_category,
+
                     CASE
                         WHEN b.board_name IS NOT NULL
                             THEN b.board_name
                         WHEN p.post_type = 'RECRUIT'
                             THEN '모임'
+                        WHEN cp.category_code = 'reviews'
+                            THEN '취준 도감'
+                        WHEN cp.category_code = 'talk'
+                            THEN '커리어 톡톡'
+                        WHEN cp.category_code = 'lounge'
+                            THEN '현직자 라운지'
+                        WHEN cp.category_code = 'lab'
+                            THEN '커리어 연구소'
                         ELSE '기타 게시글'
                     END AS board_name,
+
                     COALESCE(p.title, '제목 없음') AS title,
                     p.created_at
+
                 FROM posts p
+
                 LEFT JOIN boards b
                     ON p.board_id = b.board_id
+
+                LEFT JOIN career_posts cp
+                    ON p.post_id = cp.post_id
+
                 WHERE p.author_member_id = %s
-                  AND p.deleted_at IS NULL
+                AND p.deleted_at IS NULL
+
                 ORDER BY
                     p.created_at DESC NULLS LAST,
                     p.post_id DESC
+
                 LIMIT %s OFFSET %s
                 """,
                 (member_id, page_size, offset)
@@ -542,8 +557,6 @@ def get_my_posts(
 
 
 # 내가 작성한 댓글 및 대댓글 조회
-@router.get("/comments", response_model=list[MyCommentResponse])
-
 @router.get("/comments", response_model=MyCommentPageResponse)
 def get_my_comments(
     page: int = Query(1, ge=1),
@@ -576,18 +589,42 @@ def get_my_comments(
                     c.comment_id,
                     c.post_id,
                     p.board_id,
+                    p.post_type,
+                    cp.category_code AS career_category,
+
+                    CASE
+                        WHEN b.board_name IS NOT NULL THEN b.board_name
+                        WHEN cp.category_code = 'reviews' THEN '취준 도감'
+                        WHEN cp.category_code = 'talk' THEN '커리어 톡톡'
+                        WHEN cp.category_code = 'lounge' THEN '현직자 라운지'
+                        WHEN cp.category_code = 'lab' THEN '커리어 연구소'
+                        ELSE '기타 게시글'
+                    END AS board_name,
+
                     COALESCE(p.title, '제목 없음') AS post_title,
                     c.body,
                     c.parent_comment_id,
                     c.created_at
+
                 FROM comments c
-                JOIN posts p ON c.post_id = p.post_id
+
+                JOIN posts p
+                    ON c.post_id = p.post_id
+
+                LEFT JOIN boards b
+                    ON p.board_id = b.board_id
+
+                LEFT JOIN career_posts cp
+                    ON p.post_id = cp.post_id
+
                 WHERE c.author_member_id = %s
                   AND c.deleted_at IS NULL
                   AND p.deleted_at IS NULL
+
                 ORDER BY
                     c.created_at DESC NULLS LAST,
                     c.comment_id DESC
+
                 LIMIT %s OFFSET %s
                 """,
                 (member_id, page_size, offset)
@@ -613,19 +650,31 @@ def get_my_scraps(
                 SELECT
                     p.post_id,
                     p.board_id,
+                    p.post_type,
+                    cp.category_code AS career_category,
+
                     COALESCE(p.title, '제목 없음') AS title,
                     s.created_at AS scrapped_at
+
                 FROM post_scraps s
+
                 JOIN posts p
                     ON s.post_id = p.post_id
+
+                LEFT JOIN career_posts cp
+                    ON p.post_id = cp.post_id
+
                 WHERE s.member_id = %s
-                    AND p.deleted_at IS NULL
-                ORDER BY s.created_at DESC, s.post_id DESC
+                AND p.deleted_at IS NULL
+
+                ORDER BY
+                    s.created_at DESC,
+                    s.post_id DESC
+
                 LIMIT 20
                 """,
                 (member_id,)
             )
-
             return cursor.fetchall()
 
 

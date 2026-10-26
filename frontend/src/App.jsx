@@ -76,6 +76,9 @@ export default function App() {
 
     const [boardKey, setBoardKey] = useState(0)
 
+    // 마이페이지에서 선택한 게시글 정보
+    const [openPostTarget, setOpenPostTarget] = useState(null)
+
 
     // =====================================================
     // 4. 현재 페이지 저장
@@ -95,10 +98,7 @@ export default function App() {
 
     const enterService = useCallback(() => {
 
-        // 중요!
-        // 기존 setSection('board') 제거
-        // 로그인 확인 후에도 기존 페이지를 유지한다.
-
+        // 로그인 확인 후 기존 페이지 유지
         setAuthView('board')
 
     }, [])
@@ -203,6 +203,9 @@ export default function App() {
             setNickname('')
             setAvatarUrl(null)
 
+            // 이전 게시글 선택 초기화
+            setOpenPostTarget(null)
+
             // 로그아웃 후 기본 페이지로 초기화
             setSection('board')
 
@@ -235,6 +238,9 @@ export default function App() {
             return
         }
 
+        // 이전 게시글 이동 요청 초기화
+        setOpenPostTarget(null)
+
         // 현재 카테고리 변경
         setSection(nextSection)
 
@@ -246,14 +252,88 @@ export default function App() {
 
         // 자유 게시판 이동 시 기존 초기화 동작 유지
         if (nextSection === 'board') {
-
             setBoardKey((prev) => prev + 1)
         }
     }
 
 
     // =====================================================
-    // 10. 로그인 상태 확인 중
+    // 10. 마이페이지 게시글 이동
+    // =====================================================
+
+    const handleOpenActivityPost = (item) => {
+        if (!item?.post_id) return
+
+        console.log(
+            '마이페이지 클릭 데이터:',
+            JSON.stringify(item, null, 2)
+        )        
+
+        // 취업 게시판 이름과 코드 매핑
+        const careerBoardNames = {
+            '취준 도감': 'reviews',
+            '커리어 톡톡': 'talk',
+            '현직자 라운지': 'lounge',
+            '커리어 연구소': 'lab',
+        }
+
+        // API의 게시판 정보 확인
+        const boardName = String(item.board_name ?? '').trim()
+
+        const careerCategory =
+            item.career_category ||
+            item.category_code ||
+            careerBoardNames[boardName] ||
+            null
+
+        const rawPostType = String(
+            item.post_type ?? ''
+        ).trim().toUpperCase()
+
+        // 게시글 유형 판별
+        const isCareer =
+            rawPostType === 'CAREER' ||
+            ['reviews', 'talk', 'lounge', 'lab'].includes(careerCategory)
+
+        const isMeetup = rawPostType === 'RECRUIT'
+
+        const isBoard =
+            !isCareer &&
+            !isMeetup &&
+            item.board_id != null
+
+        if (!isCareer && !isMeetup && !isBoard) {
+            console.error('카테고리 정보 확인 실패:', item)
+            alert('게시글의 카테고리 정보를 확인할 수 없습니다.')
+            return
+        }
+
+        const target = {
+            postId: item.post_id,
+            boardId: item.board_id,
+            postType: isCareer
+                ? 'CAREER'
+                : isMeetup
+                    ? 'RECRUIT'
+                    : rawPostType || 'BOARD',
+            careerCategory: isCareer ? careerCategory : null,
+        }
+
+        console.log('게시글 이동 대상:', target)
+
+        setOpenPostTarget(target)
+
+        if (isCareer) {
+            setSection('career')
+        } else if (isMeetup) {
+            setSection('meetup')
+        } else {
+            setSection('board')
+        }
+    }
+
+    // =====================================================
+    // 11. 로그인 상태 확인 중
     // =====================================================
 
     if (authView === 'checking') {
@@ -267,7 +347,7 @@ export default function App() {
 
 
     // =====================================================
-    // 11. 회원가입 화면
+    // 12. 회원가입 화면
     // =====================================================
 
     if (authView === 'signup') {
@@ -282,7 +362,7 @@ export default function App() {
 
 
     // =====================================================
-    // 12. 로그인 후 서비스 화면
+    // 13. 로그인 후 서비스 화면
     // =====================================================
 
     if (authView === 'board') {
@@ -304,13 +384,16 @@ export default function App() {
                 {section === 'board' && (
                     <BoardSection
                         resetVersion={boardKey}
+                        openPostTarget={openPostTarget}
                     />
                 )}
 
 
                 {/* 취업 카테고리 */}
                 {section === 'career' && (
-                    <CareerPage />
+                    <CareerPage
+                        openPostTarget={openPostTarget}
+                    />
                 )}
 
 
@@ -322,7 +405,9 @@ export default function App() {
 
                 {/* 마이페이지 */}
                 {section === 'mypage' && (
-                    <MyPage />
+                    <MyPage
+                        onOpenPost={handleOpenActivityPost}
+                    />
                 )}
 
             </>
@@ -331,7 +416,7 @@ export default function App() {
 
 
     // =====================================================
-    // 13. 로그인 화면
+    // 14. 로그인 화면
     // =====================================================
 
     return (

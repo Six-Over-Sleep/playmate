@@ -72,8 +72,9 @@ def join_recruit(
     따라서 동시에 참여 요청이 들어오더라도 최신 참여 인원을 기준으로
     모집 정원 초과 여부를 확인할 수 있음.
 
-    member_id의 -1 기본값은 기존 Router와의 임시 호환용임.
-    Discord 회원 인증 연결 후에는 실제 로그인 회원 ID를 전달하도록 변경해야 함.
+    웹 API(Router)는 항상 로그인 세션의 실제 member_id를 전달함.
+    기본값 -1은 테스트 호환용이며 실제 웹 참여 요청에서는 사용되지 않음.
+    모임 생성 시 HOST로 등록된 회원은 일반 참여자로 다시 참여할 수 없음.
     """
     try:
         # 모임 행을 잠그고 조회함.
@@ -114,6 +115,13 @@ def join_recruit(
             recruit_id,
             member_id,
         )
+
+        # 모임장은 생성 시 HOST로 이미 참여 중이므로 일반 참여를 허용하지 않음.
+        if member is not None and member.role == "HOST":
+            raise HTTPException(
+                status_code=403,
+                detail="모임장은 이미 참여 중입니다.",
+            )
 
         # 이미 JOINED 상태라면 중복 참여를 막음.
         if member is not None and member.status == "JOINED":
@@ -175,17 +183,14 @@ def join_recruit(
 def cancel_join(
     db: Session,
     recruit_id: int,
+    member_id: int,
 ):
-    """모임 참여 취소 처리.
+    """로그인 회원 본인의 모임 참여 취소 처리.
 
     일반 참여자(MEMBER)만 취소할 수 있음.
     모임장(HOST)은 참여를 취소할 수 없음.
     """
-    # TODO: Discord 로그인 연동 후 실제 member_id로 변경
-    # -1은 임시 회원 ID이며 현재 로그인 사용자를 식별하지는 못함.
-    member_id = -1
-
-    # 해당 모임과 회원 ID로 참여 기록을 조회함.
+    # 해당 모임과 로그인 회원 ID로 본인 참여 기록만 조회함.
     member = recruit_repo.find_member(
         db,
         recruit_id,

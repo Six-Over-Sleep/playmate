@@ -4,6 +4,7 @@
 이 파일에서는 commit/rollback하지 않는다.
 """
 
+from app.repositories import board_repository
 
 def create_review(cursor, member_id: int, data: dict) -> int:
     """posts → career_posts → career_reviews 순서로 후기 저장 후 ID 반환."""
@@ -95,7 +96,7 @@ def get_review(cursor, post_id: int, member_id: int) -> dict | None:
         """,
         (member_id, member_id, post_id),
     )
-    return cursor.fetchone()
+    return attach_post_reactions(cursor, cursor.fetchone(), member_id)
 
 def list_reviews(
     cursor,
@@ -234,7 +235,7 @@ def list_reviews(
     items = list(cursor.fetchall())
 
     return {
-        "items": items,
+        "items": attach_list_reactions(cursor, items),
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -498,7 +499,7 @@ def get_talk(cursor, post_id: int, member_id: int) -> dict | None:
         (member_id, post_id),
     )
 
-    return cursor.fetchone()
+    return attach_post_reactions(cursor, cursor.fetchone(), member_id)
 
 
 # =========================================
@@ -621,7 +622,7 @@ def list_talks(
     )
 
     return {
-        "items": list(cursor.fetchall()),
+        "items": attach_list_reactions(cursor, list(cursor.fetchall())),
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -1157,7 +1158,7 @@ def get_lounge(
         (member_id, post_id),
     )
 
-    return cursor.fetchone()
+    return attach_post_reactions(cursor, cursor.fetchone(), member_id)
 
 
 # =========================================================
@@ -1296,7 +1297,7 @@ def list_lounges(
     )
 
     return {
-        "items": list(cursor.fetchall()),
+        "items": attach_list_reactions(cursor, list(cursor.fetchall())),
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -1710,7 +1711,7 @@ def get_lab(
         else None
     )
 
-    return result
+    return attach_post_reactions(cursor, result, member_id)
 
 
 # =========================================================
@@ -1853,7 +1854,7 @@ def list_labs(
     )
 
     return {
-        "items": list(cursor.fetchall()),
+        "items": attach_list_reactions(cursor, list(cursor.fetchall())),
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -2192,3 +2193,79 @@ def create_lab_vote(
     # 최초 투표라면 True
     # 이미 투표한 회원이면 False
     return cursor.fetchone() is not None
+
+
+# =========================================
+# 취업 게시글 공통 - 좋아요·스크랩·댓글 연결
+# =========================================
+
+def career_post_exists(cursor, post_id: int) -> bool:
+    """삭제되지 않은 취업 게시글(4종 공통)인지 확인한다.
+
+    취업 글은 board_id가 NULL이라 게시판 존재 확인을 쓸 수 없으므로
+    posts.post_type과 career_posts 연결로 대상 여부를 판단한다.
+    """
+    cursor.execute(
+        """
+        SELECT 1
+        FROM posts AS p
+        JOIN career_posts AS cp ON cp.post_id = p.post_id
+        WHERE p.post_id = %s
+          AND p.post_type = 'CAREER'
+          AND p.deleted_at IS NULL
+        """,
+        (post_id,),
+    )
+    return cursor.fetchone() is not None
+
+
+def attach_post_reactions(cursor, row: dict | None, member_id: int) -> dict | None:
+    """상세 응답에 좋아요 수·내 좋아요 여부·내 스크랩 여부를 붙인다.
+
+    게시판(#27)의 좋아요·스크랩 조회 함수를 그대로 재사용한다.
+    """
+    if row is None:
+        return None
+
+    like = board_repository.get_post_like(cursor, row["id"], member_id)
+    scrap = board_repository.get_post_scrap(cursor, row["id"], member_id)
+    row["like_count"] = like["like_count"]
+    row["liked_by_me"] = like["liked_by_me"]
+    row["scrapped_by_me"] = scrap["scrapped_by_me"]
+    return row
+
+
+def attach_list_reactions(cursor, items: list[dict]) -> list[dict]:
+    """목록 항목에 좋아요 수와 댓글 수를 한 번의 조회로 붙인다.
+
+    댓글 수는 게시판과 같이 삭제되지 않은 댓글만 센다. (삭제 자리표시 제외)
+    """
+    post_ids = [item["id"] for item in items]
+    if not post_ids:
+        return items
+
+    cursor.execute(
+        """
+        SELECT
+            p.post_id,
+            (
+                SELECT COUNT(*)
+                FROM post_likes AS l
+                WHERE l.post_id = p.post_id
+            )::int AS like_count,
+            (
+                SELECT COUNT(*)
+                FROM comments AS c
+                WHERE c.post_id = p.post_id
+                  AND c.deleted_at IS NULL
+            )::int AS comment_count
+        FROM posts AS p
+        WHERE p.post_id = ANY(%s)
+        """,
+        (post_ids,),
+    )
+    counts = {row["post_id"]: row for row in cursor.fetchall()}
+    for item in items:
+        item["like_count"] = counts[item["id"]]["like_count"]
+        item["comment_count"] = counts[item["id"]]["comment_count"]
+    return items

@@ -7,6 +7,7 @@ export default function CareerLoungeDetailPage({
     onEdit,
     onDelete,
     busy = false,
+    children,
 }) {
     if (!post) return null
 
@@ -77,6 +78,9 @@ export default function CareerLoungeDetailPage({
                         </>
                     )}
                 </div>
+
+                {/* 좋아요·스크랩·댓글 (취업 4종 공통 영역) */}
+                {children}
             </article>
         </div>
     )

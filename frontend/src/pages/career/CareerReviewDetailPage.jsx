@@ -20,7 +20,7 @@ const TYPE_NAMES = {
 }
 
 /** 취준 도감 후기 상세 화면. 서버에 없는 값은 추정하지 않는다. */
-export default function CareerReviewDetailPage({ review, onBack, onEdit, onDelete }) {
+export default function CareerReviewDetailPage({ review, onBack, onEdit, onDelete, children }) {
     if (!review) return null
 
 
@@ -88,6 +88,9 @@ export default function CareerReviewDetailPage({ review, onBack, onEdit, onDelet
                         </>
                     )}
                 </div>
+
+                {/* 좋아요·스크랩·댓글 (취업 4종 공통 영역) */}
+                {children}
             </article>
         </div>
     )

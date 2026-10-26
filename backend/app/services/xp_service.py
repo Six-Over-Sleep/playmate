@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+from uuid import uuid4
 
 from backend.app.core.database import get_db_connection
 
@@ -59,7 +60,7 @@ def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
             if activity_type == "POST":
                 cursor.execute(
                     """
-                    SELECT author_member_id, created_at
+                    SELECT author_member_id, created_at, post_type, deleted_at
                     FROM posts
                     WHERE post_id = %s
                     """,
@@ -75,8 +76,16 @@ def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
                         "reason": "INVALID_POST"
                     }
 
-                # 작성일 확인
-                if post[1] is None or post[1].date() != today:
+                # 일반 게시판 글만 +5XP 지급 (CAREER 후기와 중복 방지)
+                if post[2] != "BOARD" or post[3] is not None:
+                    return {"awarded": False, "reason": "NOT_BOARD_POST"}
+
+                # 한국 시간 기준으로 작성일 확인
+                created_date = (
+                    post[1].astimezone(ZoneInfo("Asia/Seoul")).date()
+                    if post[1] is not None else None
+                )
+                if created_date != today:
                     return {
                         "awarded": False,
                         "reason": "INVALID_POST_DATE"
@@ -219,114 +228,331 @@ def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
         "level": new_level
     }
 
-# 게시글·댓글 삭제 시 XP 회수
-def revoke_xp(
-    cursor,
-    member_id: int,
-    source_type: str,
-    source_id: int
-) -> bool:
+# 취준 도감 후기별 보상 규칙
+# 미정: CODING_ASSIGNMENT, FINAL은 보상 정책이 확정될 때까지 지급하지 않음.
+def get_career_review_reward(
+    subcategory: str,
+    process_stage: str,
+    process_result: str,
+) -> tuple[str, int] | None:
+    """정책이 확정된 후기 유형에 대해서만 (활동 유형, XP)를 반환한다."""
 
-    if source_type not in ("POST", "COMMENT"):
-        raise ValueError("지원하지 않는 활동 유형입니다.")
+    if subcategory == "DOCUMENT" and process_stage == "DOCUMENT":
+        if process_result in ("PASS", "FAIL"):
+            return "CAREER_DOCUMENT", 30
 
-    if member_id <= 0 or source_id <= 0:
-        return False
+    if subcategory == "INTERVIEW" and process_stage == "INTERVIEW":
+        return "CAREER_INTERVIEW", 50
 
-    # 원래 지급했던 활동 키
-    event_key = f"{source_type}:{source_id}"
-    revoke_key = f"REVOKE:{event_key}"
+    if subcategory == "SUCCESS" and process_stage == "FINAL":
+        if process_result == "PASS":
+            return "CAREER_SUCCESS", 50
 
-    # 회원 XP 잠금
-    cursor.execute(
-        """
-        SELECT total_xp
-        FROM member_levels
-        WHERE member_id = %s
-        FOR UPDATE
-        """,
-        (member_id,)
-    )
+    return None
 
-    level_row = cursor.fetchone()
 
-    if level_row is None:
-        return False
+def grant_career_review_xp(member_id: int, post_id: int) -> dict:
+    """저장된 취준 도감 후기를 검증한 뒤 해당 게시글에 XP를 최초 1회 지급한다."""
 
-    # 기존 XP 지급 내역 확인
-    cursor.execute(
-        """
-        SELECT xp_change
-        FROM member_xp_history
-        WHERE member_id = %s
-          AND event_key = %s
-          AND xp_change > 0
-        """,
-        (member_id, event_key)
-    )
-
-    history = cursor.fetchone()
-
-    if history is None:
-        return False
-
-    # 중복 회수 방지
-    cursor.execute(
-        """
-        SELECT 1
-        FROM member_xp_history
-        WHERE member_id = %s
-          AND event_key = %s
-        """,
-        (member_id, revoke_key)
-    )
-
-    if cursor.fetchone() is not None:
-        return False
-
-    # 회수 후 XP 및 레벨 계산
-    new_xp = level_row["total_xp"] - history["xp_change"]
-
-    if new_xp < 0:
-        raise ValueError("회수할 XP가 현재 XP보다 많습니다.")
-
-    new_level = calculate_level(new_xp)
+    if member_id <= 0 or post_id <= 0:
+        return {"awarded": False, "reason": "INVALID_ID"}
 
     today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    event_key = f"POST:{post_id}"  # 일반 게시글 XP와 같은 키로 중복 지급 차단
 
-    # XP 회수 이력 저장
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            # 게시글 행을 잠가서 동시 삭제와 보상 지급이 엇갈리지 않게 처리
+            cursor.execute(
+                """
+                SELECT
+                    p.author_member_id,
+                    cp.subcategory_code,
+                    cr.process_stage,
+                    cr.process_result,
+                    LENGTH(BTRIM(p.body))
+                FROM posts AS p
+                JOIN career_posts AS cp ON cp.post_id = p.post_id
+                JOIN career_reviews AS cr ON cr.post_id = p.post_id
+                WHERE p.post_id = %s
+                  AND p.post_type = 'CAREER'
+                  AND cp.category_code = 'reviews'
+                  AND p.post_status = 'PUBLISHED'
+                  AND p.deleted_at IS NULL
+                FOR UPDATE OF p
+                """,
+                (post_id,),
+            )
+            review = cursor.fetchone()
+            if review is None or review[0] != member_id:
+                return {"awarded": False, "reason": "INVALID_REVIEW"}
+
+            if review[4] < 500:
+                return {"awarded": False, "reason": "BODY_TOO_SHORT"}
+
+            reward = get_career_review_reward(
+                subcategory=review[1],
+                process_stage=review[2],
+                process_result=review[3],
+            )
+            if reward is None:
+                return {"awarded": False, "reason": "UNSUPPORTED_REVIEW_TYPE"}
+
+            activity_type, xp = reward
+
+            # 회원 레벨 생성 및 동시 지급 요청 직렬화
+            cursor.execute(
+                """
+                INSERT INTO member_levels (member_id)
+                VALUES (%s)
+                ON CONFLICT (member_id) DO NOTHING
+                """,
+                (member_id,),
+            )
+            cursor.execute(
+                """
+                SELECT total_xp
+                FROM member_levels
+                WHERE member_id = %s
+                FOR UPDATE
+                """,
+                (member_id,),
+            )
+            total_xp = cursor.fetchone()[0]
+
+            cursor.execute(
+                """
+                SELECT 1 FROM member_xp_history
+                WHERE member_id = %s AND event_key = %s
+                """,
+                (member_id, event_key),
+            )
+            if cursor.fetchone():
+                return {"awarded": False, "reason": "DUPLICATE"}
+
+            cursor.execute(
+                """
+                INSERT INTO member_xp_history
+                    (member_id, activity_type, source_type,
+                     source_id, event_key, xp_change, activity_date)
+                VALUES (%s, %s, 'POST', %s, %s, %s, %s)
+                """,
+                (member_id, activity_type, post_id, event_key, xp, today),
+            )
+
+            new_xp = total_xp + xp
+            new_level = calculate_level(new_xp)
+            cursor.execute(
+                """
+                UPDATE member_levels
+                SET total_xp = %s,
+                    level = %s,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE member_id = %s
+                """,
+                (new_xp, new_level, member_id),
+            )
+
+    return {
+        "awarded": True,
+        "earned_xp": xp,
+        "total_xp": new_xp,
+        "level": new_level,
+    }
+
+
+# 후기 수정 시 보상 차액 반영
+# 예: 서류 후기 30XP -> 면접 후기 50XP = +20XP
+# 같은 값을 여러 번 저장해도 추가 XP를 주지 않는다.
+def reconcile_career_review_xp(cursor, member_id: int, post_id: int) -> dict:
+    """업데이트된 후기 내용을 기준으로 누적 지급 XP를 정산한다.
+
+    career_service.update_review()의 DB 트랜잭션 안에서만 호출한다.
+    """
+    if member_id <= 0 or post_id <= 0:
+        raise ValueError("유효하지 않은 회원 또는 게시글 ID입니다.")
+
+    # 작성자와 현재 후기의 실제 유형을 확인한다.
+    cursor.execute(
+        """
+        SELECT p.author_member_id,
+               cp.subcategory_code,
+               cr.process_stage,
+               cr.process_result,
+               LENGTH(BTRIM(p.body)) AS body_length
+        FROM posts AS p
+        JOIN career_posts AS cp ON cp.post_id = p.post_id
+        JOIN career_reviews AS cr ON cr.post_id = p.post_id
+        WHERE p.post_id = %s
+          AND p.post_type = 'CAREER'
+          AND cp.category_code = 'reviews'
+          AND p.deleted_at IS NULL
+        FOR UPDATE OF p
+        """,
+        (post_id,),
+    )
+    review = cursor.fetchone()
+    if review is None or review["author_member_id"] != member_id:
+        raise ValueError("XP 정산 대상 후기가 없거나 작성자가 다릅니다.")
+
+    # 후기 정책을 충족하지 못하면 목표 보상은 0이다.
+    reward = get_career_review_reward(
+        review["subcategory_code"],
+        review["process_stage"],
+        review["process_result"],
+    )
+    target_xp = reward[1] if reward and review["body_length"] >= 500 else 0
+
+    # 회원 XP 행을 잠근 뒤 이력 합산 및 레벨 변경을 한 트랜잭션에서 처리한다.
+    cursor.execute(
+        """
+        INSERT INTO member_levels (member_id)
+        VALUES (%s)
+        ON CONFLICT (member_id) DO NOTHING
+        """,
+        (member_id,),
+    )
+    cursor.execute(
+        """
+        SELECT total_xp FROM member_levels
+        WHERE member_id = %s FOR UPDATE
+        """,
+        (member_id,),
+    )
+    total_xp = cursor.fetchone()["total_xp"]
+
+    # 후기 최초 지급 + 기존 수정 차액을 합산한다. 기타 보상은 합산하지 않는다.
+    cursor.execute(
+        """
+        SELECT COALESCE(SUM(xp_change), 0) AS review_xp
+        FROM member_xp_history
+        WHERE member_id = %s
+          AND source_type = 'POST'
+          AND source_id = %s
+          AND activity_type IN (
+              'CAREER_DOCUMENT', 'CAREER_INTERVIEW',
+              'CAREER_SUCCESS', 'CAREER_ADJUST'
+          )
+        """,
+        (member_id, post_id),
+    )
+    current_xp = int(cursor.fetchone()["review_xp"])
+    difference = target_xp - current_xp
+    if difference == 0:
+        return {"adjusted": False, "xp_change": 0, "total_xp": total_xp}
+
+    # 삭제되어 이미 회수된 게시글에 추가 XP가 지급되지 않도록 검사한다.
+    cursor.execute(
+        """
+        SELECT 1 FROM member_xp_history
+        WHERE member_id = %s AND event_key = %s
+        """,
+        (member_id, f"REVOKE:POST:{post_id}"),
+    )
+    if cursor.fetchone():
+        raise ValueError("이미 XP를 회수한 후기는 수정 정산할 수 없습니다.")
+
+    new_total = total_xp + difference
+    if new_total < 0:
+        raise ValueError("XP 정산 후 누적 XP가 음수가 됩니다.")
+
+    # 원래 지급 기록을 덮어쓰지 않고 차액을 별도 이력으로 남긴다.
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    event_key = f"ADJUST:POST:{post_id}:{uuid4().hex}"
     cursor.execute(
         """
         INSERT INTO member_xp_history
-        (
-            member_id, activity_type, source_type,
-            source_id, event_key, xp_change, activity_date
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+            (member_id, activity_type, source_type,
+             source_id, event_key, xp_change, activity_date)
+        VALUES (%s, 'CAREER_ADJUST', 'POST', %s, %s, %s, %s)
         """,
-        (
-            member_id,
-            "REVOKE",
-            source_type,
-            source_id,
-            revoke_key,
-            -history["xp_change"],
-            today
-        )
+        (member_id, post_id, event_key, difference, today),
     )
-
-    # 회원 XP 및 레벨 갱신
     cursor.execute(
         """
         UPDATE member_levels
-        SET total_xp = %s,
-            level = %s,
-            updated_at = CURRENT_TIMESTAMP
+        SET total_xp = %s, level = %s, updated_at = CURRENT_TIMESTAMP
         WHERE member_id = %s
         """,
-        (new_xp, new_level, member_id)
+        (new_total, calculate_level(new_total), member_id),
     )
+    return {"adjusted": True, "xp_change": difference, "total_xp": new_total}
 
+
+# 게시글·댓글 삭제 시 해당 작성 보상을 한 번만 회수한다.
+# 후기 수정으로 추가되거나 차감된 XP까지 순액 기준으로 회수한다.
+def revoke_xp(cursor, member_id: int, source_type: str, source_id: int) -> bool:
+    if source_type not in ("POST", "COMMENT"):
+        raise ValueError("지원하지 않는 활동 유형입니다.")
+    if member_id <= 0 or source_id <= 0:
+        return False
+
+    event_key = f"{source_type}:{source_id}"
+    revoke_key = f"REVOKE:{event_key}"
+
+    cursor.execute(
+        """
+        SELECT total_xp FROM member_levels
+        WHERE member_id = %s FOR UPDATE
+        """,
+        (member_id,),
+    )
+    level_row = cursor.fetchone()
+    if level_row is None:
+        return False
+
+    cursor.execute(
+        """
+        SELECT 1 FROM member_xp_history
+        WHERE member_id = %s AND event_key = %s
+        """,
+        (member_id, revoke_key),
+    )
+    if cursor.fetchone():
+        return False
+
+    # 일반 게시글, 취업 후기, 댓글·대댓글의 작성 보상만 회수한다.
+    reward_types = (
+        ["POST", "CAREER_DOCUMENT", "CAREER_INTERVIEW", "CAREER_SUCCESS", "CAREER_ADJUST"]
+        if source_type == "POST" else ["COMMENT", "REPLY"]
+    )
+    cursor.execute(
+        """
+        SELECT COALESCE(SUM(xp_change), 0) AS earned_xp
+        FROM member_xp_history
+        WHERE member_id = %s
+          AND source_type = %s
+          AND source_id = %s
+          AND activity_type = ANY(%s)
+        """,
+        (member_id, source_type, source_id, reward_types),
+    )
+    earned_xp = int(cursor.fetchone()["earned_xp"])
+    if earned_xp <= 0:
+        return False
+
+    new_total = level_row["total_xp"] - earned_xp
+    if new_total < 0:
+        raise ValueError("회수할 XP가 현재 XP보다 많습니다.")
+
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    cursor.execute(
+        """
+        INSERT INTO member_xp_history
+            (member_id, activity_type, source_type,
+             source_id, event_key, xp_change, activity_date)
+        VALUES (%s, 'REVOKE', %s, %s, %s, %s, %s)
+        """,
+        (member_id, source_type, source_id, revoke_key, -earned_xp, today),
+    )
+    cursor.execute(
+        """
+        UPDATE member_levels
+        SET total_xp = %s, level = %s, updated_at = CURRENT_TIMESTAMP
+        WHERE member_id = %s
+        """,
+        (new_total, calculate_level(new_total), member_id),
+    )
     return True
 
 

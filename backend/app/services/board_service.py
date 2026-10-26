@@ -83,39 +83,6 @@ def create_board(
 
 
 
-def create_post(
-    board_id: int,
-    title: str,
-    body: str,
-    member_id: int,
-    images: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-
-    # 1. 게시글 저장
-    with db_cursor(commit=True) as cursor:
-        _require_board(cursor, board_id)
-
-        post_id = repository.create_post(
-            cursor, board_id, title, body, member_id, images
-        )
-
-        post = _post_detail(
-            cursor, board_id, post_id, member_id
-        )
-
-    # 2. 게시글 커밋 성공 후 XP 지급
-    # 관리자(-1)는 제외
-    if member_id > 0:
-        try:
-            grant_xp(member_id, "POST", post_id)
-        except Exception:
-            logger.exception(
-                "게시글 XP 지급 실패: post_id=%s",
-                post_id
-            )
-
-    # 3. 생성된 게시글 반환
-    return post
 
 
 
@@ -153,22 +120,45 @@ def create_post(
     member_id: int,
     images: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """게시판 확인→게시글·이미지 저장→응답 조회→커밋 순서로 처리한다.
+    """게시글·이미지 저장 후 게시글 작성 XP를 지급한다.
 
-    images는 업로드 모듈에서 검증한 메타데이터이다. 응답 조회 실패도 롤백하므로
-    라우터가 실패 파일을 정리할 때 이미 커밋된 이미지 참조를 삭제하지 않는다.
-    커밋 응답이 끊겨 성공 여부가 불명확한 경우에는 업로드 파일을 보존한다.
+    게시글과 이미지 저장, 응답 조회는 하나의 트랜잭션으로 처리한다.
+    DB 커밋이 성공한 경우에만 XP 지급을 요청한다.
     """
-    # 게시글과 첨부 이미지 메타데이터를 같은 DB 트랜잭션으로 저장함.
+    # 1. 게시글 저장 및 상세 조회 (성공 시 커밋)
     with db_cursor(commit=True) as cursor:
-        # 유효한 게시판인지 확인함.
         _require_board(cursor, board_id)
-        # 게시글 및 이미지 메타데이터를 저장하고 게시글 ID를 받음.
+
         post_id = repository.create_post(
             cursor, board_id, title, body, member_id, images
         )
-        # 저장한 게시글의 응답 조회까지 성공해야 커밋이 완료됨.
-        return _post_detail(cursor, board_id, post_id, member_id)
+        post = _post_detail(cursor, board_id, post_id, member_id)
+
+    # 2. 게시글 저장이 완료된 뒤 XP 지급 (관리자 제외)
+    if member_id > 0:
+        try:
+            result = grant_xp(member_id, "POST", post_id)
+
+            if result.get("awarded"):
+                logger.info(
+                    "게시글 작성 XP 지급 완료: member_id=%s, post_id=%s, xp=%s",
+                    member_id,
+                    post_id,
+                    result.get("earned_xp"),
+                )
+            else:
+                logger.info(
+                    "게시글 작성 XP 미지급: member_id=%s, post_id=%s, reason=%s",
+                    member_id,
+                    post_id,
+                    result.get("reason"),
+                )
+        except Exception:
+            # 게시글 저장 성공과 XP 지급 실패를 별도로 기록한다.
+            logger.exception("게시글 XP 지급 실패: post_id=%s", post_id)
+
+    # 3. 작성된 게시글 반환
+    return post
 
 
 def get_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:

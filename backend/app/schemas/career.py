@@ -663,6 +663,7 @@ LabSubcategory = Literal[
 LabPostType = Literal[
     "QUESTION",
     "DISCUSSION",
+    "GUIDE",
 ]
 
 
@@ -690,6 +691,28 @@ class CareerLabCreate(BaseModel):
     post_type: LabPostType
 
     is_anonymous: bool = True
+
+    # 커리어 가이드 필수 항목
+    guide_experience: str | None = Field(
+        default=None,
+        min_length=100,
+        max_length=10000,
+    )
+
+    guide_advice: str | None = Field(
+        default=None,
+        min_length=100,
+        max_length=10000,
+    )
+
+    @field_validator(
+        "guide_experience",
+        "guide_advice",
+        mode="before",
+    )
+    @classmethod
+    def strip_guide_text(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
     # 토론 게시글에 사용할 투표 선택지
     # 투표가 없는 토론도 허용
@@ -759,7 +782,40 @@ class CareerLabCreate(BaseModel):
                 raise ValueError(
                     "투표를 추가하려면 선택지가 최소 2개 필요합니다."
                 )
+        # 커리어 가이드 작성 조건
+        if self.post_type == "GUIDE":
 
+            # 본문 최소 500자
+            if len(self.body.strip()) < 500:
+                raise ValueError(
+                    "커리어 가이드는 본문을 500자 이상 작성해야 합니다."
+                )
+
+            # 경험 및 근거
+            if not self.guide_experience:
+                raise ValueError(
+                    "경험 및 근거를 입력해주세요."
+                )
+
+            # 실질적인 조언
+            if not self.guide_advice:
+                raise ValueError(
+                    "실질적인 조언을 입력해주세요."
+                )
+
+            # 가이드에는 투표 불가
+            if self.poll_options:
+                raise ValueError(
+                    "커리어 가이드에는 투표를 추가할 수 없습니다."
+                )
+
+        else:
+            # 다른 게시글 유형에는 가이드 전용 항목 사용 불가
+            if self.guide_experience is not None or self.guide_advice is not None:
+                raise ValueError(
+                    "가이드 전용 항목은 GUIDE 유형에서만 사용할 수 있습니다."
+                )
+    
         return self
 
 
@@ -862,6 +918,10 @@ class CareerLabResponse(BaseModel):
     subcategory_code: LabSubcategory
 
     post_type: LabPostType
+
+    # 커리어 가이드 전용 항목
+    guide_experience: str | None = None
+    guide_advice: str | None = None
 
     # 질문 해결 여부
     is_resolved: bool

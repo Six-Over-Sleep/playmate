@@ -1540,18 +1540,23 @@ def create_lab(
     )
 
     # 3. 커리어 연구소 상세 정보 저장
+    # GUIDE 유형일 경우 경험 및 근거, 실질적인 조언도 저장
     cursor.execute(
         """
         INSERT INTO career_labs (
             post_id,
             post_type,
-            is_resolved
+            is_resolved,
+            guide_experience,
+            guide_advice
         )
-        VALUES (%s, %s, FALSE)
+        VALUES (%s, %s, FALSE, %s, %s)
         """,
         (
             post_id,
             data["post_type"],
+            data.get("guide_experience"),
+            data.get("guide_advice"),
         ),
     )
 
@@ -1617,8 +1622,10 @@ def get_lab(
             cp.is_anonymous,
 
             cl.post_type,
-            cl.is_resolved
-
+            cl.is_resolved,
+            cl.guide_experience,
+            cl.guide_advice
+            
         FROM posts AS p
 
         JOIN members AS m

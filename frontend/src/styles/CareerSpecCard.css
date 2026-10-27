@@ -1,0 +1,212 @@
+/* PLAYMATE 마이페이지 - 취업 스펙 전용 스타일 */
+/* 기존 프로필·종합 레벨·스킬 레벨에는 영향을 주지 않습니다. */
+
+.mypage > section.mypage-career-spec {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 30px 32px;
+}
+
+.mypage-career-spec-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.mypage-career-spec-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: #253047;
+  font-size: 20px;
+  letter-spacing: -0.5px;
+}
+
+.mypage-career-spec-header h2::before {
+  content: '';
+  width: 5px;
+  height: 21px;
+  border-radius: 3px;
+  background: #7958ce;
+}
+
+.mypage-career-spec-header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid #e5def7;
+  border-radius: 999px;
+  background: #f6f2ff;
+  color: #6550a6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mypage-career-spec-header strong::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.mypage-career-spec > p {
+  margin: 6px 0 0;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.mypage-career-spec > p + p {
+  margin-top: 2px;
+  color: #9692a5;
+  font-size: 12px;
+}
+
+.mypage-career-spec form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 18px;
+  margin-top: 26px;
+}
+
+.mypage-career-spec-field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+
+.mypage-career-spec-field > span {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mypage-career-spec-field input,
+.mypage-career-spec-field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid #e1e5ed;
+  border-radius: 11px;
+  background: #fbfcff;
+  color: #253047;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mypage-career-spec-field input { min-height: 46px; }
+.mypage-career-spec-field textarea {
+  min-height: 106px;
+  resize: vertical;
+}
+
+.mypage-career-spec-field input::placeholder,
+.mypage-career-spec-field textarea::placeholder {
+  color: #9aa3b3;
+}
+
+.mypage-career-spec-field input:focus,
+.mypage-career-spec-field textarea:focus {
+  outline: none;
+  border-color: #9072dc;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(121, 88, 206, 0.1);
+}
+
+.mypage-career-spec-field input:disabled,
+.mypage-career-spec-field textarea:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+/* 프로젝트 경험과 자기소개는 충분한 입력 공간을 확보합니다. */
+.mypage-career-spec-field:nth-child(6),
+.mypage-career-spec-field:nth-child(7) {
+  grid-column: 1 / -1;
+}
+
+.mypage-career-spec-error,
+.mypage-career-spec-success {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.mypage-career-spec-error {
+  border: 1px solid #f6d0d4;
+  background: #fff5f5;
+  color: #b42338;
+}
+
+.mypage-career-spec-success {
+  border: 1px solid #bfe7d5;
+  background: #f0fbf5;
+  color: #167348;
+}
+
+.mypage-career-spec-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 2px;
+  padding-top: 21px;
+  border-top: 1px solid #ecedf3;
+}
+
+.mypage-career-spec-actions button {
+  min-height: 43px;
+  padding: 10px 19px;
+  border: 1px solid #7958ce;
+  border-radius: 10px;
+  background: #7958ce;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.mypage-career-spec-actions button:first-child:hover:not(:disabled) {
+  background: #6543b7;
+  border-color: #6543b7;
+}
+
+.mypage-career-spec-actions button:nth-child(2) {
+  border-color: #ddd5f0;
+  background: #fff;
+  color: #6550a6;
+}
+
+.mypage-career-spec-actions button:nth-child(2):hover:not(:disabled) {
+  background: #f5f1ff;
+}
+
+.mypage-career-spec-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 680px) {
+  .mypage > section.mypage-career-spec { padding: 22px 18px; }
+  .mypage-career-spec form { grid-template-columns: 1fr; gap: 16px; }
+  .mypage-career-spec-field:nth-child(6),
+  .mypage-career-spec-field:nth-child(7) { grid-column: auto; }
+  .mypage-career-spec-actions { justify-content: stretch; }
+  .mypage-career-spec-actions button { flex: 1; }
+}

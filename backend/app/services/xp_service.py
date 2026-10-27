@@ -628,9 +628,18 @@ def revoke_xp(cursor, member_id: int, source_type: str, source_id: int) -> bool:
         return False
 
     # 일반 게시글, 취업 후기, 댓글·대댓글의 작성 보상만 회수한다.
+    # 게시글 삭제 시 회수할 XP 유형
     reward_types = (
-        ["POST", "CAREER_DOCUMENT", "CAREER_INTERVIEW", "CAREER_SUCCESS", "CAREER_ADJUST"]
-        if source_type == "POST" else ["COMMENT", "REPLY"]
+        [
+            "POST",
+            "CAREER_DOCUMENT",
+            "CAREER_INTERVIEW",
+            "CAREER_SUCCESS",
+            "CAREER_GUIDE",
+            "CAREER_ADJUST",
+        ]
+        if source_type == "POST"
+        else ["COMMENT", "REPLY"]
     )
     cursor.execute(
         """
@@ -738,3 +747,105 @@ def grant_attendance_bonus(cursor, member_id: int, today: date) -> int:
     )
 
     return bonus if cursor.fetchone() else 0
+
+
+# 커리어 가이드 작성 보상 (+50XP)
+def grant_career_guide_xp(cursor, member_id: int, post_id: int) -> dict:
+
+    # 1. 실제 작성된 GUIDE 게시글인지 확인
+    cursor.execute(
+        """
+        SELECT p.post_id
+        FROM posts p
+        JOIN career_posts cp ON cp.post_id = p.post_id
+        JOIN career_labs cl ON cl.post_id = p.post_id
+        WHERE p.post_id = %s
+          AND p.author_member_id = %s
+          AND p.post_type = 'CAREER'
+          AND p.post_status = 'PUBLISHED'
+          AND p.deleted_at IS NULL
+          AND cp.category_code = 'lab'
+          AND cl.post_type = 'GUIDE'
+          AND LENGTH(BTRIM(p.body)) >= 500
+          AND LENGTH(BTRIM(COALESCE(cl.guide_experience, ''))) >= 100
+          AND LENGTH(BTRIM(COALESCE(cl.guide_advice, ''))) >= 100
+        FOR UPDATE OF p
+        """,
+        (post_id, member_id),
+    )
+
+    if cursor.fetchone() is None:
+        return {"awarded": False, "reason": "INVALID_GUIDE"}
+
+    # 2. 회원 XP 정보 생성
+    cursor.execute(
+        """
+        INSERT INTO member_levels (member_id)
+        VALUES (%s)
+        ON CONFLICT (member_id) DO NOTHING
+        """,
+        (member_id,),
+    )
+
+    # 3. 현재 XP 조회 및 동시 요청 방지
+    cursor.execute(
+        """
+        SELECT total_xp
+        FROM member_levels
+        WHERE member_id = %s
+        FOR UPDATE
+        """,
+        (member_id,),
+    )
+
+    total_xp = cursor.fetchone()["total_xp"]
+
+    # 4. 중복 지급 방지
+    event_key = f"POST:{post_id}"
+
+    cursor.execute(
+        """
+        INSERT INTO member_xp_history
+            (member_id, activity_type, source_type,
+             source_id, event_key, xp_change, activity_date)
+        VALUES
+            (%s, 'CAREER_GUIDE', 'POST',
+             %s, %s, 50, %s)
+        ON CONFLICT (member_id, event_key) DO NOTHING
+        RETURNING history_id
+        """,
+        (
+            member_id,
+            post_id,
+            event_key,
+            datetime.now(ZoneInfo("Asia/Seoul")).date(),
+        ),
+    )
+
+    if cursor.fetchone() is None:
+        return {"awarded": False, "reason": "DUPLICATE"}
+
+    # 5. XP 및 레벨 갱신
+    new_xp = total_xp + 50
+    new_level = calculate_level(new_xp)
+
+    cursor.execute(
+        """
+        UPDATE member_levels
+        SET total_xp = %s,
+            level = %s,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE member_id = %s
+        """,
+        (new_xp, new_level, member_id),
+    )
+
+    return {
+        "awarded": True,
+        "earned_xp": 50,
+        "total_xp": new_xp,
+        "level": new_level,
+    }
+
+
+

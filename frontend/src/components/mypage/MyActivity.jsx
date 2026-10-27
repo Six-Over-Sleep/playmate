@@ -1,17 +1,16 @@
-
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { getMyActivities } from '../../services/mypageApi'
 
-// 페이지당 표시 개수
 const PAGE_SIZE = 10
 
-// 내 활동 탭
 const TABS = [
   { id: 'posts', label: '내 게시글' },
   { id: 'comments', label: '내 댓글' },
   { id: 'scraps', label: '내 스크랩' },
   { id: 'meetups', label: '내 모임' },
 ]
+
 
 // 날짜 표시
 function formatDate(value) {
@@ -20,33 +19,40 @@ function formatDate(value) {
     : '날짜 정보 없음'
 }
 
-// 모집 상태 표시
+
+// 모임 모집 상태
 function getMeetupStatus(state) {
   switch (state?.toUpperCase()) {
     case 'OPEN':
       return '모집 중'
+
     case 'CLOSE':
     case 'CLOSED':
       return '모집 마감'
+
     default:
       return state || '상태 미정'
   }
 }
 
-// 모임 유형 표시
+
+// 모임 운영 방식
 function getMeetupMode(mode) {
   switch (mode?.toLowerCase()) {
     case 'regular':
       return '상시모임'
+
     case 'temporary':
     case 'one_time':
       return '일회성 모임'
+
     default:
       return mode || '모임'
   }
 }
 
-// 모임 카테고리 표시
+
+// 모임 카테고리
 function getMeetupCategory(category) {
   const categories = {
     study: '스터디',
@@ -55,45 +61,103 @@ function getMeetupCategory(category) {
     group_buy: '공동구매',
   }
 
-  return categories[category?.toLowerCase()] || category || '모임'
+  return (
+    categories[category?.toLowerCase()] ||
+    category ||
+    '모임'
+  )
 }
 
-export default function MyActivity() {
-  // 현재 탭
-  const [activeTab, setActiveTab] = useState('posts')
 
-  // 활동 데이터
+// =========================================================
+// 게시글 상세 페이지 URL 생성
+// =========================================================
+
+function getPostUrl(item) {
+  const postId = item.post_id
+
+  if (!postId) {
+    return null
+  }
+
+  // 자유게시판
+  if (item.post_type === 'BOARD') {
+    if (!item.board_id) {
+      return null
+    }
+
+    return `/board/${item.board_id}/posts/${postId}`
+  }
+
+  // 취업 게시판
+  if (item.post_type === 'CAREER') {
+    const categoryMap = {
+      '취준도감': 'reviews',
+      '커리어 톡톡': 'talk',
+      '현직자 라운지': 'lounge',
+      '커리어 연구소': 'lab',
+    }
+
+    const category =
+      item.career_category ||
+      categoryMap[item.board_name]
+
+    if (category) {
+      return `/career/${category}/${postId}`
+    }
+  }
+
+  return null
+}
+
+
+// =========================================================
+// 마이페이지 내 활동
+// =========================================================
+
+export default function MyActivity({ onOpenMeetup }) {
+  const navigate = useNavigate()
+
+  const [activeTab, setActiveTab] = useState('posts')
   const [items, setItems] = useState([])
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // 페이지네이션
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
 
-  // 게시글·댓글은 Backend 페이지네이션
-  const isServerTab =
-    activeTab === 'posts' || activeTab === 'comments'
 
-  // Backend에 요청할 페이지
+  // =========================================================
+  // 페이지네이션
+  // =========================================================
+
+  const isServerTab =
+    activeTab === 'posts' ||
+    activeTab === 'comments'
+
   const queryPage = isServerTab ? page : 1
 
-  // 전체 페이지 수
   const totalPages = isServerTab
     ? Math.ceil(totalCount / PAGE_SIZE)
     : Math.ceil(items.length / PAGE_SIZE)
 
-  // 현재 페이지에 표시할 데이터
   const visibleItems = isServerTab
     ? items
     : items.slice(
         (page - 1) * PAGE_SIZE,
-        page * PAGE_SIZE
+        page * PAGE_SIZE,
       )
 
+
+  // =========================================================
   // 탭 변경
+  // =========================================================
+
   const handleTabChange = (tabId) => {
-    if (tabId === activeTab) return
+    if (tabId === activeTab) {
+      return
+    }
 
     setActiveTab(tabId)
     setPage(1)
@@ -101,7 +165,11 @@ export default function MyActivity() {
     setTotalCount(0)
   }
 
-  // 활동 데이터 조회
+
+  // =========================================================
+  // 활동 내역 조회
+  // =========================================================
+
   useEffect(() => {
     let active = true
 
@@ -111,25 +179,24 @@ export default function MyActivity() {
 
     getMyActivities(activeTab, queryPage)
       .then((data) => {
-        if (!active) return
+        if (!active) {
+          return
+        }
 
         if (isServerTab) {
-          // 게시글·댓글 응답:
-          // { items: [], total: 0, page: 1, page_size: 10 }
-
           if (!data || !Array.isArray(data.items)) {
             throw new Error(
-              '활동 조회 응답 형식이 올바르지 않습니다.'
+              '활동 조회 응답 형식이 올바르지 않습니다.',
             )
           }
 
           setItems(data.items)
           setTotalCount(Number(data.total) || 0)
+
         } else {
-          // 스크랩·모임은 기존 배열 응답
           if (!Array.isArray(data)) {
             throw new Error(
-              '활동 조회 응답 형식이 올바르지 않습니다.'
+              '활동 조회 응답 형식이 올바르지 않습니다.',
             )
           }
 
@@ -137,42 +204,48 @@ export default function MyActivity() {
           setTotalCount(data.length)
         }
       })
+
       .catch((err) => {
         if (active) {
           setError(err.message)
         }
       })
+
       .finally(() => {
         if (active) {
           setLoading(false)
         }
       })
 
-    // 이전 요청의 응답이 새 탭에 표시되지 않도록 방지
     return () => {
       active = false
     }
+
   }, [activeTab, queryPage, isServerTab])
 
-  // 게시글·댓글·스크랩 표시 정보
+
+  // =========================================================
+  // 게시글 / 댓글 / 스크랩 표시 정보
+  // =========================================================
+
   const getDisplay = (item) => {
     switch (activeTab) {
       case 'posts':
         return {
           title: item.title,
           description: '',
-          meta: `${
-            item.board_name || '기타 게시글'
-          } · ${formatDate(item.created_at)}`,
+          meta:
+            `${item.board_name || '기타 게시글'} · ` +
+            formatDate(item.created_at),
         }
 
       case 'comments':
         return {
           title: item.post_title,
           description: item.body,
-          meta: `${
-            item.parent_comment_id ? '대댓글' : '댓글'
-          } · ${formatDate(item.created_at)}`,
+          meta:
+            `${item.parent_comment_id ? '대댓글' : '댓글'} · ` +
+            formatDate(item.created_at),
         }
 
       case 'scraps':
@@ -191,12 +264,30 @@ export default function MyActivity() {
     }
   }
 
+
+  // =========================================================
+  // 모임 상세 이동
+  // =========================================================
+
+  const openMyMeetup = (recruitId) => {
+    if (!recruitId) {
+      return
+    }
+
+    navigate(`/meetup/${recruitId}`)
+  }
+
+
+  // =========================================================
+  // 화면
+  // =========================================================
+
   return (
     <div className="mypage-activity">
 
       <h2>내 활동</h2>
 
-      {/* 활동 탭 */}
+      {/* 활동 유형 탭 */}
       <div
         className="mypage-activity-tabs"
         role="tablist"
@@ -208,7 +299,9 @@ export default function MyActivity() {
             type="button"
             role="tab"
             aria-selected={activeTab === tab.id}
-            className={activeTab === tab.id ? 'active' : ''}
+            className={
+              activeTab === tab.id ? 'active' : ''
+            }
             onClick={() => handleTabChange(tab.id)}
           >
             {tab.label}
@@ -216,11 +309,13 @@ export default function MyActivity() {
         ))}
       </div>
 
-      {/* 활동 조회 결과 */}
+
+      {/* 활동 목록 */}
       <div
         className="mypage-activity-content"
         role="tabpanel"
       >
+
         {loading ? (
 
           <p className="mypage-activity-empty">
@@ -241,8 +336,12 @@ export default function MyActivity() {
 
         ) : activeTab === 'meetups' ? (
 
-          // 내 모임: 카드형
+          // =========================================
+          // 내 모임 목록
+          // =========================================
+
           <div className="mypage-meetup-grid">
+
             {visibleItems.map((item) => {
               const isOpen =
                 item.state?.toUpperCase() === 'OPEN'
@@ -254,10 +353,32 @@ export default function MyActivity() {
                 <article
                   key={item.recruit_id}
                   className="mypage-meetup-card"
+
+                  // 모임 카드 클릭 시 상세 페이지 이동
+                  onClick={() =>
+                    openMyMeetup(item.recruit_id)
+                  }
+
+                  // 키보드 접근 지원
+                  role="link"
+                  tabIndex={0}
+
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === 'Enter' ||
+                      event.key === ' '
+                    ) {
+                      event.preventDefault()
+                      openMyMeetup(item.recruit_id)
+                    }
+                  }}
+
+                  title="모임 상세 보기"
                 >
 
-                  {/* 카테고리 + 모집 상태 */}
+                  {/* 모임 카테고리 및 상태 */}
                   <div className="mypage-meetup-top">
+
                     <span className="mypage-meetup-category">
                       {getMeetupCategory(item.category)}
                     </span>
@@ -272,24 +393,33 @@ export default function MyActivity() {
                       {isOpen ? '● ' : ''}
                       {getMeetupStatus(item.state)}
                     </span>
+
                   </div>
+
 
                   {/* 모임 제목 */}
                   <h3>{item.title}</h3>
 
-                  {/* 모임장 여부 및 유형 */}
+
+                  {/* 참여 정보 */}
                   <div className="mypage-meetup-details">
+
                     <span>
-                      {isHost ? '👑 모임장' : '👤 참여자'}
+                      {isHost
+                        ? '👑 모임장'
+                        : '👤 참여자'}
                     </span>
 
                     <span>
                       {getMeetupMode(item.recruit_mode)}
                     </span>
+
                   </div>
 
-                  {/* 모임 정보 */}
+
+                  {/* 모임 ID 및 생성일 */}
                   <div className="mypage-meetup-footer">
+
                     <span>
                       모임 #{item.recruit_id}
                     </span>
@@ -297,96 +427,163 @@ export default function MyActivity() {
                     <span>
                       {formatDate(item.created_at)}
                     </span>
+
                   </div>
 
                 </article>
               )
             })}
+
           </div>
 
         ) : (
 
-          // 게시글·댓글·스크랩: 리스트형
+          // =========================================
+          // 내 게시글 / 댓글 / 스크랩
+          // =========================================
+
           <ul className="mypage-activity-list">
+
             {visibleItems.map((item) => {
               const data = getDisplay(item)
 
               const id =
-                item.comment_id ?? item.post_id
+                item.comment_id ??
+                item.post_id
+
+              const url = getPostUrl(item)
 
               return (
-                <li
-                  key={id}
-                  className="mypage-activity-item"
-                >
-                  <strong>{data.title}</strong>
+              <li
+                key={id}
+                className="mypage-activity-item"
+                onClickCapture={(e) => {
+                  if (
+                    ['comments', 'scraps'].includes(activeTab) &&
+                    item.recruit_id != null
+                  ) {
+                    e.stopPropagation()
+                    onOpenMeetup(Number(item.recruit_id))
+                  }
+                }}
+              >
 
-                  {data.description && (
-                    <p className="mypage-activity-description">
-                      {data.description}
-                    </p>
+                  {url ? (
+
+                    <button
+                      type="button"
+                      className="mypage-activity-post-link"
+                      onClick={() => navigate(url)}
+                      title="게시글 상세 보기"
+                    >
+
+                      <strong>{data.title}</strong>
+
+                      {data.description && (
+                        <span className="mypage-activity-description">
+                          {data.description}
+                        </span>
+                      )}
+
+                      <span className="mypage-activity-meta">
+                        {data.meta}
+                      </span>
+
+                    </button>
+
+                  ) : (
+
+                    <>
+                      <strong>{data.title}</strong>
+
+                      {data.description && (
+                        <p className="mypage-activity-description">
+                          {data.description}
+                        </p>
+                      )}
+
+                      <span className="mypage-activity-meta">
+                        {data.meta}
+                      </span>
+                    </>
+
                   )}
 
-                  <span className="mypage-activity-meta">
-                    {data.meta}
-                  </span>
                 </li>
               )
             })}
-          </ul>
 
+          </ul>
         )}
+
       </div>
 
-      {/* 페이지네이션 */}
+
+      {/* =========================================
+          페이지네이션
+          ========================================= */}
+
       {!loading && !error && totalPages > 1 && (
+
         <div className="mypage-pagination">
 
-          {/* 이전 페이지 */}
           <button
             type="button"
             disabled={page === 1}
-            onClick={() => {
-              setPage((prev) => Math.max(1, prev - 1))
-            }}
+            onClick={() =>
+              setPage((prev) =>
+                Math.max(1, prev - 1),
+              )
+            }
           >
             이전
           </button>
 
-          {/* 페이지 번호 */}
+
           {Array.from(
             { length: totalPages },
-            (_, index) => index + 1
+            (_, index) => index + 1,
           ).map((number) => (
+
             <button
               key={number}
               type="button"
-              className={page === number ? 'active' : ''}
+              className={
+                page === number ? 'active' : ''
+              }
               aria-label={`${number}페이지`}
               aria-current={
-                page === number ? 'page' : undefined
+                page === number
+                  ? 'page'
+                  : undefined
               }
               onClick={() => setPage(number)}
             >
               {number}
             </button>
+
           ))}
 
-          {/* 다음 페이지 */}
+
           <button
             type="button"
             disabled={page === totalPages}
-            onClick={() => {
+            onClick={() =>
               setPage((prev) =>
-                Math.min(totalPages, prev + 1)
+                Math.min(
+                  totalPages,
+                  prev + 1,
+                ),
               )
-            }}
+            }
           >
             다음
           </button>
 
         </div>
+
       )}
+
     </div>
   )
 }

@@ -104,9 +104,9 @@ class MyPostResponse(BaseModel):
     post_id: int
     board_id: int | None = None
     board_name: str | None = None
+    post_type: str | None = None
     title: str
     created_at: datetime | None = None
-
 
 
 # 내 게시글 페이지네이션 응답
@@ -115,6 +115,7 @@ class MyPostPageResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    career_category: str | None = None
 
 
 # 내가 작성한 댓글 및 대댓글 응답
@@ -122,10 +123,13 @@ class MyCommentResponse(BaseModel):
     comment_id: int
     post_id: int
     board_id: int | None = None
+    post_type: str | None = None
     post_title: str
     body: str
     parent_comment_id: int | None = None
     created_at: datetime | None = None
+    career_category: str | None = None
+    recruit_id: int | None = None
 
 
 
@@ -133,8 +137,11 @@ class MyCommentResponse(BaseModel):
 class MyScrapResponse(BaseModel):
     post_id: int
     board_id: int | None = None
+    post_type: str | None = None
     title: str
     scrapped_at: datetime
+    career_category: str | None = None
+    recruit_id: int | None = None
 
 
 # 내가 생성하거나 참여한 모임
@@ -155,3 +162,75 @@ class MyCommentPageResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+# =========================================================
+# 취업 스펙 등록 및 수정
+# =========================================================
+
+class MyCareerSpecUpdate(BaseModel):
+    """내 취업 스펙 등록·수정 요청"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    desired_job: str | None = Field(default=None, max_length=100)
+    education: str | None = Field(default=None, max_length=200)
+    certifications: str | None = None
+    language_scores: str | None = None
+    tech_stack: str | None = None
+    projects: str | None = None
+    introduction: str | None = None
+
+    @field_validator(
+        "desired_job",
+        "education",
+        "certifications",
+        "language_scores",
+        "tech_stack",
+        "projects",
+        "introduction",
+    )
+    @classmethod
+    def strip_text(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+# =========================================================
+# 취업 스펙 조회 응답
+# =========================================================
+
+class MyCareerSpecResponse(BaseModel):
+    """내 취업 스펙 조회 응답"""
+
+    member_id: int
+
+    desired_job: str | None = None
+    education: str | None = None
+    certifications: str | None = None
+    language_scores: str | None = None
+    tech_stack: str | None = None
+    projects: str | None = None
+    introduction: str | None = None
+
+    is_public: bool = False
+    first_published_at: datetime | None = None
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =========================================================
+# 취업 스펙 공개 여부 변경
+# =========================================================
+
+from pydantic import StrictBool
+
+
+class MyCareerSpecVisibilityUpdate(BaseModel):
+    """취업 스펙 공개·비공개 변경 요청"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # True: 공개 / False: 비공개
+    is_public: StrictBool

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { boardApi } from '../../services/boardApi'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 /**
  * 게시판의 조회·화면 전환·변경 흐름을 관리한다.
@@ -7,7 +8,49 @@ import { boardApi } from '../../services/boardApi'
  * 요청 순번으로 늦은 응답을 무시하고 전환 조회는 언마운트 시 취소한다.
  * 초기 조회는 effect의 구독만 해제해 StrictMode의 재구독에서도 응답을 재사용한다.
  */
+
+// 자유게시판 URL에서 게시판 ID와 게시글 ID 추출
+function parseBoardPath(pathname) {
+  const parts = pathname.split('/').filter(Boolean)
+
+  if (parts[0] !== 'board') return null
+
+  if (parts.length === 1) {
+    return { boardId: null, postId: null }
+  }
+
+  const boardId = Number(parts[1])
+
+  if (!Number.isSafeInteger(boardId) || boardId <= 0) {
+    return null
+  }
+
+  if (parts.length === 2) {
+    return { boardId, postId: null }
+  }
+
+  if (parts.length !== 4 || parts[2] !== 'posts') {
+    return null
+  }
+
+  const postId = Number(parts[3])
+
+  if (!Number.isSafeInteger(postId) || postId <= 0) {
+    return null
+  }
+
+  return { boardId, postId }
+}
+
 export function useBoard(resetVersion) {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  const locationRef = useRef(location.pathname)
+  locationRef.current = location.pathname
+
+  const handledPath = useRef(null)
+
   const [boards, setBoards] = useState([])
   const [board, setBoard] = useState(null)
   const [posts, setPosts] = useState([])
@@ -51,7 +94,12 @@ export function useBoard(resetVersion) {
     }
     initialRequest.current.then((items) => {
       if (!active) return
-      const firstBoard = items[0] || null
+      const route = parseBoardPath(locationRef.current)
+
+      const firstBoard =
+        items.find((item) => Number(item.id) === route?.boardId)
+        || items[0]
+        || null  
       // 게시판은 도착 즉시 표시한다. 글 조회는 공통 흐름에 맡겨 전환·저장 시 취소한다.
       setBoards(items)
       setBoard(firstBoard)
@@ -116,11 +164,22 @@ export function useBoard(resetVersion) {
   }
 
   /** 목록으로 돌아가며 저장·조회 실패로 기존 목록이 무효할 때만 현재 검색을 재조회한다. */
-  function backToList() {
+  function backToList(updateUrl = true) {
     if (mutationLock.current) return
+
     cancelDetail()
     setView('list')
-    if (dirty.current || posts === null) loadPosts(board, query)
+
+    if (dirty.current || posts === null) {
+      loadPosts(board, query)
+    }
+
+    if (updateUrl && board) {
+      const path = `/board/${board.id}`
+
+      handledPath.current = path
+      navigate(path)
+    }
   }
 
   useEffect(() => {
@@ -130,22 +189,38 @@ export function useBoard(resetVersion) {
   }, [resetVersion])
 
   /** 같은 게시판의 정상 목록은 재사용하고, 실패·검색·변경 상태에서는 다시 조회한다. */
-  function selectBoard(target) {
+ function selectBoard(target, updateUrl = true) {
     if (mutationLock.current) return
+
+    if (updateUrl) {
+      const path = `/board/${target.id}`
+
+      handledPath.current = path
+      navigate(path)
+    }
+
     cancelDetail()
+
     setBoard(target)
     setQuery('')
     setPost(null)
     setComments([])
     setView('list')
     setError('')
+
     const cached = currentList.current
-    if (cached?.boardId === target.id && cached.query === '' && !dirty.current) {
+
+    if (
+      cached?.boardId === target.id &&
+      cached.query === '' &&
+      !dirty.current
+    ) {
       cancelList()
       setPosts(cached.items)
       setLoading(false)
       return
     }
+
     setPosts([])
     loadPosts(target)
   }
@@ -169,40 +244,139 @@ export function useBoard(resetVersion) {
   }
 
   /** 상세와 댓글은 병렬 조회하되 선택이 바뀌면 이전 결과를 폐기한다. */
-  async function openPost(item) {
-    if (mutationLock.current) return
+  async function openPost(
+    item,
+    targetBoard = board,
+    updateUrl = true
+  ) {
+    if (
+      mutationLock.current ||
+      !targetBoard ||
+      !item?.id
+    ) {
+      return
+    }
+
     cancelDetail()
+
     const controller = new AbortController()
     const id = detailRequest.current.id
+
     detailRequest.current.controller = controller
+
     setDetailLoading(true)
     setError('')
+
     try {
       const [detail, replies] = await Promise.all([
-        boardApi.post(board.id, item.id, { signal: controller.signal }),
-        boardApi.comments(board.id, item.id, { signal: controller.signal }),
+        boardApi.post(
+          targetBoard.id,
+          item.id,
+          { signal: controller.signal }
+        ),
+
+        boardApi.comments(
+          targetBoard.id,
+          item.id,
+          { signal: controller.signal }
+        ),
       ])
-      if (!mounted.current || id !== detailRequest.current.id) return
+
+      if (
+        !mounted.current ||
+        id !== detailRequest.current.id
+      ) {
+        return
+      }
+
       setPost(detail)
       setComments(replies)
       setView('detail')
+
+      // 게시글 URL 변경
+      if (updateUrl) {
+        const path =
+          `/board/${targetBoard.id}/posts/${item.id}`
+
+        handledPath.current = path
+        navigate(path)
+      }
+
     } catch (cause) {
-      if (mounted.current && id === detailRequest.current.id && cause.name !== 'AbortError') {
+      if (
+        mounted.current &&
+        id === detailRequest.current.id &&
+        cause.name !== 'AbortError'
+      ) {
         setError(cause.message)
       }
+
     } finally {
-      if (mounted.current && id === detailRequest.current.id) setDetailLoading(false)
+      if (
+        mounted.current &&
+        id === detailRequest.current.id
+      ) {
+        setDetailLoading(false)
+      }
     }
   }
+  // URL 변경 및 새로고침 시 게시글 복원
+  useEffect(() => {
+    if (!initialized || boards.length === 0) return
 
-  /** 성공 메시지를 일정 시간 표시한다. 이전 타이머를 정리해 새 메시지가 일찍 지워지지 않게 한다. */
-  function notify(message) {
-    clearTimeout(notificationTimer.current)
-    setSuccess(message)
-    notificationTimer.current = setTimeout(() => {
-      if (mounted.current) setSuccess('')
-    }, 2500)
-  }
+    const path = location.pathname
+
+    // 이미 처리한 URL은 중복 요청하지 않음
+    if (handledPath.current === path) return
+
+    handledPath.current = path
+
+    const route =
+      parseBoardPath(path) ||
+      (path === '/'
+        ? { boardId: null, postId: null }
+        : null)
+
+    if (!route) return
+
+    const targetBoard = route.boardId
+      ? boards.find(
+          (item) => Number(item.id) === route.boardId
+        )
+      : board || boards[0]
+
+    if (!targetBoard) {
+      cancelDetail()
+      setError('해당 게시판을 찾을 수 없습니다.')
+      return
+    }
+
+    if (Number(board?.id) !== Number(targetBoard.id)) {
+      selectBoard(targetBoard, false)
+    }
+
+    if (route.postId) {
+      setView('list')
+
+      openPost(
+        { id: route.postId },
+        targetBoard,
+        false
+      )
+    } else {
+      backToList(false)
+    }
+
+  }, [location.pathname, initialized, boards])
+
+    /** 성공 메시지를 일정 시간 표시한다. 이전 타이머를 정리해 새 메시지가 일찍 지워지지 않게 한다. */
+    function notify(message) {
+      clearTimeout(notificationTimer.current)
+      setSuccess(message)
+      notificationTimer.current = setTimeout(() => {
+        if (mounted.current) setSuccess('')
+      }, 2500)
+    }
 
   /**
    * 동기 ref 잠금으로 같은 렌더 사이의 연속 제출도 막는다.
@@ -241,6 +415,10 @@ export function useBoard(resetVersion) {
       setPost(null)
       setComments([])
       setView('list')
+      const path = `/board/${created.id}`
+
+      handledPath.current = path
+      navigate(path)
       setModal(false)
       currentList.current = { boardId: created.id, query: '', items: [] }
       dirty.current = false
@@ -260,7 +438,15 @@ export function useBoard(resetVersion) {
         setPost(saved)
         if (!editing) setComments([])
         dirty.current = true
+        
         setView('detail')
+
+        // 작성하거나 수정한 게시글의 URL 설정
+        const path = `/board/${board.id}/posts/${saved.id}`
+
+        handledPath.current = path
+        navigate(path)
+
         notify(editing ? '게시글을 수정했습니다.' : '게시글을 등록했습니다.')
       },
     )
@@ -275,6 +461,12 @@ export function useBoard(resetVersion) {
         currentList.current.items = currentList.current.items.filter((item) => item.id !== post.id)
       }
       setPost(null)
+
+      // 삭제 후 게시판 목록으로 이동
+      const path = `/board/${board.id}`
+
+      handledPath.current = path
+      navigate(path)
       setComments([])
       setView('list')
       // 이전 작성·수정으로 검색 결과가 달라졌을 때만 목록을 새로 가져온다.

@@ -3,6 +3,7 @@ import '../../styles/CareerLabDetailPage.css'
 const TYPE_LABELS = {
     QUESTION: '질문',
     DISCUSSION: '토론',
+    GUIDE: '커리어 가이드',
 }
 
 /** PostgreSQL에 저장된 커리어 연구소 게시글 상세 화면 */
@@ -39,7 +40,20 @@ export default function CareerLabDetailPage({
                 </div>
 
                 <div className="career-lab-detail-body">{post.body}</div>
+                {/* 커리어 가이드 전용 상세 정보 */}
+                {post.post_type === 'GUIDE' && (
+                    <>
+                        <section className="career-lab-detail-extra">
+                            <h4>📚 경험 및 근거</h4>
+                            <p>{post.guide_experience}</p>
+                        </section>
 
+                        <section className="career-lab-detail-extra">
+                            <h4>💡 실질적인 조언</h4>
+                            <p>{post.guide_advice}</p>
+                        </section>
+                    </>
+                )}
                 {post.post_type === 'QUESTION' && (
                     <div className="career-lab-resolution">
                         <span>

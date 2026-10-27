@@ -14,7 +14,10 @@ from fastapi import HTTPException
 from app.core.db_connect import db_cursor
 from app.repositories import board_repository, career_repository
 from app.services import board_service
-from app.services.xp_service import grant_xp
+from app.services.xp_service import (
+    grant_xp,
+    grant_post_like_xp,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -30,13 +33,31 @@ def _require_career_post(cursor, post_id: int) -> None:
 # 좋아요·스크랩
 # =========================================
 
+# 취업 게시글 좋아요 및 작성자 XP 지급
 def like_post(post_id: int, member_id: int) -> dict[str, Any]:
-    """게시글 확인·좋아요 저장·응답 조회를 한 트랜잭션에서 수행한다. 중복 요청은 현재 상태를 반환한다."""
-    with db_cursor(commit=True) as cursor:
-        _require_career_post(cursor, post_id)
-        board_repository.like_post(cursor, post_id, member_id)
-        return board_repository.get_post_like(cursor, post_id, member_id)
 
+    with db_cursor(commit=True) as cursor:
+
+        # 1. 취업 게시글 존재 확인
+        _require_career_post(cursor, post_id)
+
+        # 2. 좋아요 등록
+        is_new_like = board_repository.like_post(
+            cursor, post_id, member_id
+        )
+
+        # 3. 새로운 좋아요일 때만 작성자에게 XP 지급
+        if is_new_like:
+            grant_post_like_xp(
+                cursor,
+                post_id,
+                member_id,
+            )
+
+        # 4. 좋아요 결과 반환
+        return board_repository.get_post_like(
+            cursor, post_id, member_id
+        )
 
 def unlike_post(post_id: int, member_id: int) -> dict[str, Any]:
     """게시글 확인 후 좋아요를 취소하고 응답을 조회한다. 좋아요가 없어도 성공한다."""
@@ -78,6 +99,7 @@ def create_comment(
     body: str,
     member_id: int,
     parent_comment_id: int | None = None,
+    is_anonymous: bool = False,
 ) -> dict[str, Any]:
     """게시글·부모 댓글 확인, 댓글 저장, 응답 조회 후 게시판과 같이 XP를 지급한다."""
     with db_cursor(commit=True) as cursor:
@@ -90,7 +112,12 @@ def create_comment(
 
         # 3. 댓글 또는 대댓글 저장
         comment_id = board_repository.create_comment(
-            cursor, post_id, body, member_id, parent_comment_id
+            cursor,
+            post_id,
+            body,
+            member_id,
+            parent_comment_id,
+            is_anonymous,
         )
         comment = board_service._comment_detail(cursor, comment_id, member_id)
 

@@ -13,8 +13,11 @@ from backend.app.core.db_connect import db_cursor
 # repository : 게시판·게시글·댓글에 대한 실제 SQL 실행을 담당함.
 from backend.app.repositories import board_repository as repository
 import logging
-from backend.app.services.xp_service import grant_xp, revoke_xp
-
+from backend.app.services.xp_service import (
+    grant_xp,
+    revoke_xp,
+    grant_post_like_xp,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,39 +86,6 @@ def create_board(
 
 
 
-def create_post(
-    board_id: int,
-    title: str,
-    body: str,
-    member_id: int,
-    images: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-
-    # 1. 게시글 저장
-    with db_cursor(commit=True) as cursor:
-        _require_board(cursor, board_id)
-
-        post_id = repository.create_post(
-            cursor, board_id, title, body, member_id, images
-        )
-
-        post = _post_detail(
-            cursor, board_id, post_id, member_id
-        )
-
-    # 2. 게시글 커밋 성공 후 XP 지급
-    # 관리자(-1)는 제외
-    if member_id > 0:
-        try:
-            grant_xp(member_id, "POST", post_id)
-        except Exception:
-            logger.exception(
-                "게시글 XP 지급 실패: post_id=%s",
-                post_id
-            )
-
-    # 3. 생성된 게시글 반환
-    return post
 
 
 
@@ -153,22 +123,45 @@ def create_post(
     member_id: int,
     images: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """게시판 확인→게시글·이미지 저장→응답 조회→커밋 순서로 처리한다.
+    """게시글·이미지 저장 후 게시글 작성 XP를 지급한다.
 
-    images는 업로드 모듈에서 검증한 메타데이터이다. 응답 조회 실패도 롤백하므로
-    라우터가 실패 파일을 정리할 때 이미 커밋된 이미지 참조를 삭제하지 않는다.
-    커밋 응답이 끊겨 성공 여부가 불명확한 경우에는 업로드 파일을 보존한다.
+    게시글과 이미지 저장, 응답 조회는 하나의 트랜잭션으로 처리한다.
+    DB 커밋이 성공한 경우에만 XP 지급을 요청한다.
     """
-    # 게시글과 첨부 이미지 메타데이터를 같은 DB 트랜잭션으로 저장함.
+    # 1. 게시글 저장 및 상세 조회 (성공 시 커밋)
     with db_cursor(commit=True) as cursor:
-        # 유효한 게시판인지 확인함.
         _require_board(cursor, board_id)
-        # 게시글 및 이미지 메타데이터를 저장하고 게시글 ID를 받음.
+
         post_id = repository.create_post(
             cursor, board_id, title, body, member_id, images
         )
-        # 저장한 게시글의 응답 조회까지 성공해야 커밋이 완료됨.
-        return _post_detail(cursor, board_id, post_id, member_id)
+        post = _post_detail(cursor, board_id, post_id, member_id)
+
+    # 2. 게시글 저장이 완료된 뒤 XP 지급 (관리자 제외)
+    if member_id > 0:
+        try:
+            result = grant_xp(member_id, "POST", post_id)
+
+            if result.get("awarded"):
+                logger.info(
+                    "게시글 작성 XP 지급 완료: member_id=%s, post_id=%s, xp=%s",
+                    member_id,
+                    post_id,
+                    result.get("earned_xp"),
+                )
+            else:
+                logger.info(
+                    "게시글 작성 XP 미지급: member_id=%s, post_id=%s, reason=%s",
+                    member_id,
+                    post_id,
+                    result.get("reason"),
+                )
+        except Exception:
+            # 게시글 저장 성공과 XP 지급 실패를 별도로 기록한다.
+            logger.exception("게시글 XP 지급 실패: post_id=%s", post_id)
+
+    # 3. 작성된 게시글 반환
+    return post
 
 
 def get_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
@@ -221,17 +214,36 @@ def delete_post(board_id: int, post_id: int, member_id: int) -> None:
 # =========================================================
 # 5. 게시글 좋아요·스크랩
 # =========================================================
-def like_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
-    """게시글 확인·좋아요 저장·응답 조회를 한 트랜잭션에서 수행한다.
+# 게시글 좋아요 및 작성자 XP 지급
+def like_post(
+    board_id: int,
+    post_id: int,
+    member_id: int,
+) -> dict[str, Any]:
 
-    이미 좋아요한 글에 다시 요청해도 행을 추가하지 않고 현재 상태를 반환한다.
-    삭제·모임 게시글은 404이다.
-    """
     with db_cursor(commit=True) as cursor:
-        _require_post(cursor, board_id, post_id)
-        repository.like_post(cursor, post_id, member_id)
-        return repository.get_post_like(cursor, post_id, member_id)
 
+        # 1. 게시글 존재 여부 확인
+        _require_post(cursor, board_id, post_id)
+
+        # 2. 좋아요 등록
+        # 처음 등록하면 True, 중복 요청이면 False
+        is_new_like = repository.like_post(
+            cursor, post_id, member_id
+        )
+
+        # 3. 새로운 좋아요일 때만 XP 지급
+        if is_new_like:
+            grant_post_like_xp(
+                cursor,
+                post_id,
+                member_id,
+            )
+
+        # 4. 현재 좋아요 상태 반환
+        return repository.get_post_like(
+            cursor, post_id, member_id
+        )
 
 def unlike_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
     """게시글 확인 후 좋아요를 취소하고 응답을 조회한다. 좋아요가 없어도 성공한다."""
@@ -304,6 +316,7 @@ def create_comment(
     body: str,
     member_id: int,
     parent_comment_id: int | None = None,
+    is_anonymous: bool = False,
 ) -> dict[str, Any]:
     """게시글·부모 댓글 확인, 댓글 저장, 응답 조회를 한 트랜잭션에서 수행한다."""
     with db_cursor(commit=True) as cursor:
@@ -320,7 +333,8 @@ def create_comment(
             post_id,
             body,
             member_id,
-            parent_comment_id
+            parent_comment_id,
+            is_anonymous,
         )
 
         comment = _comment_detail(

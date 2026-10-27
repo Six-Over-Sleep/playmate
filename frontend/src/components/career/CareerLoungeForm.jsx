@@ -36,7 +36,7 @@ export default function CareerLoungeForm({
     const [careerYears, setCareerYears] = useState(initial?.career_years ?? '')
     const [companyName, setCompanyName] = useState(initial?.company_name || '')
     const [body, setBody] = useState(initial?.body || '')
-    const [anonymous, setAnonymous] = useState(initial?.anonymous ?? true)
+    const [anonymous, setAnonymous] = useState(initial?.anonymous ?? false)
 
     const yearsValid = careerYears === '' || (
         Number.isInteger(Number(careerYears)) &&

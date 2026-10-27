@@ -37,23 +37,76 @@ from app.schemas.career import (
     CareerLabVoteCreate,
 )
 
-def create_review(payload: CareerReviewCreate, member_id: int) -> CareerReviewResponse:
-    """게시글·취업 분류·후기를 하나의 트랜잭션으로 저장한다."""
+import logging
+
+from app.services.xp_service import (
+    grant_career_review_xp,
+    revoke_xp,
+    reconcile_career_review_xp,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# 취준 도감 후기 작성 및 XP 지급
+def create_review(
+    payload: CareerReviewCreate,
+    member_id: int,
+) -> CareerReviewResponse:
+
+    # 1. 게시글 및 취업 후기 저장
     with db_cursor(commit=True) as cursor:
-        # Repository는 commit하지 않으므로 세 테이블 저장은 함께 성공하거나 롤백된다.
         post_id = career_repository.create_review(
             cursor,
             member_id,
             payload.model_dump(),
         )
 
-        # 커밋하기 전에 상세 데이터를 읽고 응답 형식까지 검증한다.
-        # 조회·검증에 실패하면 with 블록을 벗어나면서 커밋되지 않는다.
-        review = career_repository.get_review(cursor, post_id, member_id)
-        if review is None:
-            raise HTTPException(status_code=500, detail="등록한 후기를 조회하지 못했습니다.")
+        # 2. 저장된 후기 조회
+        review = career_repository.get_review(
+            cursor,
+            post_id,
+            member_id,
+        )
 
-        return CareerReviewResponse.model_validate(review)
+        if review is None:
+            raise HTTPException(
+                status_code=500,
+                detail="등록한 후기를 조회하지 못했습니다.",
+            )
+
+        response = CareerReviewResponse.model_validate(review)
+
+    # 3. DB 저장 성공 후 XP 지급
+    if member_id > 0:
+        try:
+            result = grant_career_review_xp(
+                member_id,
+                post_id,
+            )
+
+            if result["awarded"]:
+                logger.info(
+                    "취업 후기 XP 지급 완료: post_id=%s, xp=%s",
+                    post_id,
+                    result["earned_xp"],
+                )
+            else:
+                logger.info(
+                    "취업 후기 XP 미지급: post_id=%s, reason=%s",
+                    post_id,
+                    result["reason"],
+                )
+
+        except Exception:
+            logger.exception(
+                "취업 후기 XP 지급 실패: post_id=%s",
+                post_id,
+            )
+
+    # 4. 작성된 후기 반환
+    return response
+
 
 
 def get_review(post_id: int, member_id: int) -> CareerReviewResponse:
@@ -154,39 +207,51 @@ def update_review(
                 detail="수정한 후기를 조회하지 못했습니다.",
             )
 
-        # 7. 응답 검증 후 트랜잭션 커밋
-        return CareerReviewResponse.model_validate(review)
+        # 7. 수정된 후기 응답 검증
+        response = CareerReviewResponse.model_validate(review)
+
+        # 8. 수정된 후기 유형을 기준으로 XP 차액 정산
+        # 게시글 수정과 XP 정산은 같은 트랜잭션에서 처리됨
+        xp_result = reconcile_career_review_xp(cursor, member_id, post_id)
+        logger.info(
+            "취업 후기 XP 정산: post_id=%s, result=%s",
+            post_id,
+            xp_result,
+        )
+
+        return response
     
 # =========================================
 # 취준 도감 - 후기 삭제
 # =========================================
 
+
+# 취업 후기 삭제 및 XP 자동 회수
 def delete_review(post_id: int, member_id: int) -> None:
-    """작성자 권한을 확인한 뒤 후기를 논리 삭제한다."""
+    """취업 후기 삭제와 XP 회수를 같은 트랜잭션에서 처리한다."""
 
     with db_cursor(commit=True) as cursor:
 
-        # 1. 게시글 존재 확인 및 행 잠금
+        # 1. 게시글 존재 및 작성자 확인
         author_id = career_repository.get_review_author_for_update(
             cursor,
             post_id,
         )
 
-        # 2. 존재하지 않거나 이미 삭제된 게시글
         if author_id is None:
             raise HTTPException(
                 status_code=404,
                 detail="취업 후기를 찾을 수 없습니다.",
             )
 
-        # 3. 작성자 권한 검증
+        # 2. 작성자 권한 검증
         if author_id != member_id:
             raise HTTPException(
                 status_code=403,
                 detail="작성자만 후기를 삭제할 수 있습니다.",
             )
 
-        # 4. 논리 삭제
+        # 3. 게시글 논리 삭제
         deleted = career_repository.delete_review(
             cursor,
             post_id,
@@ -198,6 +263,16 @@ def delete_review(post_id: int, member_id: int) -> None:
                 status_code=404,
                 detail="취업 후기를 삭제하지 못했습니다.",
             )
+
+        # 4. 지급받은 XP 회수
+        # XP 이력이 없다면 회수 없이 삭제만 완료
+        # 이미 회수한 XP는 다시 회수하지 않음
+        revoke_xp(
+            cursor,
+            member_id,
+            "POST",
+            post_id,
+        )
 
 
 

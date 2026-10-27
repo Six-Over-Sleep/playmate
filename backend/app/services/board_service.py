@@ -13,8 +13,11 @@ from backend.app.core.db_connect import db_cursor
 # repository : 게시판·게시글·댓글에 대한 실제 SQL 실행을 담당함.
 from backend.app.repositories import board_repository as repository
 import logging
-from backend.app.services.xp_service import grant_xp, revoke_xp
-
+from backend.app.services.xp_service import (
+    grant_xp,
+    revoke_xp,
+    grant_post_like_xp,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -211,17 +214,36 @@ def delete_post(board_id: int, post_id: int, member_id: int) -> None:
 # =========================================================
 # 5. 게시글 좋아요·스크랩
 # =========================================================
-def like_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
-    """게시글 확인·좋아요 저장·응답 조회를 한 트랜잭션에서 수행한다.
+# 게시글 좋아요 및 작성자 XP 지급
+def like_post(
+    board_id: int,
+    post_id: int,
+    member_id: int,
+) -> dict[str, Any]:
 
-    이미 좋아요한 글에 다시 요청해도 행을 추가하지 않고 현재 상태를 반환한다.
-    삭제·모임 게시글은 404이다.
-    """
     with db_cursor(commit=True) as cursor:
-        _require_post(cursor, board_id, post_id)
-        repository.like_post(cursor, post_id, member_id)
-        return repository.get_post_like(cursor, post_id, member_id)
 
+        # 1. 게시글 존재 여부 확인
+        _require_post(cursor, board_id, post_id)
+
+        # 2. 좋아요 등록
+        # 처음 등록하면 True, 중복 요청이면 False
+        is_new_like = repository.like_post(
+            cursor, post_id, member_id
+        )
+
+        # 3. 새로운 좋아요일 때만 XP 지급
+        if is_new_like:
+            grant_post_like_xp(
+                cursor,
+                post_id,
+                member_id,
+            )
+
+        # 4. 현재 좋아요 상태 반환
+        return repository.get_post_like(
+            cursor, post_id, member_id
+        )
 
 def unlike_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
     """게시글 확인 후 좋아요를 취소하고 응답을 조회한다. 좋아요가 없어도 성공한다."""

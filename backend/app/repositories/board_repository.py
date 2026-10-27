@@ -373,9 +373,9 @@ def post_exists(cursor, board_id: int, post_id: int) -> bool:
     return cursor.fetchone() is not None
 
 
-# 게시글 좋아요 저장 (중복 요청은 무시)
-def like_post(cursor, post_id: int, member_id: int) -> None:
-    """게시글 좋아요를 저장한다. 이미 좋아요한 글은 기본키 충돌을 무시한다."""
+
+# 좋아요 등록 (신규 등록 여부 반환)
+def like_post(cursor, post_id: int, member_id: int) -> bool:
     cursor.execute(
         """
         INSERT INTO post_likes (post_id, member_id)
@@ -385,18 +385,23 @@ def like_post(cursor, post_id: int, member_id: int) -> None:
         (post_id, member_id),
     )
 
+    return cursor.rowcount > 0
 
-# 게시글 좋아요 취소
-def unlike_post(cursor, post_id: int, member_id: int) -> None:
-    """회원의 게시글 좋아요를 삭제한다. 좋아요가 없으면 아무것도 변경하지 않는다."""
+
+
+
+# 좋아요 취소 (실제 삭제 여부 반환)
+def unlike_post(cursor, post_id: int, member_id: int) -> bool:
     cursor.execute(
         """
         DELETE FROM post_likes
         WHERE post_id = %s
-            AND member_id = %s
+          AND member_id = %s
         """,
         (post_id, member_id),
     )
+
+    return cursor.rowcount > 0
 
 
 # 좋아요 등록·취소 후 응답할 좋아요 수와 내 좋아요 여부 조회

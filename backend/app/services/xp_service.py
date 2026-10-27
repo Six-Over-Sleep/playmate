@@ -479,6 +479,122 @@ def reconcile_career_review_xp(cursor, member_id: int, post_id: int) -> dict:
     return {"adjusted": True, "xp_change": difference, "total_xp": new_total}
 
 
+# 게시글 좋아요로 작성자에게 +1XP 지급
+# 호출자는 같은 트랜잭션에서 새 좋아요 INSERT가 성공한 경우에만 이 함수를 호출한다.
+def grant_post_like_xp(cursor, post_id: int, liker_member_id: int) -> dict:
+    """다른 회원의 새로운 좋아요에 대해 글당 최대 10XP를 지급한다."""
+    if post_id <= 0 or liker_member_id <= 0:
+        return {"awarded": False, "reason": "INVALID_ID"}
+
+    # 같은 게시글의 좋아요 보상과 삭제 처리를 직렬화한다.
+    cursor.execute(
+        """
+        SELECT author_member_id
+        FROM posts
+        WHERE post_id = %s
+          AND post_status = 'PUBLISHED'
+          AND deleted_at IS NULL
+        FOR UPDATE
+        """,
+        (post_id,),
+    )
+    post = cursor.fetchone()
+    if post is None:
+        return {"awarded": False, "reason": "INVALID_POST"}
+
+    author_id = post["author_member_id"]
+    if author_id is None or author_id <= 0:
+        return {"awarded": False, "reason": "INVALID_AUTHOR"}
+    if author_id == liker_member_id:
+        return {"awarded": False, "reason": "SELF_LIKE"}
+
+    # 실제로 좋아요가 등록되어 있는지 확인한다.
+    cursor.execute(
+        """
+        SELECT 1 FROM post_likes
+        WHERE post_id = %s AND member_id = %s
+        """,
+        (post_id, liker_member_id),
+    )
+    if cursor.fetchone() is None:
+        return {"awarded": False, "reason": "LIKE_NOT_FOUND"}
+
+    # 같은 회원이 좋아요를 취소하고 다시 눌러도 최초 한 번만 보상한다.
+    event_key = f"POST_LIKE:{post_id}:{liker_member_id}"
+
+    cursor.execute(
+        """
+        INSERT INTO member_levels (member_id)
+        VALUES (%s)
+        ON CONFLICT (member_id) DO NOTHING
+        """,
+        (author_id,),
+    )
+    cursor.execute(
+        """
+        SELECT total_xp FROM member_levels
+        WHERE member_id = %s FOR UPDATE
+        """,
+        (author_id,),
+    )
+    total_xp = cursor.fetchone()["total_xp"]
+
+    cursor.execute(
+        """
+        SELECT 1 FROM member_xp_history
+        WHERE member_id = %s AND event_key = %s
+        """,
+        (author_id, event_key),
+    )
+    if cursor.fetchone():
+        return {"awarded": False, "reason": "DUPLICATE"}
+
+    # 동일 게시글에서 좋아요 보상은 최대 10번까지만 지급한다.
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS reward_count
+        FROM member_xp_history
+        WHERE member_id = %s
+          AND activity_type = 'POST_LIKE'
+          AND source_type = 'POST'
+          AND source_id = %s
+          AND xp_change > 0
+        """,
+        (author_id, post_id),
+    )
+    if cursor.fetchone()["reward_count"] >= 10:
+        return {"awarded": False, "reason": "POST_LIKE_LIMIT"}
+
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    cursor.execute(
+        """
+        INSERT INTO member_xp_history
+            (member_id, activity_type, source_type,
+             source_id, event_key, xp_change, activity_date)
+        VALUES (%s, 'POST_LIKE', 'POST', %s, %s, 1, %s)
+        """,
+        (author_id, post_id, event_key, today),
+    )
+
+    new_total = total_xp + 1
+    cursor.execute(
+        """
+        UPDATE member_levels
+        SET total_xp = %s,
+            level = %s,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE member_id = %s
+        """,
+        (new_total, calculate_level(new_total), author_id),
+    )
+    return {
+        "awarded": True,
+        "earned_xp": 1,
+        "receiver_member_id": author_id,
+        "total_xp": new_total,
+    }
+
+
 # 게시글·댓글 삭제 시 해당 작성 보상을 한 번만 회수한다.
 # 후기 수정으로 추가되거나 차감된 XP까지 순액 기준으로 회수한다.
 def revoke_xp(cursor, member_id: int, source_type: str, source_id: int) -> bool:

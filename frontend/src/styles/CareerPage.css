@@ -672,3 +672,18 @@
         padding: 5px 8px;
     }
 }
+
+/* 커리어 가이드 게시글 배지 */
+.career-lab-state.is-guide {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 10px;
+    border-radius: 8px;
+
+    background: #f0eaff;
+    color: #6947a8;
+
+    font-size: 12px;
+    font-weight: 700;
+}

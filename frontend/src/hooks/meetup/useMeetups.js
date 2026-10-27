@@ -1,9 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { meetupApi } from '../../services/meetupApi'
 import { normalizeMemberCount } from '../../utils/meetup'
 
 
+// =========================================================
+// 공통 유틸리티
+// =========================================================
+
+// 신규 프로젝트 신청 상태 확인
 function getApplicationStatus(meetup) {
   return String(
     meetup?.my_application?.application_status ?? '',
@@ -11,6 +17,7 @@ function getApplicationStatus(meetup) {
 }
 
 
+// 참여 신청 상태 확인
 function hasActiveApplication(meetup) {
   return ['ACCEPTED', 'WAITING'].includes(
     getApplicationStatus(meetup),
@@ -18,9 +25,8 @@ function hasActiveApplication(meetup) {
 }
 
 
-// 신규 프로젝트·스터디는 DB의 확장 프로그램 행이 있는 경우에만
-// permissions / my_application / lifecycle_status 같은 확장 계약을 내려준다.
-// 기존 스터디를 category 문자열만으로 신규 프로그램으로 판단하면 안 된다.
+// 신규 프로젝트·스터디 여부 확인
+// 기존 스터디를 category 문자열만으로 신규 프로그램으로 판단하지 않는다.
 function isProgramDetail(meetup) {
   if (!meetup || typeof meetup !== 'object') {
     return false
@@ -41,9 +47,7 @@ function isProgramDetail(meetup) {
 }
 
 
-// 기존 운동·게임·공동구매·옛 스터디의 참여 여부는
-// 로그인 회원 ID와 /members 응답의 실제 member_id를 비교한다.
-// 숫자/문자열 차이 때문에 명시적으로 문자열로 통일한다.
+// 기존 모임 참여 여부 확인
 function isLegacyMemberJoined(
   memberList,
   currentMemberId,
@@ -67,6 +71,7 @@ function isLegacyMemberJoined(
 }
 
 
+// 모임 유형에 따라 참여 상태 계산
 function resolveJoinedState(
   meetup,
   memberList,
@@ -83,6 +88,7 @@ function resolveJoinedState(
 }
 
 
+// 프로젝트 일정 버전 확인
 function getScheduleVersion(meetup) {
   const version = Number(meetup?.schedule_version)
 
@@ -92,6 +98,7 @@ function getScheduleVersion(meetup) {
 }
 
 
+// API 오류 메시지 처리
 function getErrorMessage(error, fallback) {
   return (
     error?.message ||
@@ -101,9 +108,32 @@ function getErrorMessage(error, fallback) {
 }
 
 
+// =========================================================
+// 모임 Hook
+// =========================================================
+
 export default function useMeetups({
   currentMemberId = null,
 } = {}) {
+
+  // =========================================================
+  // React Router
+  // =========================================================
+
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+
+  // 이미 처리한 URL을 기억
+  const handledPath = useRef(null)
+
+  // 이전 상세 조회 응답이 새 화면을 덮지 않도록 관리
+  const detailRequest = useRef(0)
+
+
+  // =========================================================
+  // State
+  // =========================================================
+
   const [meetups, setMeetups] = useState([])
   const [selectedMeetup, setSelectedMeetup] = useState(null)
 
@@ -116,12 +146,10 @@ export default function useMeetups({
   const [members, setMembers] = useState([])
   const [memberCount, setMemberCount] = useState(0)
 
-  // develop에서 사용 중인 댓글 상태도 유지한다.
+  // 댓글 상태 유지
   const [comments, setComments] = useState([])
 
-  // 신규 프로그램은 my_application이 최종 기준이고,
-  // 기존 모임은 로그인 회원 ID와 members의 실제 member_id 비교가 최종 기준이다.
-  // joined는 기존 상세 컴포넌트와의 호환을 위해 유지한다.
+  // 현재 회원의 모임 참여 여부
   const [joined, setJoined] = useState(false)
 
   const [error, setError] = useState('')
@@ -129,7 +157,7 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 모임 목록
+  // 1. 모임 목록 조회
   // =========================================================
 
   const loadMeetups = async () => {
@@ -139,10 +167,9 @@ export default function useMeetups({
       const data = await meetupApi.list()
 
       setMeetups(
-        Array.isArray(data)
-          ? data
-          : [],
+        Array.isArray(data) ? data : [],
       )
+
     } catch (err) {
       console.error(err)
 
@@ -152,6 +179,7 @@ export default function useMeetups({
           '모임 목록을 불러오지 못했습니다.',
         ),
       )
+
     } finally {
       setLoading(false)
     }
@@ -159,38 +187,47 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 로그인 회원 변경
+  // 2. 로그인 회원 변경
   // =========================================================
 
   useEffect(() => {
-    // 로그아웃 / 재로그인 / 계정 전환 시
-    // 이전 사용자의 모임 참여 상태를 모두 초기화한다.
+    // 기존 상세 조회 무효화
+    detailRequest.current += 1
+
+    // URL을 다시 처리할 수 있도록 초기화
+    handledPath.current = null
+
+    // 이전 회원의 정보 초기화
     setSelectedMeetup(null)
 
     setMembers([])
     setMemberCount(0)
-
     setComments([])
 
     setJoined(false)
 
     setView('list')
+    setDetailLoading(false)
 
     setError('')
     setActionMessage('')
 
+    // 모임 목록 새로 조회
     loadMeetups()
+
   }, [currentMemberId])
 
 
   // =========================================================
-  // 참여자 / 참여 인원 / 내 참여 상태 조회
+  // 3. 참여자 / 참여 인원 / 참여 상태 조회
   // =========================================================
 
   const loadParticipation = async (
     recruitId,
     detail = null,
+    isCurrent = () => true,
   ) => {
+
     const [
       memberData,
       countData,
@@ -199,17 +236,19 @@ export default function useMeetups({
       meetupApi.count(recruitId),
     ])
 
+    // 다른 모임으로 이동했다면 이전 응답 무시
+    if (!isCurrent()) {
+      return
+    }
+
     const memberList = Array.isArray(memberData)
       ? memberData
       : memberData?.members || []
 
     setMembers(memberList)
 
-    // 신규 프로그램 상세 응답에 participant_count가 있으면
-    // 해당 값을 우선 사용하고,
-    // 기존 모임은 /count 응답을 사용한다.
-    const detailCount =
-      detail?.participant_count
+    // 신규 프로젝트는 상세 응답의 참여 인원 우선
+    const detailCount = detail?.participant_count
 
     setMemberCount(
       detailCount != null
@@ -217,8 +256,7 @@ export default function useMeetups({
         : normalizeMemberCount(countData),
     )
 
-    // 상세 응답이 있는 경우에만
-    // 해당 모임 계약에 맞춰 실제 참여 상태를 계산한다.
+    // 모임 유형에 따른 참여 상태 계산
     if (detail) {
       setJoined(
         resolveJoinedState(
@@ -228,27 +266,36 @@ export default function useMeetups({
         ),
       )
     } else {
-      // 이전 사용자의 joined 상태가 남지 않도록
-      // 상세 계약을 알 수 없는 경우 false로 초기화한다.
       setJoined(false)
     }
   }
 
 
   // =========================================================
-  // 상세 새로고침
+  // 4. 모임 상세 정보 갱신
   // =========================================================
 
   const refreshDetail = async (recruitId) => {
-    const detail =
-      await meetupApi.detail(recruitId)
+    const requestId = detailRequest.current
 
-    setSelectedMeetup(detail)
+    const detail = await meetupApi.detail(recruitId)
+
+    // 다른 화면으로 이동한 경우 이전 결과 무시
+    if (requestId !== detailRequest.current) {
+      return null
+    }
 
     await loadParticipation(
       recruitId,
       detail,
+      () => requestId === detailRequest.current,
     )
+
+    if (requestId !== detailRequest.current) {
+      return null
+    }
+
+    setSelectedMeetup(detail)
 
     return detail
   }
@@ -268,33 +315,83 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 상세 화면 열기
+  // 5. 모임 상세 화면 열기
   // =========================================================
 
-  const openMeetup = async (meetup) => {
+  const openMeetup = async (
+    meetup,
+    changeUrl = true,
+  ) => {
+
+    const recruitId = Number(meetup?.recruit_id)
+
+    // 유효하지 않은 모임 ID 검사
+    if (
+      !Number.isSafeInteger(recruitId) ||
+      recruitId <= 0
+    ) {
+      return
+    }
+
+    // 새로운 상세 조회 요청 번호
+    const requestId = ++detailRequest.current
+
     setDetailLoading(true)
 
     setError('')
     setActionMessage('')
 
-    // 이전 상세 화면의 댓글이 잠시 표시되지 않도록 초기화한다.
+    // 이전 모임 정보 초기화
+    setSelectedMeetup(null)
+
+    setMembers([])
+    setMemberCount(0)
     setComments([])
 
+    setJoined(false)
+    setView('list')
+
     try {
-      const detail =
-        await meetupApi.detail(
-          meetup.recruit_id,
-        )
+      // 모임 상세 API 호출
+      const detail = await meetupApi.detail(recruitId)
 
-      setSelectedMeetup(detail)
+      // 이전 요청 결과는 무시
+      if (requestId !== detailRequest.current) {
+        return
+      }
 
+      // 참여자 및 참여 상태 조회
       await loadParticipation(
-        meetup.recruit_id,
+        recruitId,
         detail,
+        () => requestId === detailRequest.current,
       )
 
+      // 조회 도중 다른 모임으로 이동했다면 중단
+      if (requestId !== detailRequest.current) {
+        return
+      }
+
+      // 상세 정보 저장
+      setSelectedMeetup(detail)
+
+      // 상세 화면 표시
       setView('detail')
+
+      // 게시글 URL 변경
+      if (changeUrl) {
+        const path = `/meetup/${recruitId}`
+
+        handledPath.current = path
+
+        navigate(path)
+      }
+
     } catch (err) {
+      if (requestId !== detailRequest.current) {
+        return
+      }
+
       console.error(err)
 
       setError(
@@ -303,22 +400,31 @@ export default function useMeetups({
           '모임 정보를 불러오지 못했습니다.',
         ),
       )
+
     } finally {
-      setDetailLoading(false)
+      if (requestId === detailRequest.current) {
+        setDetailLoading(false)
+      }
     }
   }
 
 
   // =========================================================
-  // 목록으로 이동
+  // 6. 모임 목록으로 돌아가기
   // =========================================================
 
-  const goBack = () => {
+  const goBack = (changeUrl = true) => {
+
+    // 기존 상세 요청 무효화
+    detailRequest.current += 1
+
+    setDetailLoading(false)
+
+    // 선택한 모임 초기화
     setSelectedMeetup(null)
 
     setMembers([])
     setMemberCount(0)
-
     setComments([])
 
     setJoined(false)
@@ -327,24 +433,95 @@ export default function useMeetups({
 
     setError('')
     setActionMessage('')
-  }
 
+    // 목록 URL 이동
+    if (changeUrl) {
+      handledPath.current = '/meetup'
 
-  const backToDetail = () => {
-    setView('detail')
+      navigate('/meetup')
+    }
   }
 
 
   // =========================================================
-  // 작성 화면
+  // 7. URL 변경 및 새로고침 복원
   // =========================================================
 
-  const openWrite = () => {
+  useEffect(() => {
+
+    // 동일 URL 중복 처리 방지
+    if (handledPath.current === pathname) {
+      return
+    }
+
+    handledPath.current = pathname
+
+    // 모임 목록 화면
+    if (
+      pathname === '/meetup' ||
+      pathname === '/meetup/'
+    ) {
+      goBack(false)
+      return
+    }
+
+    // 모임 상세 URL
+    // 예시: /meetup/8
+    const match = pathname.match(
+      /^\/meetup\/([1-9]\d*)\/?$/
+    )
+
+    if (match) {
+      const recruitId = Number(match[1])
+
+      if (
+        Number.isSafeInteger(recruitId) &&
+        recruitId > 0
+      ) {
+        // URL의 모임 ID로 상세 정보 복원
+        openMeetup(
+          { recruit_id: recruitId },
+          false,
+        )
+
+        return
+      }
+    }
+
+    // 잘못된 모임 URL 처리
+    detailRequest.current += 1
+
     setSelectedMeetup(null)
 
     setMembers([])
     setMemberCount(0)
+    setComments([])
 
+    setJoined(false)
+
+    setDetailLoading(false)
+    setView('list')
+
+    setError('올바르지 않은 모임 주소입니다.')
+
+  }, [pathname, currentMemberId])
+
+
+  // =========================================================
+  // 8. 모임 작성 화면 열기
+  // =========================================================
+
+  const openWrite = () => {
+
+    // 이전 상세 조회 무효화
+    detailRequest.current += 1
+
+    setDetailLoading(false)
+
+    setSelectedMeetup(null)
+
+    setMembers([])
+    setMemberCount(0)
     setComments([])
 
     setJoined(false)
@@ -357,7 +534,7 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 수정 화면
+  // 9. 모임 수정 화면 열기
   // =========================================================
 
   const openEdit = async () => {
@@ -371,14 +548,14 @@ export default function useMeetups({
     setActionMessage('')
 
     try {
-      const detail =
-        await meetupApi.detail(
-          selectedMeetup.recruit_id,
-        )
+      const detail = await meetupApi.detail(
+        selectedMeetup.recruit_id,
+      )
 
       setSelectedMeetup(detail)
 
       setView('editor')
+
     } catch (err) {
       console.error(err)
 
@@ -388,6 +565,7 @@ export default function useMeetups({
           '모임 정보를 다시 불러오지 못했습니다.',
         ),
       )
+
     } finally {
       setDetailLoading(false)
     }
@@ -395,40 +573,62 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 모임 생성
+  // 10. 모임 수정 취소
+  // =========================================================
+
+  const backToDetail = () => {
+    setView('detail')
+  }
+
+
+  // =========================================================
+  // 11. 모임 생성
   // =========================================================
 
   const createMeetup = async (payload) => {
+
     setBusy(true)
 
     setError('')
     setActionMessage('')
 
     try {
-      const created =
-        await meetupApi.create(payload)
+      const created = await meetupApi.create(payload)
 
+      // 생성 후 목록 갱신
       await loadMeetups()
 
       if (created?.recruit_id) {
-        const detail =
-          await meetupApi.detail(
-            created.recruit_id,
-          )
+        // 이전 상세 조회 무효화
+        detailRequest.current += 1
 
-        setSelectedMeetup(detail)
+        const detail = await meetupApi.detail(
+          created.recruit_id,
+        )
 
+        // 참여 상태 조회
         await loadParticipation(
           created.recruit_id,
           detail,
         )
 
+        // 생성한 모임 상세 표시
+        setSelectedMeetup(detail)
         setView('detail')
+
+        // 생성한 모임 URL로 이동
+        const path = `/meetup/${created.recruit_id}`
+
+        handledPath.current = path
+
+        navigate(path)
+
       } else {
         setView('list')
       }
 
       return created
+
     } catch (err) {
       console.error(err)
 
@@ -440,6 +640,7 @@ export default function useMeetups({
       )
 
       return null
+
     } finally {
       setBusy(false)
     }
@@ -447,10 +648,11 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 모임 수정
+  // 12. 모임 수정
   // =========================================================
 
   const updateMeetup = async (payload) => {
+
     if (!selectedMeetup) {
       return null
     }
@@ -461,21 +663,23 @@ export default function useMeetups({
     setActionMessage('')
 
     try {
-      const updated =
-        await meetupApi.update(
-          selectedMeetup.recruit_id,
-          payload,
-        )
+      const updated = await meetupApi.update(
+        selectedMeetup.recruit_id,
+        payload,
+      )
 
+      // 수정된 상세 정보 다시 조회
       await refreshDetail(
         selectedMeetup.recruit_id,
       )
 
+      // 모임 목록도 갱신
       await loadMeetups()
 
       setView('detail')
 
       return updated
+
     } catch (err) {
       console.error(err)
 
@@ -487,6 +691,7 @@ export default function useMeetups({
       )
 
       return null
+
     } finally {
       setBusy(false)
     }
@@ -494,15 +699,14 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 모임 게시글 삭제
+  // 13. 모임 게시글 삭제
   // =========================================================
 
   const deleteMeetup = async () => {
+
     if (
       !selectedMeetup ||
-      !window.confirm(
-        '이 모임 게시글을 삭제할까요?',
-      )
+      !window.confirm('이 모임 게시글을 삭제할까요?')
     ) {
       return
     }
@@ -513,24 +717,35 @@ export default function useMeetups({
     setActionMessage('')
 
     try {
-      // 게시글 논리 삭제이며
-      // 프로젝트 운영 취소와는 별도 기능이다.
+      // 모임 게시글 논리 삭제
       await meetupApi.remove(
         selectedMeetup.recruit_id,
       )
 
+      // 이전 상세 조회 무효화
+      detailRequest.current += 1
+
+      // 상세 정보 초기화
       setSelectedMeetup(null)
 
       setMembers([])
       setMemberCount(0)
-
       setComments([])
 
       setJoined(false)
 
+      // 목록 새로고침
       await loadMeetups()
 
       setView('list')
+
+      // 삭제 후 목록으로 이동
+      const path = '/meetup'
+
+      handledPath.current = path
+
+      navigate(path, { replace: true })
+
     } catch (err) {
       console.error(err)
 
@@ -540,6 +755,7 @@ export default function useMeetups({
           '모임 게시글을 삭제하지 못했습니다.',
         ),
       )
+
     } finally {
       setBusy(false)
     }
@@ -547,10 +763,11 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 좋아요
+  // 14. 좋아요
   // =========================================================
 
   const toggleLike = async () => {
+
     if (!selectedMeetup || busy) {
       return null
     }
@@ -559,45 +776,37 @@ export default function useMeetups({
     setError('')
 
     try {
-      const result =
-        selectedMeetup.liked_by_me
-          ? await meetupApi.unlike(
-              selectedMeetup.recruit_id,
-            )
-          : await meetupApi.like(
-              selectedMeetup.recruit_id,
-            )
+      const result = selectedMeetup.liked_by_me
+        ? await meetupApi.unlike(
+            selectedMeetup.recruit_id,
+          )
+        : await meetupApi.like(
+            selectedMeetup.recruit_id,
+          )
 
+      // 상세 좋아요 상태 갱신
       setSelectedMeetup((prev) => ({
         ...prev,
 
-        like_count:
-          result.like_count,
-
-        liked_by_me:
-          result.liked_by_me,
+        like_count: result.like_count,
+        liked_by_me: result.liked_by_me,
       }))
 
-      // 목록 화면에서도 이전 좋아요 수가 남지 않도록
-      // 해당 모임 카드의 값도 함께 갱신한다.
+      // 목록 좋아요 상태 갱신
       setMeetups((prev) =>
         prev.map((meetup) =>
-          meetup.recruit_id ===
-          result.recruit_id
+          meetup.recruit_id === result.recruit_id
             ? {
                 ...meetup,
-
-                like_count:
-                  result.like_count,
-
-                liked_by_me:
-                  result.liked_by_me,
+                like_count: result.like_count,
+                liked_by_me: result.liked_by_me,
               }
             : meetup,
         ),
       )
 
       return result
+
     } catch (err) {
       console.error(err)
 
@@ -609,6 +818,7 @@ export default function useMeetups({
       )
 
       return null
+
     } finally {
       setBusy(false)
     }
@@ -616,28 +826,31 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 모임 신청 / 신청 취소 / 중도이탈
+  // 15. 모임 신청 / 신청 취소 / 중도이탈
   // =========================================================
 
-  // payload가 있으면 프로젝트 신청,
-  // payload가 없으면 기존 모임 또는 스터디 신청이다.
   const changeParticipation = async (
     join,
     payload = null,
   ) => {
+
     if (!selectedMeetup || busy) {
       return null
     }
 
+    // 중도이탈 여부
     const isWithdrawal =
       !join &&
       selectedMeetup?.permissions?.can_withdraw === true
 
+    // 중도이탈 확인
     if (isWithdrawal) {
-      const confirmed =
-        window.confirm(
-          '모임 시작 후 중도이탈로 처리됩니다.\n\n중도이탈이 누적 3회 이상이면 이후 모든 종류의 모임에 새로 신청할 수 없습니다. 시작 전 신청 취소는 집계하지 않으며, 제한 전에 접수된 유효 신청은 유지됩니다.\n\n정말 중도이탈할까요?',
-        )
+      const confirmed = window.confirm(
+        '모임 시작 후 중도이탈로 처리됩니다.\n\n' +
+        '중도이탈이 누적 3회 이상이면 이후 모든 종류의 모임에 새로 신청할 수 없습니다. ' +
+        '시작 전 신청 취소는 집계하지 않으며, 제한 전에 접수된 유효 신청은 유지됩니다.\n\n' +
+        '정말 중도이탈할까요?',
+      )
 
       if (!confirmed) {
         return null
@@ -650,6 +863,7 @@ export default function useMeetups({
     setActionMessage('')
 
     try {
+      // 신청 또는 신청 취소
       const result = join
         ? await meetupApi.join(
             selectedMeetup.recruit_id,
@@ -659,8 +873,7 @@ export default function useMeetups({
             selectedMeetup.recruit_id,
           )
 
-      // 참여/취소 성공 후 서버 상세를 다시 받아
-      // ACCEPTED / WAITING / 기존 참여 상태를 다시 계산한다.
+      // 참여 상태 다시 조회
       await refreshDetail(
         selectedMeetup.recruit_id,
       )
@@ -668,64 +881,59 @@ export default function useMeetups({
       await loadMeetups()
 
       if (join) {
-        const resultStatus =
-          String(
-            result?.application_status ??
-              '',
-          ).toUpperCase()
+        const resultStatus = String(
+          result?.application_status ?? '',
+        ).toUpperCase()
 
         if (resultStatus === 'WAITING') {
           setActionMessage(
             result?.message ||
-              '대기 신청이 정상 접수되었습니다.',
+            '대기 신청이 정상 접수되었습니다.',
           )
-        } else if (
-          resultStatus === 'ACCEPTED'
-        ) {
+
+        } else if (resultStatus === 'ACCEPTED') {
           setActionMessage(
             result?.message ||
-              '모임 참여가 확정되었습니다.',
+            '모임 참여가 확정되었습니다.',
           )
+
         } else if (result?.message) {
-          setActionMessage(
-            result.message,
-          )
+          setActionMessage(result.message)
         }
+
       } else if (isWithdrawal) {
         setActionMessage(
           '모임에서 중도이탈했습니다.',
         )
+
       } else {
         setActionMessage(
           result?.message ||
-            '신청이 취소되었습니다.',
+          '신청이 취소되었습니다.',
         )
       }
 
       return result
+
     } catch (err) {
       console.error(err)
 
-      const message =
-        getErrorMessage(
-          err,
-          join
-            ? '모임 신청을 처리하지 못했습니다.'
-            : '신청 변경을 처리하지 못했습니다.',
-        )
+      const message = getErrorMessage(
+        err,
+        join
+          ? '모임 신청을 처리하지 못했습니다.'
+          : '신청 변경을 처리하지 못했습니다.',
+      )
 
       setError(message)
 
-      // 프로젝트 신청 모달은 오류를 자체 표시해야 하므로
-      // 신청서가 있는 요청에서는 호출자에게 다시 전달한다.
-      if (
-        join &&
-        payload != null
-      ) {
+      // 프로젝트 신청 모달에서 오류 표시
+      if (join && payload != null) {
         throw err
       }
 
       return null
+
     } finally {
       setBusy(false)
     }
@@ -733,10 +941,11 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 프로젝트 연장
+  // 16. 프로젝트 연장
   // =========================================================
 
   const extendProject = async (payload) => {
+
     if (
       !selectedMeetup?.recruit_id ||
       busy
@@ -750,11 +959,10 @@ export default function useMeetups({
     setActionMessage('')
 
     try {
-      const result =
-        await meetupApi.extendProject(
-          selectedMeetup.recruit_id,
-          payload,
-        )
+      const result = await meetupApi.extendProject(
+        selectedMeetup.recruit_id,
+        payload,
+      )
 
       await refreshAfterAction(
         selectedMeetup.recruit_id,
@@ -762,6 +970,7 @@ export default function useMeetups({
       )
 
       return result
+
     } catch (err) {
       console.error(err)
 
@@ -772,9 +981,9 @@ export default function useMeetups({
         ),
       )
 
-      // 연장 모달에서는 서버 오류를 직접 표시해야 하므로
-      // 호출자에게 오류를 다시 전달한다.
+      // 연장 모달에서 오류 처리
       throw err
+
     } finally {
       setBusy(false)
     }
@@ -782,10 +991,11 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 프로젝트 예외 시작
+  // 17. 프로젝트 예외 시작
   // =========================================================
 
   const chooseExceptionStart = async () => {
+
     if (
       !selectedMeetup?.recruit_id ||
       busy
@@ -793,10 +1003,9 @@ export default function useMeetups({
       return null
     }
 
-    const scheduleVersion =
-      getScheduleVersion(
-        selectedMeetup,
-      )
+    const scheduleVersion = getScheduleVersion(
+      selectedMeetup,
+    )
 
     if (!scheduleVersion) {
       setError(
@@ -806,10 +1015,11 @@ export default function useMeetups({
       return null
     }
 
-    const confirmed =
-      window.confirm(
-        '필수 기술이 부족한 현재 확정 구성으로 시작하도록 결정할까요?\n\n이 결정은 기술 조건만 예외로 처리하며, 프로젝트는 예정 시작 시각에 실제 시작됩니다.',
-      )
+    const confirmed = window.confirm(
+      '필수 기술이 부족한 현재 확정 구성으로 시작하도록 결정할까요?\n\n' +
+      '이 결정은 기술 조건만 예외로 처리하며, ' +
+      '프로젝트는 예정 시작 시각에 실제 시작됩니다.',
+    )
 
     if (!confirmed) {
       return null
@@ -821,14 +1031,12 @@ export default function useMeetups({
     setActionMessage('')
 
     try {
-      const result =
-        await meetupApi.chooseExceptionStart(
-          selectedMeetup.recruit_id,
-          {
-            schedule_version:
-              scheduleVersion,
-          },
-        )
+      const result = await meetupApi.chooseExceptionStart(
+        selectedMeetup.recruit_id,
+        {
+          schedule_version: scheduleVersion,
+        },
+      )
 
       await refreshAfterAction(
         selectedMeetup.recruit_id,
@@ -836,6 +1044,7 @@ export default function useMeetups({
       )
 
       return result
+
     } catch (err) {
       console.error(err)
 
@@ -847,6 +1056,7 @@ export default function useMeetups({
       )
 
       return null
+
     } finally {
       setBusy(false)
     }
@@ -854,10 +1064,11 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 프로젝트 취소
+  // 18. 프로젝트 취소
   // =========================================================
 
   const cancelProject = async () => {
+
     if (
       !selectedMeetup?.recruit_id ||
       busy
@@ -865,18 +1076,17 @@ export default function useMeetups({
       return null
     }
 
-    const reason =
-      window.prompt(
-        '프로젝트 취소 사유를 입력해주세요.',
-        '',
-      )
+    // 취소 사유 입력
+    const reason = window.prompt(
+      '프로젝트 취소 사유를 입력해주세요.',
+      '',
+    )
 
     if (reason == null) {
       return null
     }
 
-    const trimmedReason =
-      reason.trim()
+    const trimmedReason = reason.trim()
 
     if (!trimmedReason) {
       setError(
@@ -886,10 +1096,10 @@ export default function useMeetups({
       return null
     }
 
-    const confirmed =
-      window.confirm(
-        '프로젝트를 취소할까요?\n기존 참여·신청 이력은 서버에 유지됩니다.',
-      )
+    const confirmed = window.confirm(
+      '프로젝트를 취소할까요?\n' +
+      '기존 참여·신청 이력은 서버에 유지됩니다.',
+    )
 
     if (!confirmed) {
       return null
@@ -901,13 +1111,12 @@ export default function useMeetups({
     setActionMessage('')
 
     try {
-      const result =
-        await meetupApi.cancelProject(
-          selectedMeetup.recruit_id,
-          {
-            reason: trimmedReason,
-          },
-        )
+      const result = await meetupApi.cancelProject(
+        selectedMeetup.recruit_id,
+        {
+          reason: trimmedReason,
+        },
+      )
 
       await refreshAfterAction(
         selectedMeetup.recruit_id,
@@ -915,6 +1124,7 @@ export default function useMeetups({
       )
 
       return result
+
     } catch (err) {
       console.error(err)
 
@@ -926,6 +1136,7 @@ export default function useMeetups({
       )
 
       return null
+
     } finally {
       setBusy(false)
     }
@@ -933,10 +1144,11 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 프로젝트 중도 종료
+  // 19. 프로젝트 중도 종료
   // =========================================================
 
   const endProjectEarly = async () => {
+
     if (
       !selectedMeetup?.recruit_id ||
       busy
@@ -944,18 +1156,17 @@ export default function useMeetups({
       return null
     }
 
-    const reason =
-      window.prompt(
-        '프로젝트 중도 종료 사유를 입력해주세요.',
-        '',
-      )
+    // 중도 종료 사유 입력
+    const reason = window.prompt(
+      '프로젝트 중도 종료 사유를 입력해주세요.',
+      '',
+    )
 
     if (reason == null) {
       return null
     }
 
-    const trimmedReason =
-      reason.trim()
+    const trimmedReason = reason.trim()
 
     if (!trimmedReason) {
       setError(
@@ -965,10 +1176,10 @@ export default function useMeetups({
       return null
     }
 
-    const confirmed =
-      window.confirm(
-        '프로젝트를 중도 종료할까요?\n중도 종료는 정상 완료와 구분되어 기록됩니다.',
-      )
+    const confirmed = window.confirm(
+      '프로젝트를 중도 종료할까요?\n' +
+      '중도 종료는 정상 완료와 구분되어 기록됩니다.',
+    )
 
     if (!confirmed) {
       return null
@@ -980,13 +1191,12 @@ export default function useMeetups({
     setActionMessage('')
 
     try {
-      const result =
-        await meetupApi.abortProject(
-          selectedMeetup.recruit_id,
-          {
-            reason: trimmedReason,
-          },
-        )
+      const result = await meetupApi.abortProject(
+        selectedMeetup.recruit_id,
+        {
+          reason: trimmedReason,
+        },
+      )
 
       await refreshAfterAction(
         selectedMeetup.recruit_id,
@@ -994,6 +1204,7 @@ export default function useMeetups({
       )
 
       return result
+
     } catch (err) {
       console.error(err)
 
@@ -1005,6 +1216,7 @@ export default function useMeetups({
       )
 
       return null
+
     } finally {
       setBusy(false)
     }
@@ -1012,47 +1224,53 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 외부 공개 값
+  // 20. 외부 컴포넌트에 제공할 값
   // =========================================================
 
   return {
+    // 모임 데이터
     meetups,
     selectedMeetup,
 
+    // 화면 상태
     view,
 
+    // 로딩 상태
     loading,
     detailLoading,
     busy,
 
+    // 참여자
     members,
     memberCount,
-
-    // 기존 모임은 실제 member_id 비교,
-    // 신규 프로젝트·스터디는 my_application 상태를 기준으로 계산한다.
     joined,
 
-    // develop에서 사용 중인 댓글 상태를 유지한다.
+    // 댓글
     comments,
 
+    // 메시지
     error,
     actionMessage,
 
+    // 화면 이동
     openMeetup,
     goBack,
     backToDetail,
 
+    // 생성 및 수정
     openWrite,
     openEdit,
-
     createMeetup,
     updateMeetup,
     deleteMeetup,
 
+    // 참여
     changeParticipation,
 
+    // 좋아요
     toggleLike,
 
+    // 프로젝트 관리
     extendProject,
     chooseExceptionStart,
     cancelProject,

@@ -43,6 +43,7 @@ from app.services.xp_service import (
     grant_career_review_xp,
     revoke_xp,
     reconcile_career_review_xp,
+    grant_career_guide_xp,
 )
 
 logger = logging.getLogger(__name__)
@@ -736,25 +737,25 @@ def delete_lounge(
 # 1. 게시글 등록
 # =========================================================
 
+# 커리어 연구소 게시글 작성
 def create_lab(
     payload: CareerLabCreate,
     member_id: int,
 ) -> CareerLabResponse:
-    """질문·토론 게시글과 투표 선택지를 등록한다."""
 
     with db_cursor(commit=True) as cursor:
 
         # 1. 입력 데이터 변환
         data = payload.model_dump()
 
-        # 2. 게시글 등록
+        # 2. 게시글 DB 저장
         post_id = career_repository.create_lab(
             cursor,
             member_id,
             data,
         )
 
-        # 3. 등록 결과 조회
+        # 3. 저장된 게시글 조회
         lab = career_repository.get_lab(
             cursor,
             post_id,
@@ -767,9 +768,20 @@ def create_lab(
                 detail="등록한 게시글을 조회하지 못했습니다.",
             )
 
-        # 응답 검증 후 트랜잭션 커밋
-        return CareerLabResponse.model_validate(lab)
+        # 4. 응답 데이터 검증
+        response = CareerLabResponse.model_validate(lab)
 
+        # 5. GUIDE 게시글에만 +50XP 지급
+        if payload.post_type == "GUIDE":
+
+            grant_career_guide_xp(
+                cursor,
+                member_id,
+                post_id,
+            )
+
+        # 6. 게시글 등록 결과 반환
+        return response
 
 # =========================================================
 # 2. 게시글 목록 조회
@@ -871,6 +883,73 @@ def update_lab(
             exclude_unset=True
         )
 
+        # GUIDE 수정 조건 검사
+
+        # 1. 현재 게시글 정보 조회
+        current_lab = career_repository.get_lab(
+            cursor,
+            post_id,
+            member_id,
+        )
+
+        if current_lab is None:
+            raise HTTPException(
+                status_code=404,
+                detail="게시글을 찾을 수 없습니다.",
+            )
+
+        # 2. GUIDE 게시글인 경우
+        if current_lab["post_type"] == "GUIDE":
+
+            # 수정 요청에 값이 있으면 새 값 사용
+            # 없으면 기존 DB 값 유지
+            body = changes.get(
+                "body",
+                current_lab["body"],
+            )
+
+            experience = changes.get(
+                "guide_experience",
+                current_lab["guide_experience"],
+            )
+
+            advice = changes.get(
+                "guide_advice",
+                current_lab["guide_advice"],
+            )
+
+            # 본문 최소 500자
+            if len((body or "").strip()) < 500:
+                raise HTTPException(
+                    status_code=400,
+                    detail="커리어 가이드 본문은 500자 이상이어야 합니다.",
+                )
+
+            # 경험 및 근거 최소 100자
+            if len((experience or "").strip()) < 100:
+                raise HTTPException(
+                    status_code=400,
+                    detail="경험 및 근거는 100자 이상이어야 합니다.",
+                )
+
+            # 실질적인 조언 최소 100자
+            if len((advice or "").strip()) < 100:
+                raise HTTPException(
+                    status_code=400,
+                    detail="실질적인 조언은 100자 이상이어야 합니다.",
+                )
+
+        # 3. QUESTION / DISCUSSION 게시글인 경우
+        else:
+            if (
+                "guide_experience" in changes
+                or "guide_advice" in changes
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="가이드 전용 항목은 GUIDE 게시글에서만 수정할 수 있습니다.",
+                )
+    
         # 5. 게시글 수정
         career_repository.update_lab(
             cursor,
@@ -939,6 +1018,16 @@ def delete_lab(
                 status_code=404,
                 detail="게시글을 삭제하지 못했습니다.",
             )
+
+        # 4. 게시글 작성으로 지급받은 XP 회수
+        # GUIDE 게시글은 50XP 회수
+        # QUESTION / DISCUSSION은 지급 내역이 없으므로 회수하지 않음
+        revoke_xp(
+            cursor,
+            member_id,
+            "POST",
+            post_id,
+        )
 
 
 # =========================================================

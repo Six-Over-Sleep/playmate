@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import '../../styles/CareerPage.css'
 import CareerReviewForm from '../../components/career/CareerReviewForm'
 import CareerReviewDetailPage from './CareerReviewDetailPage'
@@ -154,17 +155,34 @@ function toLabPayload(form) {
     const title = String(form.title || '').trim()
     const body = String(form.body || '').trim()
 
-    if (!subcategory) throw new Error('하위 게시판을 선택해 주세요.')
-    if (!title || !body) throw new Error('제목과 본문을 입력해 주세요.')
+    if (!subcategory) {
+        throw new Error('하위 게시판을 선택해 주세요.')
+    }
 
-    return {
+    if (!title || !body) {
+        throw new Error('제목과 본문을 입력해 주세요.')
+    }
+
+    // 기본 게시글 데이터
+    const payload = {
         title,
         body,
         subcategory_code: subcategory,
         is_anonymous: form.is_anonymous ?? true,
     }
-}
 
+    // 커리어 가이드 전용 데이터
+    // 작성과 수정 모두 처리
+    if (
+        form.guide_experience !== undefined &&
+        form.guide_advice !== undefined
+    ) {
+        payload.guide_experience = form.guide_experience.trim()
+        payload.guide_advice = form.guide_advice.trim()
+    }
+
+    return payload
+}
 // 커리어 톡톡 화면 선택값 <-> 서버 코드
 const TALK_MENU_CODES = {
     '전체': null,
@@ -394,9 +412,24 @@ function CategoryIcon({ type }) {
     )
 }
 
+// URL에서 현재 카테고리와 게시글 ID를 읽습니다.
+function parseCareerPath(pathname) {
+    const parts = pathname.split('/').filter(Boolean)
+    const category = CATEGORIES.some((item) => item.id === parts[1])
+        ? parts[1]
+        : 'insights'
+    const isPostCategory = ['reviews', 'talk', 'lounge', 'lab'].includes(category)
+    const postId = isPostCategory && /^\d+$/.test(parts[2] || '')
+        ? Number(parts[2])
+        : null
+
+    return { category, postId }
+}
+
 export default function CareerPage() {
-    // 취업 페이지에 들어올 때는 항상 채용 인사이트부터 보여준다.
-    const [activeId, setActiveId] = useState('insights')
+    const location = useLocation()
+    const navigate = useNavigate()
+    const [activeId, setActiveId] = useState(() => parseCareerPath(location.pathname).category)
     const [activeMenu, setActiveMenu] = useState('전체')
     const [input, setInput] = useState('')
     const [keyword, setKeyword] = useState('')
@@ -456,6 +489,79 @@ export default function CareerPage() {
     const labDetailRequest = useRef(0)
 
     const active = CATEGORIES.find((item) => item.id === activeId)
+
+    // URL이 바뀌거나 F5로 새로고침해도 게시글을 서버에서 다시 조회합니다.
+    // 브라우저 뒤로 가기/앞으로 가기도 같은 방식으로 처리합니다.
+    useEffect(() => {
+        const { category, postId } = parseCareerPath(location.pathname)
+
+        if (category !== activeId) {
+            // URL을 다시 변경하지 않고 화면 상태만 해당 카테고리로 이동합니다.
+            selectCategory(category, false)
+        }
+
+        // 게시글 ID 없는 URL은 해당 카테고리의 목록/대시보드를 보여줍니다.
+        if (postId === null) {
+            if (category === 'reviews') setReviewView('list')
+            if (category === 'talk') setTalkView('list')
+            if (category === 'lounge') setLoungeView('list')
+            if (category === 'lab') setLabView('list')
+            return
+        }
+
+        // 이미 클릭/저장해서 상세 데이터를 가지고 있으면 중복 조회하지 않습니다.
+        const currentPost = category === 'reviews' ? selectedReview
+            : category === 'talk' ? selectedTalk
+                : category === 'lounge' ? selectedLoungePost : selectedLabPost
+        const currentView = category === 'reviews' ? reviewView
+            : category === 'talk' ? talkView
+                : category === 'lounge' ? loungeView : labView
+
+        if (currentPost?.id === postId && currentView === 'detail') return
+
+        let canceled = false
+        async function restoreDetail() {
+            const fetcher = {
+                reviews: getCareerReview,
+                talk: getCareerTalk,
+                lounge: getCareerLounge,
+                lab: getCareerLab,
+            }[category]
+
+            setNotice('게시글을 불러오는 중입니다.')
+            try {
+                const data = await fetcher(postId)
+                if (canceled) return
+
+                if (category === 'reviews') {
+                    setSelectedReview(toReviewPost(data))
+                    setEditingReview(false)
+                    setReviewView('detail')
+                } else if (category === 'talk') {
+                    setSelectedTalk(toTalkPost(data))
+                    setEditingTalk(false)
+                    setTalkView('detail')
+                } else if (category === 'lounge') {
+                    setSelectedLoungePost(toLoungePost(data))
+                    setEditingLoungePost(false)
+                    setLoungeView('detail')
+                } else if (category === 'lab') {
+                    setSelectedLabPost(toLabPost(data))
+                    setEditingLabPost(false)
+                    setLabView('detail')
+                }
+                setNotice('')
+            } catch (error) {
+                if (canceled) return
+                setNotice(`게시글 조회 실패: ${error.message}`)
+                navigate(`/career/${category}`, { replace: true })
+            }
+        }
+        restoreDetail()
+        return () => { canceled = true }
+        // URL 경로 변경만 감지합니다. 각 상세 객체의 변경은 재조회 조건이 아닙니다.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.pathname])
 
     // 취준 도감 목록 조회: 메뉴/검색/페이지 변경 시 서버에서 다시 받아온다.
     useEffect(() => {
@@ -628,7 +734,7 @@ export default function CareerPage() {
         return filtered
     }, [activeId, activeMenu, keyword, sort, serverReviews, serverTalks, serverLounges, serverLabs])
 
-    function selectCategory(id) {
+    function selectCategory(id, updateUrl = true) {
         if (reviewMutationLock.current || talkMutationLock.current || loungeMutationLock.current || labMutationLock.current) return
         reviewDetailRequest.current += 1
         talkDetailRequest.current += 1
@@ -660,6 +766,7 @@ export default function CareerPage() {
         setSelectedLabPost(null)
         setEditingLabPost(false)
         setNotice('')
+        if (updateUrl) navigate(id === 'insights' ? '/career' : `/career/${id}`)
     }
 
     // 좋아요·스크랩 응답 값을 해당 카테고리의 상세 state에 반영한다.
@@ -690,6 +797,7 @@ export default function CareerPage() {
             setSelectedReview(toReviewPost(detail))
             setEditingReview(false)
             setReviewView('detail')
+            navigate(`/career/reviews/${item.id}`)
         } catch (error) {
             if (requestId === reviewDetailRequest.current) {
                 setNotice(`후기 조회 실패: ${error.message}`)
@@ -706,6 +814,7 @@ export default function CareerPage() {
         setReviewView('list')
         setEditingReview(false)
         setSelectedReview(null)
+        navigate('/career/reviews')
     }
 
     async function saveReview(form) {
@@ -729,6 +838,7 @@ export default function CareerPage() {
             setKeyword('')
             setInput('')
             setReviewView('detail')
+            navigate(`/career/reviews/${saved.id}`)
             setNotice(editingReview ? '후기를 수정했습니다.' : '후기를 등록했습니다.')
             return saved
         } catch (error) {
@@ -764,6 +874,7 @@ export default function CareerPage() {
             setReviewView('list')
             setReviewRefresh((value) => value + 1)
             setNotice('후기를 삭제했습니다.')
+            navigate('/career/reviews', { replace: true })
         } catch (error) {
             setNotice(`후기 삭제 실패: ${error.message}`)
         } finally {
@@ -798,6 +909,7 @@ export default function CareerPage() {
             setSelectedTalk(toTalkPost(detail))
             setEditingTalk(false)
             setTalkView('detail')
+            navigate(`/career/talk/${item.id}`)
         } catch (error) {
             if (requestId === talkDetailRequest.current) {
                 setNotice(`게시글 조회 실패: ${error.message}`)
@@ -814,6 +926,7 @@ export default function CareerPage() {
         setTalkView('list')
         setSelectedTalk(null)
         setEditingTalk(false)
+        navigate('/career/talk')
     }
 
     async function saveTalk(form) {
@@ -835,6 +948,7 @@ export default function CareerPage() {
             setInput('')
             setKeyword('')
             setTalkView('detail')
+            navigate(`/career/talk/${saved.id}`)
             setNotice(editingTalk ? '게시글을 수정했습니다.' : '게시글을 등록했습니다.')
             return saved
         } catch (error) {
@@ -870,6 +984,7 @@ export default function CareerPage() {
             setTalkView('list')
             setTalkRefresh((value) => value + 1)
             setNotice('게시글을 삭제했습니다.')
+            navigate('/career/talk', { replace: true })
         } catch (error) {
             setNotice(`게시글 삭제 실패: ${error.message}`)
         } finally {
@@ -904,6 +1019,7 @@ export default function CareerPage() {
             setSelectedLoungePost(toLoungePost(detail))
             setEditingLoungePost(false)
             setLoungeView('detail')
+            navigate(`/career/lounge/${item.id}`)
         } catch (error) {
             if (requestId === loungeDetailRequest.current) {
                 setNotice(`게시글 조회 실패: ${error.message}`)
@@ -920,6 +1036,7 @@ export default function CareerPage() {
         setLoungeView('list')
         setSelectedLoungePost(null)
         setEditingLoungePost(false)
+        navigate('/career/lounge')
     }
 
     async function saveLoungePost(form) {
@@ -941,6 +1058,7 @@ export default function CareerPage() {
             setInput('')
             setKeyword('')
             setLoungeView('detail')
+            navigate(`/career/lounge/${saved.id}`)
             setNotice(editingLoungePost ? '게시글을 수정했습니다.' : '게시글을 등록했습니다.')
             return saved
         } catch (error) {
@@ -976,6 +1094,7 @@ export default function CareerPage() {
             setLoungeView('list')
             setLoungeRefresh((value) => value + 1)
             setNotice('게시글을 삭제했습니다.')
+            navigate('/career/lounge', { replace: true })
         } catch (error) {
             setNotice(`게시글 삭제 실패: ${error.message}`)
         } finally {
@@ -1009,6 +1128,7 @@ export default function CareerPage() {
             setSelectedLabPost(toLabPost(detail))
             setEditingLabPost(false)
             setLabView('detail')
+            navigate(`/career/lab/${item.id}`)
         } catch (error) {
             if (requestId === labDetailRequest.current) {
                 setNotice(`게시글 조회 실패: ${error.message}`)
@@ -1025,6 +1145,7 @@ export default function CareerPage() {
         setLabView('list')
         setSelectedLabPost(null)
         setEditingLabPost(false)
+        navigate('/career/lab')
     }
 
     async function saveLabPost(form) {
@@ -1050,6 +1171,7 @@ export default function CareerPage() {
             setInput('')
             setKeyword('')
             setLabView('detail')
+            navigate(`/career/lab/${saved.id}`)
             setLabRefresh((value) => value + 1)
             setNotice(editingLabPost ? '게시글을 수정했습니다.' : '게시글을 등록했습니다.')
             return saved
@@ -1086,6 +1208,7 @@ export default function CareerPage() {
             setLabView('list')
             setLabRefresh((value) => value + 1)
             setNotice('게시글을 삭제했습니다.')
+            navigate('/career/lab', { replace: true })
         } catch (error) {
             setNotice(`게시글 삭제 실패: ${error.message}`)
         } finally {
@@ -1480,6 +1603,13 @@ export default function CareerPage() {
                                             {activeId === 'lab' && item.post_type === 'DISCUSSION' && (
                                                 <span className="career-lab-state is-discussion">
                                                     ◇ 토론
+                                                </span>
+                                            )}
+
+                                            {/* 커리어 가이드 유형 표시 */}
+                                            {activeId === 'lab' && item.post_type === 'GUIDE' && (
+                                                <span className="career-lab-state is-guide">
+                                                    ✦ 커리어 가이드
                                                 </span>
                                             )}
                                         </div>

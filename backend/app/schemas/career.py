@@ -241,13 +241,11 @@ class CareerTalkCreate(BaseModel):
     @field_validator("title", "body", mode="before")
     @classmethod
     def strip_required_text(cls, value):
-        """필수 입력값의 앞뒤 공백을 제거한다."""
-
         if isinstance(value, str):
             return value.strip()
 
         return value
-
+    
     @field_validator("job_category_code", mode="before")
     @classmethod
     def strip_optional_text(cls, value):
@@ -843,6 +841,19 @@ class CareerLabUpdate(BaseModel):
     subcategory_code: LabSubcategory | None = None
 
     is_anonymous: bool | None = None
+
+    # 커리어 가이드 수정 항목
+    guide_experience: str | None = Field(
+        default=None,
+        min_length=100,
+        max_length=10000,
+    )
+
+    guide_advice: str | None = Field(
+        default=None,
+        min_length=100,
+        max_length=10000,
+    )
 
     @field_validator("title", "body", mode="before")
     @classmethod

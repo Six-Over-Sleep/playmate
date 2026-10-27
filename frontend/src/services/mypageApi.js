@@ -93,3 +93,44 @@ export function getMyActivities(type, page = 1) {
   })
 }
 
+// =========================================================
+// 취업 스펙 API
+// =========================================================
+
+// 1. 내 취업 스펙 조회
+export function getMyCareerSpecs() {
+  return apiRequest('/mypage/career-specs', {
+    credentials: 'include',
+    headers: devMemberId
+      ? { 'X-Dev-Member-ID': devMemberId }
+      : {},
+  })
+}
+
+
+// 2. 취업 스펙 등록 및 수정
+export function saveMyCareerSpecs(data) {
+  return apiRequest('/mypage/career-specs', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: devMemberId
+      ? { 'X-Dev-Member-ID': devMemberId }
+      : {},
+    body: JSON.stringify(data),
+  })
+}
+
+
+// 3. 취업 스펙 공개·비공개 설정
+export function updateCareerSpecVisibility(isPublic) {
+  return apiRequest('/mypage/career-specs/visibility', {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: devMemberId
+      ? { 'X-Dev-Member-ID': devMemberId }
+      : {},
+    body: JSON.stringify({
+      is_public: isPublic,
+    }),
+  })
+}

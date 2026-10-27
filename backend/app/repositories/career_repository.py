@@ -1926,13 +1926,22 @@ def update_lab(
 
     # 수정 가능한 필드만 허용
     table_columns = {
+        # 공통 게시글
         "posts": (
             "title",
             "body",
         ),
+
+        # 취업 게시판 공통 정보
         "career_posts": (
             "subcategory_code",
             "is_anonymous",
+        ),
+
+        # 커리어 가이드 전용 정보
+        "career_labs": (
+            "guide_experience",
+            "guide_advice",
         ),
     }
 

@@ -21,8 +21,21 @@ const LAB_CODES = {
 }
 
 const POST_TYPES = [
-    { value: 'QUESTION', label: '질문', description: '취업·이력서·포트폴리오 피드백 요청도 질문으로 등록해요.' },
-    { value: 'DISCUSSION', label: '토론', description: '서로 의견을 나누고 선택적으로 투표를 진행해요.' },
+    {
+        value: 'QUESTION',
+        label: '질문',
+        description: '취업·이력서·포트폴리오에 대해 질문해요.',
+    },
+    {
+        value: 'DISCUSSION',
+        label: '토론',
+        description: '의견을 나누고 투표를 진행해요.',
+    },
+    {
+        value: 'GUIDE',
+        label: '커리어 가이드',
+        description: '취업 준비 경험과 실질적인 조언을 공유하면 +50XP!',
+    },
 ]
 
 /** 서버 저장용 커리어 연구소 작성/수정 폼 */
@@ -39,7 +52,19 @@ export default function CareerLabForm({
     const [postType, setPostType] = useState(
         initial?.post_type || (defaultMenu === '직무 비교' ? 'DISCUSSION' : 'QUESTION')
     )
+    
+    // 게시글 본문
     const [body, setBody] = useState(initial?.body || '')
+
+    // 커리어 가이드 전용 입력값
+    const [guideExperience, setGuideExperience] = useState(
+        initial?.guide_experience || ''
+    )
+
+    const [guideAdvice, setGuideAdvice] = useState(
+        initial?.guide_advice || ''
+    )
+
     const [anonymous, setAnonymous] = useState(initial?.is_anonymous ?? true)
     const savedOptions = (initial?.poll_options || []).map((option) => (
         typeof option === 'string' ? option : option.option_text
@@ -54,9 +79,19 @@ export default function CareerLabForm({
         cleanedOptions.every((option) => option.length >= 1 && option.length <= 200) &&
         new Set(cleanedOptions).size === cleanedOptions.length
     )
+    // 커리어 가이드 최소 작성 조건
+    const validGuide =
+        body.trim().length >= 500 &&
+        guideExperience.trim().length >= 100 &&
+        guideAdvice.trim().length >= 100
+
     const canSubmit = Boolean(
-        title.trim() && menu && body.trim() && !busy &&
-        (editing || postType !== 'DISCUSSION' || validPoll)
+        title.trim() &&
+        menu &&
+        body.trim() &&
+        !busy &&
+        (editing || postType !== 'DISCUSSION' || validPoll) &&
+        (postType !== 'GUIDE' || validGuide)
     )
 
     function submit(event) {
@@ -75,7 +110,11 @@ export default function CareerLabForm({
             payload.post_type = postType
             payload.poll_options = postType === 'DISCUSSION' && pollEnabled ? cleanedOptions : []
         }
-
+        // GUIDE 게시글일 때만 가이드 전용 항목 전달
+        if (postType === 'GUIDE') {
+            payload.guide_experience = guideExperience.trim()
+            payload.guide_advice = guideAdvice.trim()
+        }
         onSubmit(payload)
     }
 
@@ -135,7 +174,63 @@ export default function CareerLabForm({
                 />
             </label>
             <p className="career-lab-count">{body.length.toLocaleString()} / 20,000자</p>
+            {/* 커리어 가이드 전용 입력 폼 */}
+            {postType === 'GUIDE' && (
+                <div className="career-lab-guide">
 
+                    <div className="career-lab-input-note">
+                        <strong>커리어 가이드 작성</strong>
+                        <span>
+                            경험과 노하우를 공유하고 50XP를 획득하세요.
+                        </span>
+                    </div>
+
+                    {/* 경험 및 근거 */}
+                    <label>
+                        경험 및 근거 *
+                        <textarea
+                            value={guideExperience}
+                            onChange={(e) => setGuideExperience(e.target.value)}
+                            maxLength={10000}
+                            rows={6}
+                            required
+                            disabled={busy}
+                            placeholder="취업 준비 과정, 프로젝트 경험, 실제 사례 등을 작성해 주세요."
+                        />
+                    </label>
+
+                    <p className="career-lab-count">
+                        {guideExperience.trim().length} / 최소 100자
+                    </p>
+
+                    {/* 실질적인 조언 */}
+                    <label>
+                        실질적인 조언 *
+                        <textarea
+                            value={guideAdvice}
+                            onChange={(e) => setGuideAdvice(e.target.value)}
+                            maxLength={10000}
+                            rows={6}
+                            required
+                            disabled={busy}
+                            placeholder="다른 취업 준비생에게 추천하는 방법과 주의할 점을 작성해 주세요."
+                        />
+                    </label>
+
+                    <p className="career-lab-count">
+                        {guideAdvice.trim().length} / 최소 100자
+                    </p>
+
+                    {/* 작성 조건 안내 */}
+                    <div className="career-lab-input-note">
+                        <strong>XP 지급 조건</strong>
+                        <span>
+                            본문 500자 이상 · 경험 100자 이상 · 조언 100자 이상
+                        </span>
+                    </div>
+
+                </div>
+            )}
             {postType === 'QUESTION' && (
                 <div className="career-lab-input-note">
                     <strong>질문 해결 상태</strong>

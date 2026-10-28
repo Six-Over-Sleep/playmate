@@ -76,6 +76,25 @@ class Database:
                     if attempt == attempts:
                         raise
 
+    def transaction(self, work: Callable[[Any], Any]) -> Any:
+        """work(cursor)를 한 트랜잭션에서 실행한다 (행은 dict). 예외가 나면 rollback하며 재시도하지 않는다.
+
+        여러 SQL을 원자적으로 묶어야 할 때만 쓴다 (예: advisory lock + 집계 + 선점).
+        """
+        import psycopg
+        from psycopg.rows import dict_row
+
+        with self._lock:
+            try:
+                if self._conn is None or self._conn.closed:
+                    self._conn = self._connect()
+                with self._conn.transaction():
+                    with self._conn.cursor(row_factory=dict_row) as cur:
+                        return work(cur)
+            except psycopg.OperationalError:
+                self._reset()
+                raise
+
     def table_exists(self, table_name: str) -> bool:
         """public 스키마에 테이블이 있는지 확인한다. 없는 테이블을 조회해 오류를 내지 않기 위해 쓴다."""
         row = self.execute(

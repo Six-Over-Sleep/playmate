@@ -90,8 +90,32 @@ ADMIN_ROLE_ID = _optional_id("PLAYMATE_ADMIN_ROLE_ID")
 # #핫플레이메이트, #취업-소식 채널. 없으면 해당 채널 게시를 하지 않는다.
 HOT_CHANNEL_ID = _optional_id("PLAYMATE_HOT_CHANNEL_ID")
 CAREER_CHANNEL_ID = _optional_id("PLAYMATE_CAREER_CHANNEL_ID")
-# 프론트 웹 주소. 상세 route가 확정되기 전까지 링크 버튼에는 쓰지 않는다.
-WEB_BASE_URL = (os.getenv("PLAYMATE_WEB_BASE_URL") or "").strip().rstrip("/") or None
+
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "[::1]")
+
+
+def _web_base_url(value: str | None, allow_local: bool) -> str | None:
+    """Discord 메시지의 상세 링크에 쓸 웹 주소. http(s)가 아니거나, 운영에서 localhost면 링크를 붙이지 않는다."""
+    value = (value or "").strip().rstrip("/")
+    if not value:
+        return None
+    scheme, _, rest = value.partition("://")
+    host = rest.split("/")[0].split("@")[-1].lower()
+    if host.startswith("["):
+        host = host.split("]")[0] + "]"
+    else:
+        host = host.split(":")[0]
+    if scheme.lower() not in ("http", "https") or not host:
+        print("PLAYMATE_WEB_BASE_URL 값이 http(s) 주소가 아니어서 상세 링크를 붙이지 않습니다.")
+        return None
+    if host in LOCAL_HOSTS and not allow_local:
+        print("PLAYMATE_WEB_BASE_URL이 localhost라 상세 링크를 붙이지 않습니다 (테스트 모드에서만 허용).")
+        return None
+    return value
+
+
+# 프론트 웹 주소. /게시글추천 Embed의 상세 페이지 링크에 쓴다. 비어 있으면 링크 없이 게시한다.
+WEB_BASE_URL = _web_base_url(os.getenv("PLAYMATE_WEB_BASE_URL"), allow_local=TEST_MODE)
 
 # notifications PENDING 행을 확인하는 주기(초). 모임 DB 동기화 루프와는 별개다.
 NOTIFICATION_POLL_SECONDS = 10
@@ -100,9 +124,12 @@ NOTIFICATION_BATCH_SIZE = 20
 NOTIFICATION_MAX_ATTEMPTS = 3
 NOTIFICATION_RETRY_DELAY_SECONDS = 60
 
-# HOT PLAYMATE 자동 게시 시각과 후보 기간.
-HOT_POST_TIMES = (time(13, 0, tzinfo=KST), time(19, 0, tzinfo=KST))
-HOT_CANDIDATE_HOURS = 24
+# 취업게시판 신규 글 자동 공지: 매일 18:00 (KST), 취준 도감·커리어 연구소, 하루 최대 5개.
+# 채널은 PLAYMATE_CAREER_CHANNEL_ID(#취업-소식)를 쓴다. 실패한 글은 다음 실행에서 총 3회까지 다시 시도한다.
+CAREER_NOTICE_TIME = time(18, 0, tzinfo=KST)
+CAREER_NOTICE_CATEGORIES = ("reviews", "lab")
+CAREER_NOTICE_DAILY_LIMIT = 5
+CAREER_NOTICE_MAX_ATTEMPTS = 3
 
 # 취업 소식: 신규 콘텐츠 확인 주기와 채용공고 마감 재노출 규칙 (D-3, D-1 13:00).
 CAREER_POLL_SECONDS = 60

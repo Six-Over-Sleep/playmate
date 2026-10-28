@@ -1,8 +1,11 @@
-"""/게시글추천: PLAYMATE_ADMIN_ROLE_ID 역할만 실행 (미설정이면 아무도 불가). 최소 조건 없이 게시한다."""
+"""/게시글추천: PLAYMATE_ADMIN_ROLE_ID 역할만 실행 (미설정이면 아무도 불가). 최소 조건 없이 게시한다.
+
+게시판 글 / 모임 / 취업 글을 HOT PLAYMATE 채널에 웹 상세 링크와 함께 게시한다.
+"""
 import discord
 from discord import app_commands
 
-from services.hot_content_service import BOARD, CONTENT_LABELS, RECRUIT, HotContentService
+from services.hot_content_service import BOARD, CAREER, CONTENT_LABELS, RECRUIT, HotContentService
 
 NO_PERMISSION_MESSAGE = "이 명령은 PlayMate 운영자만 사용할 수 있습니다."
 
@@ -15,12 +18,14 @@ def is_admin(user, admin_role_id: int | None) -> bool:
 
 
 def build_promotion_command(service: HotContentService, admin_role_id: int | None) -> app_commands.Command:
-    @app_commands.command(name="게시글추천", description="게시판 글 또는 모임을 HOT PLAYMATE 채널에 게시합니다.")
+    @app_commands.command(name="게시글추천", description="게시판 글, 모임, 취업 글을 HOT PLAYMATE 채널에 게시합니다.")
     @app_commands.rename(content_type="유형", content_id="id")
-    @app_commands.describe(content_type="게시판 또는 모임", content_id="게시글 ID(post_id) 또는 모임 ID(recruit_id)")
+    @app_commands.describe(content_type="게시판, 모임 또는 취업",
+                           content_id="게시글 ID(post_id) 또는 모임 ID(recruit_id)")
     @app_commands.choices(content_type=[
         app_commands.Choice(name=CONTENT_LABELS[BOARD], value=BOARD),
         app_commands.Choice(name=CONTENT_LABELS[RECRUIT], value=RECRUIT),
+        app_commands.Choice(name=CONTENT_LABELS[CAREER], value=CAREER),
     ])
     async def recommend_post(
         interaction: discord.Interaction,

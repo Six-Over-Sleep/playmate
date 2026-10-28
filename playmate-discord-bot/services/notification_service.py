@@ -1,6 +1,7 @@
 """Discord DM 알림: 수신 동의(/알림설정)와 notifications polling (10초, 모임 동기화와 별도 task).
 
-동의: external_dm_opt_in = true일 때만 보낸다 (false/NULL은 미허용).
+동의: 기본값 ON. external_dm_opt_in = false(사용자가 /알림설정으로 끔)일 때만 보내지 않는다.
+     NULL은 아직 선택하지 않은 회원(기존 회원·DB 기본값 적용 전 가입)이라 true와 같이 ON으로 본다.
 처리: 보낼 대상이 아니면 SKIPPED, 성공 SENT, 실패는 retry_count + 1 후 총 3회 실패 시 FAILED
 (그 전에는 PENDING으로 남아 재시도). 한 건의 실패가 다른 알림이나 루프를 멈추지 않는다.
 
@@ -29,17 +30,23 @@ class SettingSaveFailed(Exception):
 
 
 def dm_allowed(opt_in: bool | None) -> bool:
-    """true만 허용한다. false와 NULL(아직 선택하지 않음)은 모두 미허용이다."""
-    return opt_in is True
+    """기본 ON: 사용자가 직접 끈 false만 미허용이다. true와 NULL(아직 선택하지 않음)은 허용한다."""
+    return opt_in is not False
+
+
+DM_MESSAGES = {
+    "COMMENT": "💬 내 게시글에 새 댓글이 달렸어요.",   # 받는 사람: 게시글 작성자
+    "REPLY": "↪️ 내 댓글에 새 답글이 달렸어요.",       # 받는 사람: 부모 댓글 작성자
+}
 
 
 def build_dm_message(notification: PendingNotification) -> str | None:
-    """알림 종류에 맞는 DM 문구. 아직 지원하지 않는 종류면 None (SKIPPED 처리)."""
-    if notification["notification_type"] == "COMMENT":
-        title = (notification.get("post_title") or "").strip()
-        message = "💬 내 게시글에 새 댓글이 달렸어요."
-        return f"{message}\n게시글: {title}" if title else message
-    return None
+    """알림 종류에 맞는 DM 문구. 아직 지원하지 않는 종류(REACTION 등)면 None (SKIPPED 처리)."""
+    message = DM_MESSAGES.get(notification["notification_type"])
+    if message is None:
+        return None
+    title = (notification.get("post_title") or "").strip()
+    return f"{message}\n게시글: {title}" if title else message
 
 
 def _to_int(value) -> int | None:
@@ -110,7 +117,7 @@ class NotificationService:
         if notification.get("target_missing"):
             return "대상 없음"
         if not dm_allowed(notification.get("receiver_dm_opt_in")):
-            return "DM 알림 미동의"
+            return "DM 알림 꺼짐"
         if _to_int(notification.get("receiver_discord_id")) is None:
             return "Discord 계정 없음"
         if build_dm_message(notification) is None:

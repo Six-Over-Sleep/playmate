@@ -73,4 +73,5 @@ Discord DM 수신 동의 여부는 `members.external_dm_opt_in` 컬럼을 사용
 - `notifications.comment_id`가 참조하는 `comments` 테이블도 메타데이터에 등록되어 있어야 함.
 - ORM 클래스가 존재한다고 실제 DB 테이블이 자동으로 생성되는 것은 아님.
 - 모델 변경 후 실제 PostgreSQL 테이블 구조와 일치하는지 확인해야 함.
-- `external_dm_opt_in` 값이 `True`인 회원을 대상으로 Discord DM 발송 여부를 판단해야 함.
+- Discord DM은 기본 ON임. `external_dm_opt_in`이 `False`(회원이 `/알림설정`으로 끔)인 회원에게만 보내지 않음.
+  `NULL`(선택 안 함)은 ON으로 처리하고, 신규 가입은 `True`로 저장함.

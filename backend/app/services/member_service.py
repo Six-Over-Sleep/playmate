@@ -29,7 +29,10 @@ def get_member(discord_id: str) -> dict | None:
 
 
 def register_member(discord_id: str, signup_data: MemberSignup) -> dict:
-    """신규 회원을 등록한다. 성공 시에만 트랜잭션을 커밋한다."""
+    """신규 회원을 등록한다. 성공 시에만 트랜잭션을 커밋한다.
+
+    Discord DM 알림(external_dm_opt_in)은 기본 ON으로 저장하고, 회원이 /알림설정으로 끌 수 있다.
+    """
     with db_cursor(commit=True) as cursor:
         cursor.execute(
             """
@@ -38,9 +41,10 @@ def register_member(discord_id: str, signup_data: MemberSignup) -> dict:
                 nickname,
                 course,
                 cohort,
-                role_code
+                role_code,
+                external_dm_opt_in
             )
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, TRUE)
             RETURNING
                 member_id,
                 discord_id,

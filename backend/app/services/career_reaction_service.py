@@ -18,6 +18,7 @@ from app.services.xp_service import (
     grant_xp,
     grant_post_like_xp,
 )
+from app.services.notification_writer import save_comment_notification
 
 
 logger = logging.getLogger(__name__)
@@ -128,5 +129,11 @@ def create_comment(
             grant_xp(member_id, activity_type, comment_id)
         except Exception:
             logger.exception("취업 댓글 XP 지급 실패: comment_id=%s", comment_id)
+
+    # 5. DB 저장 완료 후 Discord DM 알림 대기 행 저장 (실패해도 댓글은 유지)
+    try:
+        save_comment_notification(post_id, comment_id, member_id, parent_comment_id)
+    except Exception:
+        logger.exception("취업 댓글 알림 저장 실패: comment_id=%s", comment_id)
 
     return comment

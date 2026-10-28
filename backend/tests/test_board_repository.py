@@ -613,8 +613,10 @@ def comment_row(comment_id=5, parent_comment_id=3, **changes):
     )
 
 
-def test_create_top_level_comment_skips_parent_check(database):
+def test_create_top_level_comment_skips_parent_check(database, monkeypatch):
     """일반 댓글은 부모 조회 없이 parent_comment_id NULL로 저장한다."""
+    # 알림 저장은 댓글 커밋 뒤 별도 트랜잭션이므로 댓글 트랜잭션 검증에서는 제외한다.
+    monkeypatch.setattr(service, "save_comment_notification", lambda *args: 0)
     row = comment_row(3, None, body="댓글")
     cursor, connection, _ = database([{"exists": 1}, {"comment_id": 3}, row])
     assert service.create_comment(1, 2, "댓글", 1) == row
@@ -625,7 +627,9 @@ def test_create_top_level_comment_skips_parent_check(database):
     connection.commit.assert_called_once()
 
 
-def test_create_reply_validates_parent_in_same_transaction(database):
+def test_create_reply_validates_parent_in_same_transaction(database, monkeypatch):
+    # 알림 저장은 댓글 커밋 뒤 별도 트랜잭션이므로 댓글 트랜잭션 검증에서는 제외한다.
+    monkeypatch.setattr(service, "save_comment_notification", lambda *args: 0)
     cursor, connection, factory = database(
         [
             {"exists": 1},

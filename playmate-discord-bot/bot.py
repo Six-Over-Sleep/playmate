@@ -22,6 +22,7 @@ from handlers.message_handler import handle_message
 from handlers.notification_command_handler import build_notification_command
 from handlers.promotion_command_handler import build_promotion_command
 from repositories.career_content_repository import UnconnectedCareerContentRepository
+from repositories.career_notice_repository import PostgresCareerNoticeRepository
 from repositories.content_repository import PostgresContentRepository
 from repositories.db import Database
 from repositories.meeting_repository import (
@@ -30,8 +31,9 @@ from repositories.meeting_repository import (
 )
 from repositories.notification_repository import PostgresNotificationRepository
 from services.career_content_service import CareerContentService, create_career_tasks
+from services.career_notice_service import CareerNoticeService, create_career_notice_task
 from services.db_sync import create_sync_task
-from services.hot_content_service import HotContentService, create_hot_task
+from services.hot_content_service import HotContentService
 from services.lifecycle import create_lifecycle_task
 from services.notification_service import NotificationService, create_notification_task
 from services.official_channels import ensure_official_channels
@@ -61,8 +63,11 @@ if DB_CONFIGURED:
     tree.add_command(build_notification_command(notification_service), guild=guild_object)
     tree.add_command(build_promotion_command(hot_service, ADMIN_ROLE_ID), guild=guild_object)
     feature_tasks.append(("알림 polling (10초)", create_notification_task(client, notification_service)))
-    if HOT_CHANNEL_ID is not None:
-        feature_tasks.append(("HOT PLAYMATE 자동 게시 (13:00, 19:00)", create_hot_task(client, hot_service)))
+    # HOT 자동 게시는 없다. 팀원의 HOT 게시판 API·DB가 확정되면 연동한다 (수동 /게시글추천만 동작).
+    if CAREER_CHANNEL_ID is not None:
+        career_notice_service = CareerNoticeService(
+            client, PostgresCareerNoticeRepository(feature_db), CAREER_CHANNEL_ID)
+        feature_tasks.append(("취업 신규 글 공지 (18:00)", create_career_notice_task(client, career_notice_service)))
 # TODO: 취업 담당자 스키마가 나오면 실제 CareerContentRepository 구현으로 바꾼다.
 career_repository = UnconnectedCareerContentRepository()
 if CAREER_CHANNEL_ID is not None and career_repository.connected:

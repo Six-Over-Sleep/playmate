@@ -1,9 +1,9 @@
-"""HOT PLAYMATE 콘텐츠 저장소.
+"""/게시글추천 콘텐츠 저장소: 게시판 글 / 모임 / 취업 글 1건 조회.
 
-게시판 글 / 모임 1건 조회는 Backend API와 같은 기준이다 (삭제 안 됨, 모집글은 게시판에서 제외).
-자동 HOT 후보는 좋아요 스키마가 아직 없어 빈 목록을 돌려준다. 연결할 때 HotCandidate 모양으로 돌려준다.
+대상 조건은 Backend API와 같다 (삭제 안 됨, 모집글은 게시판에서 제외, 취업 글은 post_type='CAREER').
+상세 링크에 필요한 ID(board_id, recruit_id, category_code)를 함께 돌려준다.
+HOT 자동 선정은 팀원이 만드는 HOT 게시판으로 옮겨져 이 저장소에는 집계 SQL이 없다.
 """
-from datetime import datetime
 from typing import Any, Protocol
 
 from repositories.db import Database
@@ -12,8 +12,7 @@ from repositories.db import Database
 class ContentRepository(Protocol):
     def get_board_post(self, post_id: int) -> dict[str, Any] | None: ...
     def get_recruit(self, recruit_id: int) -> dict[str, Any] | None: ...
-    def list_board_candidates(self, since: datetime) -> list[Any]: ...
-    def list_recruit_candidates(self, since: datetime) -> list[Any]: ...
+    def get_career_post(self, post_id: int) -> dict[str, Any] | None: ...
 
 
 class PostgresContentRepository:
@@ -50,10 +49,18 @@ class PostgresContentRepository:
             (recruit_id,), fetch="one",
         )
 
-    def list_board_candidates(self, since: datetime) -> list[Any]:
-        """좋아요 스키마 연결 전: 자동 후보 없음."""
-        return []
-
-    def list_recruit_candidates(self, since: datetime) -> list[Any]:
-        """좋아요 스키마 연결 전: 자동 후보 없음."""
-        return []
+    def get_career_post(self, post_id: int) -> dict[str, Any] | None:
+        """취업 4종 게시판 글 (Backend career_post_exists와 같은 대상 조건). 작성자는 조회하지 않는다."""
+        return self._db.execute(
+            """
+            SELECT p.post_id, cp.category_code, p.title, p.body, p.created_at,
+                   (SELECT COUNT(*) FROM comments c
+                     WHERE c.post_id = p.post_id AND c.deleted_at IS NULL) AS comment_count
+              FROM posts p
+              JOIN career_posts cp ON cp.post_id = p.post_id
+             WHERE p.post_id = %s
+               AND p.post_type = 'CAREER'
+               AND p.deleted_at IS NULL
+            """,
+            (post_id,), fetch="one",
+        )

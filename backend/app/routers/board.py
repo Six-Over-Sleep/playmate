@@ -78,6 +78,16 @@ def get_board(board_id: int, _: int = Depends(get_current_member_id)):
 # 2. 게시글 목록 조회 및 생성
 # =========================================================
 
+# GET /api/boards/featured/{kind}/posts : 명예의 전당 / HOT 게시글 조회
+@router.get("/boards/featured/{kind}/posts", response_model=list[PostResponse])
+def list_featured_posts(
+    kind: str,
+    q: str | None = Query(default=None, max_length=100),
+    member_id: int = Depends(get_current_member_id),
+):
+    return board_service.list_featured_posts(kind, q, member_id)
+
+
 # GET /api/boards/{board_id}/posts : 게시판별 게시글 목록 조회
 @router.get("/boards/{board_id}/posts", response_model=list[PostResponse])
 def list_posts(

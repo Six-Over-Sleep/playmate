@@ -32,6 +32,14 @@ export const boardApi = {
     )
   },
 
+  /** 좋아요 기준으로 자동 선정된 읽기 전용 게시글 목록 */
+  featuredPosts(kind, query = '', options = {}) {
+    return request(
+      `/boards/featured/${kind}/posts?q=${encodeURIComponent(query)}`,
+      options,
+    )
+  },
+
   /** 지정한 게시판에 속한 글의 본문·소유자 여부·이미지 정보를 조회한다. */
   post(boardId, postId, options = {}) {
     return request(`/boards/${boardId}/posts/${postId}`, options)

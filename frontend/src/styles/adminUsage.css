@@ -1,0 +1,345 @@
+/* =========================================================
+   PLAYMATE 관리자 센터 - 회원 이용 통계
+   ========================================================= */
+
+/* 조회 기간 선택 */
+.admin-usage-period {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.admin-usage-period p {
+  margin: 0;
+  color: #8b86a0;
+  font-size: 13px;
+}
+
+.admin-usage-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-usage-buttons button {
+  border: 1px solid #e1dced;
+  border-radius: 10px;
+  padding: 9px 14px;
+  background: #fff;
+  color: #665781;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.admin-usage-buttons button.active {
+  background: #4c3485;
+  border-color: #4c3485;
+  color: #fff;
+}
+
+/* 이용 시간 요약 카드 */
+.admin-usage-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+  margin-bottom: 25px;
+}
+
+.admin-usage-stat {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid #ece8f4;
+  border-radius: 16px;
+  background: #f9f8fc;
+}
+
+.admin-usage-stat span {
+  color: #736b85;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-usage-stat strong {
+  color: #4c3485;
+  font-size: 25px;
+  font-weight: 900;
+}
+
+.admin-usage-stat small {
+  color: #9b94a8;
+  font-size: 11px;
+}
+
+/* 일별 이용 시간 그래프 */
+.admin-usage-box {
+  margin-bottom: 24px;
+  padding: 20px;
+  border: 1px solid #ece8f4;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.admin-usage-box h3 {
+  margin: 0 0 20px;
+  color: #302745;
+  font-size: 16px;
+}
+
+.admin-usage-chart {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-usage-bar-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 110px;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-usage-date,
+.admin-usage-bar-label {
+  color: #847d96;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.admin-usage-bar-label {
+  text-align: right;
+}
+
+.admin-usage-bar-track {
+  height: 13px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #f0edf7;
+}
+
+.admin-usage-bar {
+  height: 100%;
+  border-radius: 8px;
+  background: #8870bf;
+}
+
+.admin-usage-note {
+  margin: 18px 0 0;
+  color: #918aa1;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 작은 화면에서 이용 통계를 세로로 배치 */
+@media (max-width: 700px) {
+  .admin-usage-period {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-usage-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-usage-bar-row {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .admin-usage-bar-label {
+    grid-column: 2;
+    text-align: left;
+  }
+
+  .admin-usage-box {
+    padding: 14px;
+  }
+}
+
+/* =========================================================
+   2차 개선: 전체 통계 / 인기 게시판 / 페이지네이션
+   ========================================================= */
+
+/* 전체 누적 정보는 7일·30일 기간 선택과 분리합니다. */
+.admin-usage-overall {
+  margin-bottom: 28px;
+}
+
+.admin-usage-overall h3 {
+  margin: 0 0 16px;
+  color: #302745;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.admin-usage-overall .admin-usage-stats {
+  margin-bottom: 0;
+}
+
+/* 그래프 제목 옆의 기준을 표시합니다. */
+.admin-usage-box-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.admin-usage-box-heading h3 {
+  margin: 0;
+}
+
+.admin-usage-box-heading span {
+  color: #918aa1;
+  font-size: 12px;
+}
+
+/* 게시판 이름 / 막대그래프 / 방문 횟수를 한 줄에 배치합니다. */
+.admin-usage-board-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 180px) minmax(0, 1fr) 64px;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-usage-board-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #544b6e;
+  font-size: 13px;
+}
+
+.admin-usage-board-name b {
+  color: #4c3485;
+}
+
+/* 회원 목록의 이전/다음 페이지 버튼 */
+.admin-usage-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.admin-usage-pagination button {
+  border: 1px solid #e1dced;
+  border-radius: 10px;
+  padding: 10px 16px;
+  background: #fff;
+  color: #4c3485;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.admin-usage-pagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.admin-usage-pagination span {
+  color: #736b85;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+@media (max-width: 700px) {
+  .admin-usage-board-row {
+    grid-template-columns: minmax(100px, 130px) minmax(0, 1fr) 42px;
+  }
+
+  .admin-usage-box-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+
+/* =========================================================
+   관리자 이용 통계 - 전체 기간 고정 요약 (v4)
+   ========================================================= */
+
+.admin-usage-fixed-summary {
+  margin-bottom: 28px;
+  padding: 20px;
+  border: 1px solid #e7e2f0;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.admin-usage-fixed-summary h3 {
+  margin: 0 0 18px;
+  color: #302745;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.admin-usage-fixed-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-usage-fixed-card {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid #ece8f4;
+  border-radius: 16px;
+  background: #f9f8fc;
+}
+
+.admin-usage-fixed-card span {
+  color: #736b85;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-usage-fixed-card strong {
+  color: #4c3485;
+  font-size: 26px;
+  font-weight: 900;
+}
+
+.admin-usage-fixed-card small {
+  color: #9b94a8;
+  font-size: 11px;
+}
+
+@media (max-width: 700px) {
+  .admin-usage-fixed-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* =========================================================
+   관리자 이용 통계 v5 - 카드 3열 및 최다 방문 게시판
+   ========================================================= */
+
+/* 상단 전체 이용 현황: 누적 시간 / 일평균 / 최다 방문 게시판 */
+.admin-usage .admin-usage-fixed-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* 7일·30일 버튼 아래 기간별 요약 카드 3개를 한 줄에 배치 */
+.admin-usage .admin-usage-period + .admin-usage-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* 긴 게시판 이름도 카드 너비를 벗어나지 않도록 처리 */
+.admin-usage .admin-usage-popular-name {
+  font-size: 19px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+
+/* 작은 화면에서는 카드 가독성을 위해 세로 배치 */
+@media (max-width: 600px) {
+  .admin-usage .admin-usage-fixed-grid,
+  .admin-usage .admin-usage-period + .admin-usage-stats {
+    grid-template-columns: 1fr;
+  }
+}

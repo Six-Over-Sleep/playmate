@@ -53,6 +53,7 @@ def _board_post_guard(alias: str = "p") -> str:
     # alias : 게시글 테이블의 SQL 별칭(p 등), 내부 코드에서만 전달함
     return f"""
         {alias}.deleted_at IS NULL
+        AND COALESCE({alias}.post_status, 'PUBLISHED') = 'PUBLISHED'
         AND NOT EXISTS (
             SELECT 1
             FROM recruits AS r
@@ -73,6 +74,7 @@ def list_boards(cursor) -> list[dict[str, Any]]:
             created_at
         FROM boards
         ORDER BY
+            CASE WHEN board_name = '공지사항' THEN 0 ELSE 1 END,
             is_default DESC,
             created_at,
             board_id
@@ -683,3 +685,80 @@ def comment_exists(cursor, comment_id: int) -> bool:
         (comment_id,),
     )
     return cursor.fetchone() is not None
+
+
+# 명예의 전당·HOT: 실제 게시글을 복사하지 않고 post_likes 집계로 조회
+# 두 목록에 동시에 선정될 수 있으며 원래 board_id를 그대로 반환한다.
+def list_featured_posts(
+    cursor, kind: str, search: str, member_id: int
+) -> list[dict[str, Any]]:
+    """누적 101개 이상(명예) / 최근 7일 10개 이상(HOT) 조회."""
+    filters = {
+        "hall-of-fame": "likes.total_likes >= 100",
+        "hot": "likes.recent_likes >= 10",
+    }
+    orders = {
+        "hall-of-fame": "likes.total_likes DESC",
+        "hot": "likes.recent_likes DESC, likes.total_likes DESC",
+    }
+    if kind not in filters:
+        raise ValueError("지원하지 않는 인기 게시판입니다.")
+
+    params: list[Any] = [member_id, member_id]
+    search_sql = ""
+    if search:
+        search_sql = "AND (p.title ILIKE %s OR p.body ILIKE %s)"
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    cursor.execute(
+        f"""
+        WITH likes AS (
+            SELECT
+                l.post_id,
+                COUNT(*)::int AS total_likes,
+                COUNT(*) FILTER (
+                    WHERE l.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+                )::int AS recent_likes
+            FROM post_likes AS l
+            GROUP BY l.post_id
+        )
+        SELECT
+            p.post_id AS id,
+            p.board_id,
+            p.title,
+            COALESCE(p.body, '') AS body,
+            p.author_member_id AS author_id,
+            COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,
+            p.created_at,
+            p.updated_at,
+            (
+                SELECT COUNT(*)::int FROM comments AS c
+                WHERE c.post_id = p.post_id AND c.deleted_at IS NULL
+            ) AS comment_count,
+            (p.author_member_id = %s) AS is_owner,
+            likes.total_likes AS like_count,
+            EXISTS (
+                SELECT 1 FROM post_likes AS my_likes
+                WHERE my_likes.post_id = p.post_id
+                  AND my_likes.member_id = %s
+            ) AS liked_by_me
+        FROM posts AS p
+        JOIN members AS m ON m.member_id = p.author_member_id
+        JOIN boards AS b ON b.board_id = p.board_id
+        JOIN likes ON likes.post_id = p.post_id
+        WHERE p.post_type = 'BOARD'
+          AND p.post_status = 'PUBLISHED'
+          AND b.board_name <> '공지사항'
+          AND {_board_post_guard()}
+          AND {filters[kind]}
+          {search_sql}
+        ORDER BY {orders[kind]}, p.created_at DESC, p.post_id DESC
+        LIMIT 100
+        """,
+        params,
+    )
+    rows = list(cursor.fetchall())
+    images = images_by_post(cursor, [row["id"] for row in rows])
+    for row in rows:
+        row["images"] = images[row["id"]]
+    return rows

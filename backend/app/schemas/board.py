@@ -1,3 +1,4 @@
+# PLAYMATE_BOARD_ANONYMOUS_V1
 # 게시판, 게시글, 댓글의 API 요청 및 응답 데이터 형식을 정의하는 Pydantic Schema
 from datetime import datetime
 
@@ -39,6 +40,8 @@ class PostWrite(StrictModel):
     # body : 게시글 본문 (1~20,000자)
     title: str = Field(min_length=1, max_length=100)
     body: str = Field(min_length=1, max_length=20000)
+    # 수정 요청에서 누락하면 기존 익명 설정 유지
+    is_anonymous: bool | None = None
 
 
 # 게시글에 첨부된 이미지 정보를 반환하는 데이터
@@ -64,8 +67,9 @@ class PostResponse(BaseModel):
 
     # author_id : 게시글 작성자 회원 번호
     # author_name : 화면에 표시할 작성자 이름
-    author_id: int
+    author_id: int | None
     author_name: str
+    is_anonymous: bool = False
 
     # created_at : 게시글 최초 작성 시간
     # updated_at : 게시글 마지막 수정 시간

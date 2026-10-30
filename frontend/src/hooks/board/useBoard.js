@@ -1,3 +1,5 @@
+// PLAYMATE_COMMENT_ANON_EDIT_V2
+// PLAYMATE_BOARD_ANONYMOUS_V1
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { boardApi } from '../../services/boardApi'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -577,9 +579,9 @@ export function useBoard(resetVersion) {
    * 댓글 본문을 전송하고 성공 응답을 목록에 추가한다. 실패 시 폼이 초안을 유지하게 한다.
    * 일반 댓글은 목록 끝에, 대댓글은 같은 부모의 마지막 대댓글 뒤에 넣어 서버 순서와 맞춘다.
    */
-  function addComment(body, parentCommentId = null) {
+  function addComment(body, parentCommentId = null, isAnonymous = false) {
     return mutate(
-      () => boardApi.createComment(board.id, post.id, body, parentCommentId),
+      () => boardApi.createComment(board.id, post.id, body, parentCommentId, isAnonymous),
       (created) => {
         if (!created.parent_comment_id) {
           applyComments([...comments, created])
@@ -599,9 +601,9 @@ export function useBoard(resetVersion) {
   }
 
   /** id가 일치하는 댓글만 서버 응답으로 교체한다. 실패 null이면 편집 화면은 닫지 않는다. */
-  function editComment(id, body) {
+  function editComment(id, body, isAnonymous = undefined) {
     return mutate(
-      () => boardApi.updateComment(id, body),
+      () => boardApi.updateComment(id, body, isAnonymous),
       (saved) => applyComments(comments.map((item) => item.id === id ? saved : item)),
     )
   }

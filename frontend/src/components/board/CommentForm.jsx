@@ -1,3 +1,4 @@
+// PLAYMATE_BOARD_ANONYMOUS_V1
 import { useCommentForm } from '../../hooks/board/useBoardForms'
 
 /**
@@ -10,19 +11,30 @@ export default function CommentForm({
   placeholder = '댓글을 입력해주세요.',
   submitLabel = '댓글 작성',
 }) {
-  const { body, setBody, submit } = useCommentForm(busy, onSubmit)
+  const { body, setBody, isAnonymous, setIsAnonymous, submit } = useCommentForm(busy, onSubmit)
 
   return (
     <form className="comment-form" onSubmit={submit}>
-      <textarea
-        aria-label="댓글 내용"
-        maxLength={2000}
-        rows={3}
-        value={body}
-        disabled={busy}
-        onChange={(event) => setBody(event.target.value)}
-        placeholder={placeholder}
-      />
+      <div className="board-comment-input">
+        <textarea
+          aria-label="댓글 내용"
+          maxLength={2000}
+          rows={3}
+          value={body}
+          disabled={busy}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder={placeholder}
+        />
+        <label className="board-anonymous-option">
+          <input
+            type="checkbox"
+            checked={isAnonymous}
+            disabled={busy}
+            onChange={(event) => setIsAnonymous(event.target.checked)}
+          />
+          익명으로 작성
+        </label>
+      </div>
       <button className="button mint" disabled={busy || !body.trim()}>
         {submitLabel}
       </button>

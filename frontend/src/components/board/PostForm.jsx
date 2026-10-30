@@ -1,7 +1,8 @@
+// PLAYMATE_BOARD_ANONYMOUS_V1
 import { usePostForm } from '../../hooks/board/useBoardForms'
 
 /** 입력 화면만 구성한다. 업로드 검증·미리보기 수명·제출 잠금은 hook이 담당한다. */
-export default function PostForm({ initial, busy, onCancel, onSubmit }) {
+export default function PostForm({ initial, busy, onCancel, onSubmit, allowAnonymous = true }) {
   const form = usePostForm(initial, busy, onSubmit)
 
   return (
@@ -59,9 +60,22 @@ export default function PostForm({ initial, busy, onCancel, onSubmit }) {
           ))}
         </div>
       )}
-      {/* 익명·닉네임 정책은 이번 리팩터링에서 바꾸지 않는다. 담당자 확인이 필요하다. */}
+      {/* 게시글 익명 여부는 작성자만 선택하며 DB에는 실제 작성자 ID를 유지합니다. */}
+      {allowAnonymous && (
+        <label className="board-anonymous-option">
+          <input
+            type="checkbox"
+            checked={form.isAnonymous}
+            disabled={busy}
+            onChange={(event) => form.setIsAnonymous(event.target.checked)}
+          />
+          익명으로 작성
+        </label>
+      )}
       <p className="privacy-note">
-        다른 회원에게는 공개용 익명 ID만 보여요. 작성자 기수·반이나 로그인 계정 정보는 공개하지 않아요.
+        {allowAnonymous
+          ? '익명을 선택하면 다른 회원에게 작성자 닉네임과 회원 ID가 표시되지 않습니다. 관리자는 운영 목적으로 확인할 수 있습니다.'
+          : '공지사항은 관리자 이름으로 표시됩니다.'}
       </p>
       <div className="form-actions">
         <button type="button" className="button ghost" disabled={busy} onClick={onCancel}>

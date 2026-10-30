@@ -1,3 +1,5 @@
+# PLAYMATE_COMMENT_ANON_EDIT_V2
+# PLAYMATE_BOARD_ANONYMOUS_V1
 """게시판 업무 순서·권한·트랜잭션을 관리한다."""
 
 # Any : 반환되는 DB 데이터(딕셔너리)의 값 타입을 유연하게 표현함.
@@ -161,6 +163,7 @@ def create_post(
     body: str,
     member_id: int,
     images: list[dict[str, Any]] | None = None,
+    is_anonymous: bool = False,
 ) -> dict[str, Any]:
     """게시글 생성 및 작성 XP 지급"""
 
@@ -170,6 +173,10 @@ def create_post(
         # 공지사항 관리자 권한 검사
         _require_notice_admin(cursor, board_id, member_id)
 
+        # 공지사항은 관리자 이름으로 작성되며 익명 선택 불가
+        if is_anonymous and _require_board(cursor, board_id)["name"] == "공지사항":
+            raise HTTPException(status_code=422, detail="공지사항은 익명으로 작성할 수 없습니다.")
+
         # 게시글 DB 저장
         post_id = repository.create_post(
             cursor,
@@ -178,6 +185,7 @@ def create_post(
             body,
             member_id,
             images,
+            is_anonymous,
         )
 
         # 저장한 게시글 정보 조회
@@ -243,15 +251,18 @@ def _raise_post_permission(cursor, board_id: int, post_id: int) -> None:
 
 
 def update_post(
-    board_id: int, post_id: int, title: str, body: str, member_id: int
+    board_id: int, post_id: int, title: str, body: str, member_id: int,
+    is_anonymous: bool | None = None,
 ) -> dict[str, Any]:
     """작성자 조건으로 수정 후 응답을 조회한다. 실패 시 전체 롤백한다."""
     with db_cursor(commit=True) as cursor:
         _require_notice_admin(cursor, board_id, member_id)
+        if is_anonymous and _require_board(cursor, board_id)["name"] == "공지사항":
+            raise HTTPException(status_code=422, detail="공지사항은 익명으로 작성할 수 없습니다.")
         # Repository에서 작성자 ID와 게시글 상태를 조건으로 수정함.
         # 수정된 행이 없으면 권한 부족(403) 또는 글 없음(404)을 판별함.
         if not repository.update_post(
-            cursor, board_id, post_id, title, body, member_id
+            cursor, board_id, post_id, title, body, member_id, is_anonymous
         ):
             _raise_post_permission(cursor, board_id, post_id)
         # 수정된 게시글을 다시 조회하여 응답으로 반환함.
@@ -439,13 +450,18 @@ def _raise_comment_permission(cursor, comment_id: int) -> None:
     raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
 
 
-def update_comment(comment_id: int, body: str, member_id: int) -> dict[str, Any]:
-    """작성자 댓글을 수정하고 같은 트랜잭션에서 응답을 조회한다."""
+def update_comment(
+    comment_id: int,
+    body: str,
+    member_id: int,
+    is_anonymous: bool | None = None,
+) -> dict[str, Any]:
+    """작성자만 본문/익명 여부를 수정합니다. None이면 익명 여부를 유지합니다."""
     with db_cursor(commit=True) as cursor:
-        # 댓글 작성자와 삭제 상태를 확인하여 본문을 수정함.
-        if not repository.update_comment(cursor, comment_id, body, member_id):
+        if not repository.update_comment(
+            cursor, comment_id, body, member_id, is_anonymous
+        ):
             _raise_comment_permission(cursor, comment_id)
-        # 변경된 댓글 정보를 다시 조회하여 반환함.
         return _comment_detail(cursor, comment_id, member_id)
 
 

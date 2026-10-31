@@ -1,3 +1,5 @@
+// PLAYMATE_COMMENT_ANON_EDIT_V2
+// PLAYMATE_BOARD_ANONYMOUS_V1
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { boardApi } from '../../services/boardApi'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -9,6 +11,29 @@ import { useLocation, useNavigate } from 'react-router-dom'
  * 초기 조회는 effect의 구독만 해제해 StrictMode의 재구독에서도 응답을 재사용한다.
  */
 
+// 좋아요 기준으로 자동 선정되는 특별 게시판
+const FEATURED_BOARDS = [
+  {
+    id: 'hall-of-fame',
+    name: '🏆 명예의 전당',
+    featured: true,
+  },
+  {
+    id: 'hot',
+    name: '🔥 HOT 게시판',
+    featured: true,
+  },
+]
+
+function orderedBoards(items) {
+  const normal = items.filter((item) => !['명예의 전당', 'HOT 게시판'].includes(item.name))
+  return [
+    ...normal.filter((item) => item.name === '공지사항'),
+    ...FEATURED_BOARDS,
+    ...normal.filter((item) => item.name !== '공지사항'),
+  ]
+}
+
 // 자유게시판 URL에서 게시판 ID와 게시글 ID 추출
 function parseBoardPath(pathname) {
   const parts = pathname.split('/').filter(Boolean)
@@ -17,6 +42,10 @@ function parseBoardPath(pathname) {
 
   if (parts.length === 1) {
     return { boardId: null, postId: null }
+  }
+
+  if (parts[1] === 'hall-of-fame' || parts[1] === 'hot') {
+    return parts.length === 2 ? { boardId: parts[1], postId: null } : null
   }
 
   const boardId = Number(parts[1])
@@ -96,12 +125,13 @@ export function useBoard(resetVersion) {
       if (!active) return
       const route = parseBoardPath(locationRef.current)
 
+      const allBoards = orderedBoards(items)
       const firstBoard =
-        items.find((item) => Number(item.id) === route?.boardId)
-        || items[0]
-        || null  
-      // 게시판은 도착 즉시 표시한다. 글 조회는 공통 흐름에 맡겨 전환·저장 시 취소한다.
-      setBoards(items)
+        allBoards.find((item) => String(item.id) === String(route?.boardId))
+        || allBoards[0]
+        || null
+      // 공지사항, 명예의 전당, HOT을 맨 앞에 표시한다.
+      setBoards(allBoards)
       setBoard(firstBoard)
       setInitialized(true)
       if (firstBoard) loadPosts(firstBoard)
@@ -130,7 +160,9 @@ export function useBoard(resetVersion) {
     setLoading(true)
     setError('')
     try {
-      const items = await boardApi.posts(target.id, search, { signal: controller.signal })
+      const items = target.featured
+        ? await boardApi.featuredPosts(target.id, search, { signal: controller.signal })
+        : await boardApi.posts(target.id, search, { signal: controller.signal })
       if (!mounted.current || id !== listRequest.current.id) return
       setPosts(items)
       currentList.current = { boardId: target.id, query: search, items }
@@ -257,6 +289,15 @@ export function useBoard(resetVersion) {
       return
     }
 
+    const detailBoard = targetBoard.featured
+      ? boards.find((candidate) => Number(candidate.id) === Number(item.board_id) && !candidate.featured)
+      : targetBoard
+
+    if (!detailBoard) {
+      setError('원본 게시판을 찾을 수 없습니다.')
+      return
+    }
+
     cancelDetail()
 
     const controller = new AbortController()
@@ -270,13 +311,13 @@ export function useBoard(resetVersion) {
     try {
       const [detail, replies] = await Promise.all([
         boardApi.post(
-          targetBoard.id,
+          detailBoard.id,
           item.id,
           { signal: controller.signal }
         ),
 
         boardApi.comments(
-          targetBoard.id,
+          detailBoard.id,
           item.id,
           { signal: controller.signal }
         ),
@@ -289,6 +330,14 @@ export function useBoard(resetVersion) {
         return
       }
 
+      if (targetBoard.featured) {
+        // 상세·좋아요·댓글은 원본 게시판 ID로 처리한다.
+        setBoard(detailBoard)
+        setQuery('')
+        setPosts([])
+        currentList.current = null
+        dirty.current = true
+      }
       setPost(detail)
       setComments(replies)
       setView('detail')
@@ -296,7 +345,7 @@ export function useBoard(resetVersion) {
       // 게시글 URL 변경
       if (updateUrl) {
         const path =
-          `/board/${targetBoard.id}/posts/${item.id}`
+          `/board/${detailBoard.id}/posts/${item.id}`
 
         handledPath.current = path
         navigate(path)
@@ -341,7 +390,7 @@ export function useBoard(resetVersion) {
 
     const targetBoard = route.boardId
       ? boards.find(
-          (item) => Number(item.id) === route.boardId
+          (item) => String(item.id) === String(route.boardId)
         )
       : board || boards[0]
 
@@ -351,7 +400,7 @@ export function useBoard(resetVersion) {
       return
     }
 
-    if (Number(board?.id) !== Number(targetBoard.id)) {
+    if (String(board?.id) !== String(targetBoard.id)) {
       selectBoard(targetBoard, false)
     }
 
@@ -530,9 +579,9 @@ export function useBoard(resetVersion) {
    * 댓글 본문을 전송하고 성공 응답을 목록에 추가한다. 실패 시 폼이 초안을 유지하게 한다.
    * 일반 댓글은 목록 끝에, 대댓글은 같은 부모의 마지막 대댓글 뒤에 넣어 서버 순서와 맞춘다.
    */
-  function addComment(body, parentCommentId = null) {
+  function addComment(body, parentCommentId = null, isAnonymous = false) {
     return mutate(
-      () => boardApi.createComment(board.id, post.id, body, parentCommentId),
+      () => boardApi.createComment(board.id, post.id, body, parentCommentId, isAnonymous),
       (created) => {
         if (!created.parent_comment_id) {
           applyComments([...comments, created])
@@ -552,9 +601,9 @@ export function useBoard(resetVersion) {
   }
 
   /** id가 일치하는 댓글만 서버 응답으로 교체한다. 실패 null이면 편집 화면은 닫지 않는다. */
-  function editComment(id, body) {
+  function editComment(id, body, isAnonymous = undefined) {
     return mutate(
-      () => boardApi.updateComment(id, body),
+      () => boardApi.updateComment(id, body, isAnonymous),
       (saved) => applyComments(comments.map((item) => item.id === id ? saved : item)),
     )
   }

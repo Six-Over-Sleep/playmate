@@ -66,6 +66,8 @@ from backend.app.routers.auth import router as auth_router  # noqa: E402
 
 # 일반 게시판
 from backend.app.routers.board import router as board_router  # noqa: E402
+from backend.app.routers.activity import router as activity_router  # noqa: E402
+from backend.app.routers.admin import router as admin_router  # noqa: E402
 
 # 모임
 from backend.app.routers.recruit import router as recruit_router  # noqa: E402
@@ -134,6 +136,8 @@ app.include_router(auth_router)
 
 # 일반 게시판 API
 app.include_router(board_router)
+app.include_router(activity_router)
+app.include_router(admin_router)
 
 # 모임 API
 app.include_router(recruit_router)

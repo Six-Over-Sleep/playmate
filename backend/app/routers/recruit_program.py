@@ -226,3 +226,35 @@ def add_activity(
 ):
     """활동 기록을 저장한다. 저장 자체로 개인 완료나 XP를 확정하지 않는다."""
     return invoke(service.activities, recruit_id, member_id, data)
+
+
+# === PLAYMATE 모임 개인 XP 승인 / 회수 (기존 API 변경 없음) ===
+from backend.app.schemas.meetup_xp import MeetupXPApprove, MeetupXPRevoke
+from backend.app.services.meetup_xp_service import MeetupXPService
+
+@features_router.post('/{recruit_id}/xp/approve', tags=['모임 XP'])
+def approve_meetup_xp(
+    recruit_id: int,
+    data: MeetupXPApprove,
+    reviewer_id: int = Depends(get_current_member_id),
+    service: ProgramService = Depends(get_service),
+):
+    return invoke(
+        MeetupXPService(service).approve,
+        reviewer_id, recruit_id, data.activity_id, data.member_id,
+        data.reward_type, data.week,
+    )
+
+
+@features_router.post('/{recruit_id}/xp/revoke', tags=['모임 XP'])
+def revoke_meetup_xp(
+    recruit_id: int,
+    data: MeetupXPRevoke,
+    reviewer_id: int = Depends(get_current_member_id),
+    service: ProgramService = Depends(get_service),
+):
+    return invoke(
+        MeetupXPService(service).revoke,
+        reviewer_id, recruit_id, data.member_id, data.reward_type,
+        data.reason, data.week,
+    )

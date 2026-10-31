@@ -4,14 +4,16 @@ import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom'
 import LoginPage from './pages/auth/LoginPage'
 import SignupPage from './pages/auth/SignupPage'
 import Header from './components/layout/Header'
+import ActivityTracker from './components/admin/ActivityTracker'
 import BoardSection from './components/board/BoardSection'
+import AdminPage from './pages/admin/AdminPage'
 import MeetupSection from './components/meetup/MeetupSection'
 import MyPage from './pages/mypage/MyPage'
 import CareerPage from './pages/career/CareerPage'
 import { apiRequest } from './services/apiClient'
 import { getAuthUrl } from './config/api'
 
-const VALID_SECTIONS = ['board', 'career', 'meetup', 'mypage']
+const VALID_SECTIONS = ['board', 'career', 'meetup', 'mypage', 'admin']
 const SECTION_STORAGE_KEY = 'playmate-section'
 
 function getSavedSection() {
@@ -30,6 +32,7 @@ function AppContent() {
 
     const [authView, setAuthView] = useState('checking')
     const [nickname, setNickname] = useState('')
+    const [roleCode, setRoleCode] = useState('')
     const [avatarUrl, setAvatarUrl] = useState(null)
 
     const [savedSection, setSavedSection] = useState(getSavedSection)
@@ -60,17 +63,20 @@ function AppContent() {
 
             if (data.signup_required) {
                 setNickname('')
+                setRoleCode('')
                 setAvatarUrl(null)
                 setAuthView('signup')
                 return
             }
 
             setNickname(data.member?.nickname || '')
+            setRoleCode((data.member?.role_code || '').toUpperCase())
             setAvatarUrl(data.discord_user?.avatar_url || null)
             enterService()
         } catch (error) {
             if (error.status !== 401) console.error(error)
             setNickname('')
+            setRoleCode('')
             setAvatarUrl(null)
             setAuthView('login')
         } finally {
@@ -103,9 +109,9 @@ function AppContent() {
             })
 
             setNickname('')
+            setRoleCode('')
             setAvatarUrl(null)
             setSavedSection('board')
-            setTargetMeetupId(null)
             sessionStorage.removeItem(SECTION_STORAGE_KEY)
             navigate('/')
             setAuthView('login')
@@ -117,7 +123,7 @@ function AppContent() {
 
     // 상단 메뉴 이동
     const handleNavigate = (nextSection) => {
-        if (!VALID_SECTIONS.includes(nextSection)) {
+        if (!VALID_SECTIONS.includes(nextSection) || (nextSection === 'admin' && roleCode !== 'ADMIN')) {
             return
         }
 
@@ -172,6 +178,17 @@ function AppContent() {
     }
 
     if (authView === 'board') {
+        if (section === 'admin' && roleCode !== 'ADMIN') {
+            return (
+                <main className="service-error">
+                    <h1>접근 권한이 없습니다.</h1>
+                    <p>관리자 계정만 관리자 페이지에 접근할 수 있습니다.</p>
+                    <button className="button purple" onClick={() => navigate('/board')}>
+                        게시판으로 돌아가기
+                    </button>
+                </main>
+            )
+        }
         return (
             <>
                 <Header
@@ -179,12 +196,17 @@ function AppContent() {
                     onNavigate={handleNavigate}
                     nickname={nickname}
                     avatarUrl={avatarUrl}
+                    isAdmin={roleCode === 'ADMIN'}
                     onLogout={handleLogout}
                 />
+
+                <ActivityTracker />
 
                 {section === 'board' && (
                     <BoardSection resetVersion={boardKey} />
                 )}
+
+                {section === 'admin' && roleCode === 'ADMIN' && <AdminPage />}
 
                 {section === 'career' && <CareerPage />}
 

@@ -2,22 +2,13 @@ import '../../styles/auth.css'
 import logo from '../../assets/playmate-logo.png'
 import { getAuthUrl } from '../../config/api'
 
-export default function LoginPage({ onSignup, onDevEnter }) {
+export default function LoginPage({ onSignup }) {
   const handleDiscordLogin = () => {
     window.location.href = getAuthUrl('/discord/login')
   }
 
   return (
     <div className="auth-page">
-
-      {/* 개발용 임시 버튼 */}
-      <button
-        type="button"
-        className="dev-admin-button"
-        onClick={onDevEnter}
-      >
-        관리자 페이지
-      </button>
 
       <main className="login-main login-main-centered">
         <section className="login-container login-container-centered">

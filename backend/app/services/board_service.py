@@ -1,3 +1,5 @@
+# PLAYMATE_COMMENT_ANON_EDIT_V2
+# PLAYMATE_BOARD_ANONYMOUS_V1
 """게시판 업무 순서·권한·트랜잭션을 관리한다."""
 
 # Any : 반환되는 DB 데이터(딕셔너리)의 값 타입을 유연하게 표현함.
@@ -33,6 +35,35 @@ def _require_board(cursor, board_id: int) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="게시판을 찾을 수 없습니다.")
     return board
 
+def _require_notice_admin(cursor, board_id: int, member_id: int):
+    """공지사항 게시판은 관리자만 변경할 수 있도록 검사"""
+
+    board = _require_board(cursor, board_id)
+
+    # 일반 게시판은 기존 권한 유지
+    if board["name"] != "공지사항":
+        return
+
+    # 관리자 권한 확인
+    cursor.execute(
+        """
+        SELECT role_code
+        FROM members
+        WHERE member_id = %s
+        """,
+        (member_id,),
+    )
+
+    member = cursor.fetchone()
+
+    if (
+        not member
+        or (member["role_code"] or "").strip().upper() != "ADMIN"
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="공지사항은 관리자만 작성, 수정, 삭제할 수 있습니다.",
+        )
 
 def _require_post(cursor, board_id: int, post_id: int) -> None:
     """댓글·좋아요·스크랩 처리에 필요한 게시글 존재 여부만 검증한다."""
@@ -73,6 +104,8 @@ def create_board(
     name: str, description: str | None, creation_reason: str | None, member_id: int
 ) -> dict[str, Any]:
     """게시판 저장·응답 조회를 한 트랜잭션으로 처리한다. 이름 중복은 409이다."""
+    if name.strip().casefold() in {"공지사항", "명예의 전당", "hot 게시판"}:
+        raise HTTPException(status_code=403, detail="운영 전용 게시판 이름입니다.")
     try:
         with db_cursor(commit=True) as cursor:
             board_id = repository.create_board(
@@ -116,31 +149,61 @@ def list_posts(
         return repository.list_posts(cursor, board_id, (q or "").strip(), member_id)
 
 
+def list_featured_posts(kind: str, q: str | None, member_id: int) -> list[dict[str, Any]]:
+    """좋아요 집계 기반 읽기 전용 인기 목록."""
+    if kind not in {"hall-of-fame", "hot"}:
+        raise HTTPException(status_code=404, detail="인기 게시판을 찾을 수 없습니다.")
+    with db_cursor(read_only=True) as cursor:
+        return repository.list_featured_posts(cursor, kind, (q or "").strip(), member_id)
+
+
 def create_post(
     board_id: int,
     title: str,
     body: str,
     member_id: int,
     images: list[dict[str, Any]] | None = None,
+    is_anonymous: bool = False,
 ) -> dict[str, Any]:
-    """게시글·이미지 저장 후 게시글 작성 XP를 지급한다.
+    """게시글 생성 및 작성 XP 지급"""
 
-    게시글과 이미지 저장, 응답 조회는 하나의 트랜잭션으로 처리한다.
-    DB 커밋이 성공한 경우에만 XP 지급을 요청한다.
-    """
-    # 1. 게시글 저장 및 상세 조회 (성공 시 커밋)
+    # 1. 게시글 저장
     with db_cursor(commit=True) as cursor:
-        _require_board(cursor, board_id)
 
+        # 공지사항 관리자 권한 검사
+        _require_notice_admin(cursor, board_id, member_id)
+
+        # 공지사항은 관리자 이름으로 작성되며 익명 선택 불가
+        if is_anonymous and _require_board(cursor, board_id)["name"] == "공지사항":
+            raise HTTPException(status_code=422, detail="공지사항은 익명으로 작성할 수 없습니다.")
+
+        # 게시글 DB 저장
         post_id = repository.create_post(
-            cursor, board_id, title, body, member_id, images
+            cursor,
+            board_id,
+            title,
+            body,
+            member_id,
+            images,
+            is_anonymous,
         )
-        post = _post_detail(cursor, board_id, post_id, member_id)
 
-    # 2. 게시글 저장이 완료된 뒤 XP 지급 (관리자 제외)
+        # 저장한 게시글 정보 조회
+        post = _post_detail(
+            cursor,
+            board_id,
+            post_id,
+            member_id,
+        )
+
+    # 2. 게시글 작성 XP 지급
     if member_id > 0:
         try:
-            result = grant_xp(member_id, "POST", post_id)
+            result = grant_xp(
+                member_id,
+                "POST",
+                post_id,
+            )
 
             if result.get("awarded"):
                 logger.info(
@@ -156,11 +219,14 @@ def create_post(
                     post_id,
                     result.get("reason"),
                 )
-        except Exception:
-            # 게시글 저장 성공과 XP 지급 실패를 별도로 기록한다.
-            logger.exception("게시글 XP 지급 실패: post_id=%s", post_id)
 
-    # 3. 작성된 게시글 반환
+        except Exception:
+            logger.exception(
+                "게시글 XP 지급 실패: post_id=%s",
+                post_id,
+            )
+
+    # 3. 생성된 게시글 반환
     return post
 
 
@@ -185,14 +251,18 @@ def _raise_post_permission(cursor, board_id: int, post_id: int) -> None:
 
 
 def update_post(
-    board_id: int, post_id: int, title: str, body: str, member_id: int
+    board_id: int, post_id: int, title: str, body: str, member_id: int,
+    is_anonymous: bool | None = None,
 ) -> dict[str, Any]:
     """작성자 조건으로 수정 후 응답을 조회한다. 실패 시 전체 롤백한다."""
     with db_cursor(commit=True) as cursor:
+        _require_notice_admin(cursor, board_id, member_id)
+        if is_anonymous and _require_board(cursor, board_id)["name"] == "공지사항":
+            raise HTTPException(status_code=422, detail="공지사항은 익명으로 작성할 수 없습니다.")
         # Repository에서 작성자 ID와 게시글 상태를 조건으로 수정함.
         # 수정된 행이 없으면 권한 부족(403) 또는 글 없음(404)을 판별함.
         if not repository.update_post(
-            cursor, board_id, post_id, title, body, member_id
+            cursor, board_id, post_id, title, body, member_id, is_anonymous
         ):
             _raise_post_permission(cursor, board_id, post_id)
         # 수정된 게시글을 다시 조회하여 응답으로 반환함.
@@ -203,6 +273,7 @@ def update_post(
 # 게시글 삭제 및 XP 회수
 def delete_post(board_id: int, post_id: int, member_id: int) -> None:
     with db_cursor(commit=True) as cursor:
+        _require_notice_admin(cursor, board_id, member_id)
 
         # 1. 게시글 논리 삭제
         if not repository.delete_post(cursor, board_id, post_id, member_id):
@@ -379,13 +450,18 @@ def _raise_comment_permission(cursor, comment_id: int) -> None:
     raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
 
 
-def update_comment(comment_id: int, body: str, member_id: int) -> dict[str, Any]:
-    """작성자 댓글을 수정하고 같은 트랜잭션에서 응답을 조회한다."""
+def update_comment(
+    comment_id: int,
+    body: str,
+    member_id: int,
+    is_anonymous: bool | None = None,
+) -> dict[str, Any]:
+    """작성자만 본문/익명 여부를 수정합니다. None이면 익명 여부를 유지합니다."""
     with db_cursor(commit=True) as cursor:
-        # 댓글 작성자와 삭제 상태를 확인하여 본문을 수정함.
-        if not repository.update_comment(cursor, comment_id, body, member_id):
+        if not repository.update_comment(
+            cursor, comment_id, body, member_id, is_anonymous
+        ):
             _raise_comment_permission(cursor, comment_id)
-        # 변경된 댓글 정보를 다시 조회하여 반환함.
         return _comment_detail(cursor, comment_id, member_id)
 
 

@@ -1,3 +1,5 @@
+# PLAYMATE_COMMENT_ANON_EDIT_V2
+# PLAYMATE_BOARD_ANONYMOUS_V1
 """게시판 SQL과 결과 매핑. 연결·권한·트랜잭션은 Service에서 관리한다."""
 
 # Any : 게시글/댓글 조회 결과에 여러 데이터 타입이 들어올 수 있음을 나타냄
@@ -53,6 +55,7 @@ def _board_post_guard(alias: str = "p") -> str:
     # alias : 게시글 테이블의 SQL 별칭(p 등), 내부 코드에서만 전달함
     return f"""
         {alias}.deleted_at IS NULL
+        AND COALESCE({alias}.post_status, 'PUBLISHED') = 'PUBLISHED'
         AND NOT EXISTS (
             SELECT 1
             FROM recruits AS r
@@ -73,6 +76,7 @@ def list_boards(cursor) -> list[dict[str, Any]]:
             created_at
         FROM boards
         ORDER BY
+            CASE WHEN board_name = '공지사항' THEN 0 ELSE 1 END,
             is_default DESC,
             created_at,
             board_id
@@ -159,8 +163,10 @@ def list_posts(
             p.board_id,
             p.title,
             COALESCE(p.body, '') AS body,
-            p.author_member_id AS author_id,
-            COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,
+            CASE WHEN p.is_anonymous THEN NULL ELSE p.author_member_id END AS author_id,
+            CASE WHEN p.is_anonymous THEN '익명'
+                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
+            p.is_anonymous,
             p.created_at,
             p.updated_at,
             COUNT(c.comment_id) FILTER (WHERE c.deleted_at IS NULL)::int AS comment_count,
@@ -187,6 +193,7 @@ def list_posts(
             p.title,
             p.body,
             p.author_member_id,
+            p.is_anonymous,
             m.nickname,
             p.created_at,
             p.updated_at
@@ -213,6 +220,7 @@ def create_post(
     body: str,
     member_id: int,
     images: list[dict[str, Any]] | None = None,
+    is_anonymous: bool = False,
 ) -> int:
     """게시글과 이미지 메타데이터를 주어진 커서로 저장하고 게시글 ID를 반환한다."""
     # 게시글 작성자, 제목, 본문을 저장함
@@ -222,12 +230,12 @@ def create_post(
         """
         INSERT INTO posts (
             board_id, author_member_id, post_type, title, body,
-            source_type, post_status, published_at
+            source_type, post_status, published_at, is_anonymous
         )
-        VALUES (%s, %s, %s, %s, %s, 'USER', 'PUBLISHED', CURRENT_TIMESTAMP)
+        VALUES (%s, %s, %s, %s, %s, 'USER', 'PUBLISHED', CURRENT_TIMESTAMP, %s)
         RETURNING post_id
         """,
-        (board_id, member_id, BOARD_POST_TYPE, title, body),
+        (board_id, member_id, BOARD_POST_TYPE, title, body, is_anonymous),
     )
     # INSERT 결과로 생성된 게시글 번호를 가져옴
     post_id = cursor.fetchone()["post_id"]
@@ -266,8 +274,10 @@ def get_post(
             p.board_id,
             p.title,
             COALESCE(p.body, '') AS body,
-            p.author_member_id AS author_id,
-            COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,
+            CASE WHEN p.is_anonymous THEN NULL ELSE p.author_member_id END AS author_id,
+            CASE WHEN p.is_anonymous THEN '익명'
+                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
+            p.is_anonymous,
             p.created_at,
             p.updated_at,
             (
@@ -311,7 +321,8 @@ def get_post(
 
 # 게시글 작성자만 제목과 본문을 수정할 수 있도록 제한함
 def update_post(
-    cursor, board_id: int, post_id: int, title: str, body: str, member_id: int
+    cursor, board_id: int, post_id: int, title: str, body: str, member_id: int,
+    is_anonymous: bool | None = None,
 ) -> bool:
     """작성자·삭제·모임 조건으로 게시글을 수정하고 변경 여부를 반환한다."""
     # UPDATE : 제목, 본문, 마지막 수정 시간을 변경함
@@ -321,13 +332,14 @@ def update_post(
         UPDATE posts AS p
         SET title = %s,
             body = %s,
+            is_anonymous = COALESCE(%s, p.is_anonymous),
             updated_at = CURRENT_TIMESTAMP
         WHERE p.board_id = %s
             AND p.post_id = %s
             AND p.author_member_id = %s
             AND {_board_post_guard()}
         """,
-        (title, body, board_id, post_id, member_id),
+        (title, body, is_anonymous, board_id, post_id, member_id),
     )
     # rowcount : 실제 변경된 행 수, 한 건 이상이면 수정 성공(True)
     return cursor.rowcount > 0
@@ -631,20 +643,25 @@ def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | Non
 
 
 # 댓글 작성자만 본문을 수정할 수 있도록 처리함
-def update_comment(cursor, comment_id: int, body: str, member_id: int) -> bool:
-    """댓글 ID·작성자 조건으로 본문을 수정하고 변경 여부를 반환한다."""
-    # UPDATE : 댓글 내용과 마지막 수정 시간 갱신
-    # WHERE : 댓글 번호와 작성자가 일치하며 아직 삭제되지 않은 댓글만 허용
+def update_comment(
+    cursor,
+    comment_id: int,
+    body: str,
+    member_id: int,
+    is_anonymous: bool | None = None,
+) -> bool:
+    """작성자 본인만 수정 가능합니다. 익명 인자 미전달 시 기존 값 유지."""
     cursor.execute(
         """
         UPDATE comments
         SET body = %s,
+            is_anonymous = COALESCE(%s, is_anonymous),
             updated_at = CURRENT_TIMESTAMP
         WHERE comment_id = %s
             AND author_member_id = %s
             AND deleted_at IS NULL
         """,
-        (body, comment_id, member_id),
+        (body, is_anonymous, comment_id, member_id),
     )
     return cursor.rowcount > 0
 
@@ -683,3 +700,82 @@ def comment_exists(cursor, comment_id: int) -> bool:
         (comment_id,),
     )
     return cursor.fetchone() is not None
+
+
+# 명예의 전당·HOT: 실제 게시글을 복사하지 않고 post_likes 집계로 조회
+# 두 목록에 동시에 선정될 수 있으며 원래 board_id를 그대로 반환한다.
+def list_featured_posts(
+    cursor, kind: str, search: str, member_id: int
+) -> list[dict[str, Any]]:
+    """누적 101개 이상(명예) / 최근 7일 10개 이상(HOT) 조회."""
+    filters = {
+        "hall-of-fame": "likes.total_likes >= 100",
+        "hot": "likes.recent_likes >= 10",
+    }
+    orders = {
+        "hall-of-fame": "likes.total_likes DESC",
+        "hot": "likes.recent_likes DESC, likes.total_likes DESC",
+    }
+    if kind not in filters:
+        raise ValueError("지원하지 않는 인기 게시판입니다.")
+
+    params: list[Any] = [member_id, member_id]
+    search_sql = ""
+    if search:
+        search_sql = "AND (p.title ILIKE %s OR p.body ILIKE %s)"
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    cursor.execute(
+        f"""
+        WITH likes AS (
+            SELECT
+                l.post_id,
+                COUNT(*)::int AS total_likes,
+                COUNT(*) FILTER (
+                    WHERE l.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+                )::int AS recent_likes
+            FROM post_likes AS l
+            GROUP BY l.post_id
+        )
+        SELECT
+            p.post_id AS id,
+            p.board_id,
+            p.title,
+            COALESCE(p.body, '') AS body,
+            CASE WHEN p.is_anonymous THEN NULL ELSE p.author_member_id END AS author_id,
+            CASE WHEN p.is_anonymous THEN '익명'
+                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
+            p.is_anonymous,
+            p.created_at,
+            p.updated_at,
+            (
+                SELECT COUNT(*)::int FROM comments AS c
+                WHERE c.post_id = p.post_id AND c.deleted_at IS NULL
+            ) AS comment_count,
+            (p.author_member_id = %s) AS is_owner,
+            likes.total_likes AS like_count,
+            EXISTS (
+                SELECT 1 FROM post_likes AS my_likes
+                WHERE my_likes.post_id = p.post_id
+                  AND my_likes.member_id = %s
+            ) AS liked_by_me
+        FROM posts AS p
+        JOIN members AS m ON m.member_id = p.author_member_id
+        JOIN boards AS b ON b.board_id = p.board_id
+        JOIN likes ON likes.post_id = p.post_id
+        WHERE p.post_type = 'BOARD'
+          AND p.post_status = 'PUBLISHED'
+          AND b.board_name <> '공지사항'
+          AND {_board_post_guard()}
+          AND {filters[kind]}
+          {search_sql}
+        ORDER BY {orders[kind]}, p.created_at DESC, p.post_id DESC
+        LIMIT 100
+        """,
+        params,
+    )
+    rows = list(cursor.fetchall())
+    images = images_by_post(cursor, [row["id"] for row in rows])
+    for row in rows:
+        row["images"] = images[row["id"]]
+    return rows

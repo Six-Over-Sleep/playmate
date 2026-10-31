@@ -64,3 +64,12 @@ def set_visibility(post_id: int, data: VisibilityWrite, _: int = Depends(require
 @router.get("/members")
 def list_members(_: int = Depends(require_admin)):
     return admin_service.members()
+
+@router.get("/meetup-xp/activities")
+def list_meetup_xp_activities(
+    limit: int = Query(default=30, ge=1, le=50),
+    _: int = Depends(require_admin),
+):
+    return admin_service.meetup_xp_activities(limit)
+
+

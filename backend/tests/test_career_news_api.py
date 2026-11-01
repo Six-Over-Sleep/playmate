@@ -298,13 +298,14 @@ def test_new_routes_require_login(monkeypatch, client, path):
 
 
 def test_mypage_scraps_contract_is_unchanged():
-    """기존 GET /api/mypage/scraps와 MyScrapResponse는 그대로다 (뉴스는 별도 API)."""
-    from app.schemas.mypage import MyScrapResponse
+    """마이페이지 GET /api/mypage/scraps(develop의 페이지 응답)는 #74가 바꾸지 않는다 (뉴스는 별도 API)."""
+    from app.schemas.mypage import MyScrapPageResponse, MyScrapResponse
 
     assert set(MyScrapResponse.model_fields) == {
-        "post_id", "board_id", "post_type", "title", "scrapped_at", "career_category", "recruit_id",
+        "post_id", "board_id", "board_name", "post_type", "career_category", "recruit_id", "title", "scrapped_at",
     }
+    assert set(MyScrapPageResponse.model_fields) == {"items", "total", "page", "page_size"}
     operation = app.openapi()["paths"]["/api/mypage/scraps"]["get"]
     schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
-    assert schema["type"] == "array" and schema["items"]["$ref"].endswith("/MyScrapResponse")
-    assert [p["name"] for p in operation.get("parameters", []) if p["in"] != "header"] == []
+    assert schema["$ref"].endswith("/MyScrapPageResponse")
+    assert {p["name"] for p in operation.get("parameters", []) if p["in"] == "query"} == {"page", "page_size"}

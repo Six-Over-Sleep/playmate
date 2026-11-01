@@ -1,0 +1,212 @@
+/* =========================================================
+   1. 게시판 사이드바 기본 레이아웃
+   ========================================================= */
+
+/* 게시판 목록을 세로로 배치하고 모바일 가로 스크롤을 방지한다. */
+.board-sidebar.board-directory {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  overflow: visible;
+}
+
+.board-directory-group {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.board-directory-label {
+  margin: 0;
+  color: #857c99;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.board-directory-label small {
+  margin-left: 4px;
+  color: #a49bb4;
+  font-size: 11px;
+}
+
+/* =========================================================
+   2. 게시판 목록 버튼
+   ========================================================= */
+
+.board-directory-list {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.board-directory .board-directory-item {
+  display: block;
+  width: 100%;
+  padding: 13px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #494158;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.board-directory .board-directory-item:hover {
+  background: #f0edf8;
+}
+
+.board-directory .board-directory-item.active {
+  background: #ece8f8;
+  color: #35236f;
+  font-weight: 800;
+}
+
+.board-directory .board-directory-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* 게시판이 많아도 사이드바 높이가 무한히 늘어나지 않도록 제한한다. */
+.board-directory-list.expanded {
+  max-height: 330px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* =========================================================
+   3. 일반 게시판 접기·펼치기
+   ========================================================= */
+
+.board-directory-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.board-directory-collapse,
+.board-directory-more {
+  padding: 6px 3px;
+  border: 0;
+  background: transparent;
+  color: #6d5b99;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.board-directory-more {
+  padding: 8px 10px;
+  text-align: center;
+  border-radius: 9px;
+}
+
+.board-directory-collapse:hover,
+.board-directory-more:hover {
+  color: #433073;
+  background: #f0edf8;
+}
+
+/* =========================================================
+   4. 게시판 이름 검색
+   ========================================================= */
+
+.board-directory-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 39px;
+  padding: 0 10px;
+  border: 1px solid #e6e1f0;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.board-directory-search > span {
+  color: #8e80ae;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.board-directory-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #302745;
+  font-size: 12px;
+}
+
+.board-directory-search input::placeholder {
+  color: #a29aaf;
+}
+
+.board-directory-search:focus-within {
+  border-color: #9f90c5;
+  box-shadow: 0 0 0 3px #9f90c520;
+}
+
+.board-directory-empty {
+  margin: 0;
+  padding: 15px 5px;
+  color: #91899f;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* 일반 게시판을 접으면 생성 버튼이 목록 바로 아래로 따라 올라온다. */
+/* =========================================================
+   5. 기존 게시판 생성 버튼
+   ========================================================= */
+
+.board-sidebar.board-directory .create-board {
+  width: 100%;
+  margin-top: 5px;
+  padding: 12px 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #493278;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+}
+
+/* =========================================================
+   6. 모바일 화면
+   ========================================================= */
+
+@media (max-width: 768px) {
+  .board-sidebar.board-directory {
+    min-height: 0;
+    flex-direction: column;
+    overflow: visible;
+    gap: 14px;
+    padding-bottom: 8px;
+  }
+
+  /* 주요 게시판은 모바일에서 가로로 표시한다. */
+  .board-directory-pinned .board-directory-list {
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    padding-bottom: 3px;
+  }
+
+  .board-directory-pinned .board-directory-item {
+    flex: 0 0 auto;
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .board-directory-list.expanded {
+    max-height: 260px;
+  }
+}

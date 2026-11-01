@@ -1,7 +1,7 @@
 import { useBoardSearch } from '../../hooks/board/useBoardSearch'
 
 /** 목록의 검색 입력과 정렬 선택을 한 곳에서 표현한다. 정렬은 서버 재조회 없이 처리한다. */
-export default function PostSearch({ value, sort, onSort, onSearch, busy }) {
+export default function PostSearch({ value, sort, onSort, onSearch, busy, hideSort = false }) {
   const { search, setSearch, submitSearch } = useBoardSearch(value, onSearch)
 
   return (
@@ -19,7 +19,7 @@ export default function PostSearch({ value, sort, onSort, onSearch, busy }) {
         />
         <button type="submit" aria-label="검색" disabled={busy}>검색</button>
       </div>
-      <select
+      {!hideSort && <select
         className="sort-pill"
         aria-label="게시글 정렬"
         value={sort}
@@ -28,7 +28,7 @@ export default function PostSearch({ value, sort, onSort, onSearch, busy }) {
       >
         <option value="latest">최신순</option>
         <option value="oldest">오래된순</option>
-      </select>
+      </select>}
     </form>
   )
 }

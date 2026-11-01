@@ -176,12 +176,15 @@ playmate-discord-bot/
 | `repositories/meeting_repository.py` | 저장소 경계. 메모리 구현(DB 설정 없을 때)과 PostgreSQL 구현 |
 | `repositories/db.py` | 알림 / 공식 채널 기능 전용 DB 연결 (모임 저장소와 분리) |
 | `services/notification_service.py`, `handlers/notification_command_handler.py`, `repositories/notification_repository.py` | `/알림설정`, notifications polling (19절) |
-| `services/hot_content_service.py`, `handlers/promotion_command_handler.py`, `repositories/content_repository.py` | HOT PLAYMATE 자동 게시, `/게시글추천` (19절) |
+| `services/hot_content_service.py`, `handlers/promotion_command_handler.py`, `repositories/content_repository.py` | `/게시글추천` 수동 추천 (19절) |
+| `services/web_links.py` | PlayMate 웹 상세 페이지 주소 (게시판 / 모임 / 취업) |
 | `services/career_content_service.py`, `repositories/career_content_repository.py` | 취업 소식 포워딩 구조 (19절, 저장소 미연결) |
 | `tests/test_refactor.py` | 정책 회귀 테스트 (mock, Discord/DB 연결 없음) |
 | `tests/test_safety.py` | 운영 설정, 의존성, `.env` 제외 등 안전성 검증 |
-| `tests/test_notification_promotion.py` | 알림 설정 / polling, HOT 점수·선정, `/게시글추천` 권한, 취업 D-3·D-1 판정 (mock) |
+| `tests/test_notification_promotion.py` | 알림 설정(기본 ON) / polling, 웹 링크, `/게시글추천` 권한·조회, 취업 D-3·D-1 판정 (mock) |
 | `tests/test_db_integration.py` | 실제 일회용 PostgreSQL + 가짜 Discord 객체로 DB 연동·실패 복구·경쟁 조건 테스트 |
+| `services/career_notice_service.py`, `repositories/career_notice_repository.py` | 취업게시판 신규 글 자동 공지 (매일 18:00, 19절) |
+| `tests/test_career_notice.py` / `tests/test_career_notice_db.py` | 취업 자동 공지 정책 (mock) / 선점·재시작·동시 실행 (일회용 PostgreSQL) |
 
 ---
 
@@ -421,8 +424,8 @@ PLAYMATE_SYNC_INTERVAL_SECONDS=
 # 선택: 알림 / 공식 채널 기능 (비우면 해당 기능만 꺼짐, 19절)
 PLAYMATE_ADMIN_ROLE_ID=
 PLAYMATE_HOT_CHANNEL_ID=
-PLAYMATE_CAREER_CHANNEL_ID=
-PLAYMATE_WEB_BASE_URL=
+PLAYMATE_CAREER_CHANNEL_ID=   # #취업-소식 채널: 취업게시판 신규 글 자동 공지 (매일 18:00)
+PLAYMATE_WEB_BASE_URL=   # 예: https://playmate.example.com (localhost는 PLAYMATE_TEST_MODE=true일 때만)
 ```
 
 ### 중요
@@ -551,8 +554,17 @@ python tests/test_refactor.py
 python tests/test_notification_promotion.py
 ```
 
-알림 동의 토글과 저장 실패 안내, notifications 테이블·SQL 미연결 시 건너뛰기, 알림 한 건 실패 격리,
-HOT 점수·최소 조건·13시/19시 선정, `/게시글추천` 권한, 취업 D-3/D-1 판정을 확인합니다.
+알림 기본 ON·토글과 저장 실패 안내, notifications 테이블·SQL 미연결 시 건너뛰기, 알림 한 건 실패 격리,
+웹 상세 링크 생성, HOT 자동 선정 제거, `/게시글추천` 권한·게시판/모임/취업 조회, 취업 D-3/D-1 판정을 확인합니다.
+
+### 취업 자동 공지 테스트
+
+```powershell
+python tests/test_career_notice.py
+# 일회용 DB가 있을 때 (localhost만 허용, public 스키마의 테이블을 지우고 다시 만듦)
+$env:PLAYMATE_TEST_PG_DSN="host=127.0.0.1 port=55432 user=postgres password=test dbname=pm"
+python tests/test_career_notice_db.py
+```
 
 ### 안전성 테스트
 
@@ -822,7 +834,9 @@ slash command는 `DISCORD_GUILD_ID` 서버에만 등록됩니다. Bot 초대 sco
 ### `/알림설정` — 구현됨
 
 - `members.discord_id`로 회원을 찾고 `members.external_dm_opt_in`을 보여 줍니다 (본인에게만 보이는 메시지).
-- `true`만 알림 허용, `false`/`NULL`은 미허용입니다. 버튼 1개로 켜고 끄며 같은 메시지를 갱신합니다.
+- **기본 ON**입니다. `false`(회원이 직접 끔)만 미허용이고, `true`와 `NULL`(아직 선택 안 함)은 허용합니다.
+  신규 가입은 Backend가 `true`로 저장합니다 (`database/sql/012_member_dm_default_on.sql`은 컬럼 기본값을 `TRUE`로 바꾸며, 기존 값은 바꾸지 않음).
+  버튼 1개로 켜고 끄며 같은 메시지를 갱신합니다.
 - 저장에는 **`members.external_dm_opt_in` UPDATE 권한**이 필요합니다. 권한이 없으면 해당 사용자에게
   "알림 설정 저장에 실패했습니다"라고 안내하고 Bot은 계속 동작합니다.
 
@@ -835,7 +849,7 @@ slash command는 `DISCORD_GUILD_ID` 서버에만 등록됩니다. Bot 초대 sco
 | 상황 | 결과 |
 | --- | --- |
 | DM 전송 성공 | `SENT`, `sent_at` 기록 |
-| 본인 알림(actor = receiver), 게시글·댓글이 없거나 삭제됨, 미동의(`false`/`NULL`), `discord_id` 없음, Discord 사용자 없음 | `SKIPPED`, 사유는 `error_message` |
+| 본인 알림(actor = receiver), 게시글·댓글이 없거나 삭제됨, 알림 꺼짐(`false`), `discord_id` 없음, Discord 사용자 없음 | `SKIPPED`, 사유는 `error_message` |
 | DM 전송 실패 (DM 차단 포함) | `retry_count + 1`, `last_attempt_at`·`error_message` 갱신. 총 3회 실패하면 `FAILED`, 그 전에는 `PENDING` 유지 후 60초 뒤 재시도 |
 
 - 상태 변경은 `status='PENDING'`인 행에만 적용됩니다. 시각은 DB의 `CURRENT_TIMESTAMP`를 쓰고,
@@ -850,17 +864,51 @@ slash command는 `DISCORD_GUILD_ID` 서버에만 등록됩니다. Bot 초대 sco
 - 행을 잠그지 않으므로 Bot은 **한 프로세스로만** 실행해야 합니다.
 - Backend가 댓글 저장 시 `notifications`에 행을 넣어야 실제 알림이 생깁니다.
 
-### HOT PLAYMATE — 수동 추천 구현됨, 자동 선정은 좋아요 스키마 대기
+### HOT PLAYMATE — 수동 추천만 구현됨
 
-- `/게시글추천 유형:<게시판|모임> id:<ID>`: `PLAYMATE_ADMIN_ROLE_ID` 역할만 실행할 수 있습니다.
+- `/게시글추천 유형:<게시판|모임|취업> id:<ID>`: `PLAYMATE_ADMIN_ROLE_ID` 역할만 실행할 수 있습니다.
   최소 조건 없이 `PLAYMATE_HOT_CHANNEL_ID` 채널에 게시합니다. 중복 추천을 허용하고 이력은 저장하지 않습니다.
-  게시판은 `post_id`, 모임은 `recruit_id`를 입력합니다.
-- 자동 게시: 매일 13:00 / 19:00 (KST), 최근 24시간 후보.
-  게시판 = 좋아요×3 + 댓글×2 (좋아요 ≥ 2 AND 댓글 ≥ 2), 모임 = 좋아요×3 + 참여 멤버×4 (좋아요 ≥ 2 AND 멤버 ≥ 2).
-  19시 1위가 13시 게시물과 같으면 2위를 게시합니다. 13시 기록은 메모리에만 있습니다.
-- **좋아요 스키마가 아직 없어 자동 후보는 0건이며 게시하지 않는 것이 정상입니다.**
-  연결할 때 `PostgresContentRepository.list_*_candidates`가 `HotCandidate`를 돌려주게 구현합니다.
-- 자동/수동 모두 같은 `🔥 HOT PLAYMATE` 형식이며, 상세 링크 버튼은 프론트 route 확정 후 추가합니다.
+  게시판·취업은 `post_id`, 모임은 `recruit_id`를 입력합니다. 대상 조건은 Backend와 같습니다
+  (삭제 제외, 모집글은 게시판에서 제외, 취업 글은 `post_type='CAREER'` + `career_posts`). 작성자는 표시하지 않습니다.
+- `🔥 HOT PLAYMATE` Embed에 PlayMate 웹 상세 페이지 링크(제목 링크 + "PlayMate에서 보기")를 붙입니다.
+  `PLAYMATE_WEB_BASE_URL`이 비어 있거나 http(s)가 아니면 링크 없이 게시합니다.
+  `localhost` 주소는 `PLAYMATE_TEST_MODE=true`일 때만 쓰고, 운영에서는 무시합니다.
+
+  | 유형 | 상세 주소 (프론트 React Router와 같음) |
+  | --- | --- |
+  | 게시판 | `/board/{board_id}/posts/{post_id}` |
+  | 모임 | `/meetup/{recruit_id}` |
+  | 취업 | `/career/{reviews\|talk\|lounge\|lab}/{post_id}` (`career_posts.category_code`) |
+
+- **자동 선정 제거**: 좋아요·댓글·참여자 점수로 13:00 / 19:00에 게시하던 자체 HOT 선정과 집계 SQL을 없앴습니다.
+  팀원이 별도 HOT 게시판을 만들고 있어, 그 API·DB 구조가 확정되면 연동합니다. 그 전까지 자동 게시는 없습니다.
+
+### 취업게시판 신규 글 자동 공지 — 구현됨 (013 마이그레이션 필요)
+
+- 매일 **18:00 (Asia/Seoul)** 에 `PLAYMATE_CAREER_CHANNEL_ID` 채널(#취업-소식)에 게시합니다. 개인 DM은 보내지 않습니다.
+- 대상: 취준 도감(`reviews`)·커리어 연구소(`lab`) 글 중 `post_type='CAREER'`, `post_status='PUBLISHED'`,
+  `deleted_at IS NULL`인 글. 커리어 톡톡·현직자 라운지는 제외합니다.
+- **하루 최대 5개**, 작성 순서(`created_at`, `post_id`)로 오래된 신규 글부터 공지하고 남은 글은 다음 날 이어서 공지합니다.
+  신규 글이 없으면 아무 메시지도 보내지 않습니다.
+- 메시지는 글마다 Embed 1개: 게시판 이름, 제목(링크), "PlayMate에서 보기" 링크만 담습니다 (본문·작성자 없음).
+  `AllowedMentions.none()`으로 `@everyone`/`@here`/사용자/역할 멘션을 막습니다.
+- 공지 이력은 `career_discord_announcements` 테이블(`database/sql/013_career_discord_announcements.sql`)에 저장되어
+  Bot을 재시작해도 유지됩니다. **테이블이 없으면 공지하지 않습니다.**
+
+  | 상태 | 의미 |
+  | --- | --- |
+  | `BASELINE` | 013 적용 시점에 이미 있던 글. 공지하지 않음 (최초 실행 대량 공지 방지) |
+  | `PENDING` | Bot이 공지를 선점함. 결과가 저장되지 않은 채 남으면 중복 방지를 위해 자동 재시도하지 않고 로그로 알림 |
+  | `SENT` | 공지 완료 (채널·메시지 ID 기록) |
+  | `FAILED` | 전송 실패. 다음 실행에서 다시 시도 (총 3회까지) |
+
+- 중복 방지: 글은 `post_id` 기본키로 한 번만 선점되고(`ON CONFLICT ... WHERE status = 'FAILED'`),
+  하루 공지 수는 `pg_advisory_xact_lock`을 잡은 한 트랜잭션 안에서 집계·선점하므로 Bot 프로세스가 여러 개여도 넘지 않습니다.
+  task는 `feature_tasks`로 한 번만 시작되며, 재연결(`on_ready` 재호출) 때 다시 등록하지 않습니다.
+- 안전 처리: `PLAYMATE_WEB_BASE_URL`이 없거나(또는 운영에서 localhost) 채널을 찾지 못하면 선점·전송하지 않고 로그만 남깁니다.
+  전송에 실패한 글은 `SENT`로 기록하지 않습니다.
+- Bot이 18:00에 꺼져 있었다면 그날 공지는 건너뛰고, 다음 날 18:00에 남은 글을 이어서 공지합니다.
+- 필요한 DB 권한: `posts`, `career_posts` SELECT / `career_discord_announcements` SELECT·INSERT·UPDATE.
 
 ### 취업 소식 — 구조만
 

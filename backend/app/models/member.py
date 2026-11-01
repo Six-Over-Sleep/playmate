@@ -34,7 +34,8 @@ class Member(Base):
     verified_at = Column(DateTime)
 
     # external_dm_opt_in : Discord 개인 DM 알림 수신 동의 여부
-    # True : 수신 동의 / False : 수신 거부
+    # True : 수신 동의 / False : 회원이 /알림설정으로 끔 / NULL : 선택 안 함 (기본 ON으로 처리)
+    # 신규 가입은 True로 저장함. (member_service.register_member, database/sql/012)
     external_dm_opt_in = Column(Boolean)
     # 댓글 작성자 이름 표시에 사용함. (members 테이블의 실제 컬럼)
     nickname = Column(String)

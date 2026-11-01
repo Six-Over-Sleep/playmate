@@ -83,6 +83,7 @@ export default function OverallLevel() {
       <p className="mypage-level-guide">
         게시글 작성, 댓글, 출석 활동으로 경험치를 획득할 수 있어요.
       </p>
+
     </div>
   )
 }

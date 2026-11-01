@@ -9,6 +9,7 @@ export default function Header({
   nickname,
   avatarUrl,
   onLogout,
+  isAdmin = false,
 }) {
   const [profileOpen, setProfileOpen] = useState(false)
 
@@ -72,6 +73,16 @@ export default function Header({
         >
           마이페이지
         </button>
+
+        {isAdmin && (
+          <button
+            type="button"
+            className={activeSection === 'admin' ? 'active' : ''}
+            onClick={() => go('admin')}
+          >
+            ⚙ 관리자
+          </button>
+        )}
       </nav>
 
       {/* 프로필 영역 */}

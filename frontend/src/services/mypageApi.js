@@ -1,3 +1,4 @@
+// PLAYMATE_ACTIVITY_V2
 
 import { apiRequest } from './apiClient'
 
@@ -62,10 +63,21 @@ export function getMySkills() {
   })
 }
 
+// 내 활동 대시보드 통계 (로그인한 회원의 정보만 조회)
+export function getMyActivitySummary() {
+  return apiRequest('/mypage/summary', {
+    credentials: 'include',
+    headers: devMemberId
+      ? { 'X-Dev-Member-ID': devMemberId }
+      : {},
+  })
+}
+
 const ACTIVITY_PATHS = {
   posts: '/mypage/posts',
   comments: '/mypage/comments',
   scraps: '/mypage/scraps',
+  likes: '/mypage/likes', 
   meetups: '/mypage/meetups',
 }
 
@@ -78,12 +90,8 @@ export function getMyActivities(type, page = 1) {
     throw new Error('지원하지 않는 활동 유형입니다.')
   }
 
-  // 게시글과 댓글은 Backend 페이지네이션
-  const usePagination = ['posts', 'comments'].includes(type)
-
-  const path = usePagination
-    ? `${basePath}?page=${page}&page_size=10`
-    : basePath
+  // 네 종류 모두 서버가 10개씩 반환합니다.
+  const path = `${basePath}?page=${page}&page_size=10`
 
   return apiRequest(path, {
     credentials: 'include',
@@ -132,5 +140,31 @@ export function updateCareerSpecVisibility(isPublic) {
     body: JSON.stringify({
       is_public: isPublic,
     }),
+  })
+}
+
+// 내 XP 지급·회수 최근 30건 조회 (백엔드 기존 API 사용)
+export function getMyXPHistory() {
+  return apiRequest('/mypage/xp-history', {
+    credentials: 'include',
+    headers: devMemberId
+      ? { 'X-Dev-Member-ID': devMemberId }
+      : {},
+  })
+}
+
+// 내가 좋아요를 누른 게시글 (10개씩)
+export function getMyLikes(page = 1) {
+  return apiRequest(`/mypage/likes?page=${page}&page_size=10`, {
+    credentials: 'include',
+    headers: devMemberId ? { 'X-Dev-Member-ID': devMemberId } : {},
+  })
+}
+
+// XP 획득 및 회수 이력을 전체 범위에서 페이지 단위로 조회 (기본 10개)
+export function getMyXPHistoryPage(page = 1, pageSize = 10) {
+  return apiRequest(`/mypage/xp-history/paged?page=${page}&page_size=${pageSize}`, {
+    credentials: 'include',
+    headers: devMemberId ? { 'X-Dev-Member-ID': devMemberId } : {},
   })
 }

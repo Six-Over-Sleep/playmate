@@ -88,15 +88,25 @@ class ProgramRepository:
         )
 
     def actor(self, member_id, lock=False):
-        """실제 활성 회원과 서버 관리자 권한을 조회하고 필요 시 회원 행을 잠근다."""
-        if member_id <= 0:
+        """현재 DB에 존재하는 회원 ID·역할만 조회한다.
+
+        운영 DB에는 member_status 컬럼이 없으므로 ORM 엔터티 전체 조회나
+        회원 상태 컬럼 참조를 사용하지 않는다. 로그인 신원 검증은
+        get_current_member_id에서 담당하며, 여기서는 회원 존재·관리자 권한을 판정한다.
+        계정 정지·탈퇴 정책은 DB에 회원 상태 컬럼이 도입된 뒤 별도로 연결해야 한다.
+        """
+        if member_id is None or type(member_id) is not int or member_id <= 0:
             raise PolicyError("실제 로그인 회원이 필요합니다.", 403)
-        query = select(Member).where(Member.member_id == member_id)
+        # Member 전체를 SELECT하면 DB에 없는 예전 모델 컬럼까지 조회되어 42703 오류 발생.
+        # 현재 운영 스키마의 member_id/role_code만 안전하게 가져온다.
+        query = select(Member.member_id, Member.role_code).where(
+            Member.member_id == member_id
+        )
         if lock:
-            query = query.with_for_update()
-        member = self.session.scalar(query)
-        if member is None or member.member_status != "ACTIVE":
-            raise PolicyError("활성 회원으로 로그인해주세요.", 403)
+            query = query.with_for_update(of=Member)
+        member = self.session.execute(query).first()
+        if member is None:
+            raise PolicyError("회원 정보를 확인할 수 없습니다.", 403)
         return member.role_code == "ADMIN"
 
     def restricted(self, member_id):

@@ -1,3 +1,5 @@
+# PLAYMATE_COMMENT_ANON_EDIT_V2
+# PLAYMATE_BOARD_ANONYMOUS_V1
 # 게시판, 게시글, 댓글 API 요청을 처리하고 Service와 연결하는 Router
 # Router는 요청값 검증 및 응답 반환을 담당하고, 실제 DB 처리는 Service에서 수행함.
 from fastapi import (
@@ -78,6 +80,16 @@ def get_board(board_id: int, _: int = Depends(get_current_member_id)):
 # 2. 게시글 목록 조회 및 생성
 # =========================================================
 
+# GET /api/boards/featured/{kind}/posts : 명예의 전당 / HOT 게시글 조회
+@router.get("/boards/featured/{kind}/posts", response_model=list[PostResponse])
+def list_featured_posts(
+    kind: str,
+    q: str | None = Query(default=None, max_length=100),
+    member_id: int = Depends(get_current_member_id),
+):
+    return board_service.list_featured_posts(kind, q, member_id)
+
+
 # GET /api/boards/{board_id}/posts : 게시판별 게시글 목록 조회
 @router.get("/boards/{board_id}/posts", response_model=list[PostResponse])
 def list_posts(
@@ -102,6 +114,7 @@ async def create_post(
     board_id: int,
     title: str = Form(min_length=1, max_length=100),
     body: str = Form(min_length=1, max_length=20000),
+    is_anonymous: bool = Form(default=False),
     images: list[UploadFile] = File(default=[]),
     member_id: int = Depends(get_current_member_id),
 ):
@@ -120,7 +133,7 @@ async def create_post(
         # 동기 Service 함수를 스레드 풀에서 실행하여 이벤트 루프 차단을 줄임.
         # 게시글·이미지 정보를 DB에 저장하고 게시글 응답을 반환함.
         return await run_in_threadpool(
-            board_service.create_post, board_id, title, body, member_id, saved
+            board_service.create_post, board_id, title, body, member_id, saved, is_anonymous
         )
     except CommitOutcomeUnknownError:
         # DB 커밋 성공 여부를 알 수 없을 때는 이미지 파일을 바로 삭제하지 않음.
@@ -156,7 +169,7 @@ def update_post(
     # PostWrite : 수정할 제목과 본문을 검증하는 요청 스키마
     # 수정 권한과 실제 DB 변경 처리는 Service에서 담당함.
     return board_service.update_post(
-        board_id, post_id, payload.title, payload.body, member_id
+        board_id, post_id, payload.title, payload.body, member_id, payload.is_anonymous
     )
 
 
@@ -269,8 +282,16 @@ def update_comment(
     # 본문만 수정할 수 있으며 부모 댓글(댓글 위치)은 바꿀 수 없음.
     if payload.parent_comment_id is not None:
         raise HTTPException(status_code=422, detail="댓글 위치는 수정할 수 없습니다.")
-    # 작성자 확인 및 댓글 수정은 Service에서 수행함.
-    return board_service.update_comment(comment_id, payload.body, member_id)
+    # 익명 값이 생략되면 기존 상태를 유지합니다(기존 호출과 호환).
+    is_anonymous = (
+        payload.is_anonymous
+        if "is_anonymous" in payload.model_fields_set
+        else None
+    )
+    # 실제 작성자 검증은 Service/Repository에서 처리합니다.
+    return board_service.update_comment(
+        comment_id, payload.body, member_id, is_anonymous
+    )
 
 
 # DELETE /api/comments/{comment_id} : 기존 댓글 삭제

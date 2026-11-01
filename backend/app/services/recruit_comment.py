@@ -6,6 +6,7 @@
 """
 
 from datetime import datetime
+import logging
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -14,6 +15,10 @@ from backend.app.models.comment import Comment
 from backend.app.repositories import recruit as recruit_repo
 from backend.app.schemas.recruit import RecruitCommentCreate, RecruitCommentUpdate
 from backend.app.services.recruit import get_recruit_post
+from backend.app.services.notification_writer import save_comment_notification
+
+
+logger = logging.getLogger(__name__)
 
 
 def _serialize_comment(comment: Comment, nickname: str | None, member_id: int | None):
@@ -102,16 +107,24 @@ def create_comment(
         )
         recruit_repo.add_comment(db, comment)  # comment_id를 확보함.
 
-        # commit 후 ORM 객체가 만료되기 전에 응답을 만듦.
+        # commit 후 ORM 객체가 만료되기 전에 응답과 알림에 쓸 값을 만듦.
         nickname = recruit_repo.get_member_nickname(db, member_id)
         result = _serialize_comment(comment, nickname, member_id)
+        post_id, comment_id = post.post_id, comment.comment_id
 
         db.commit()
-        return result
 
     except Exception:
         db.rollback()
         raise
+
+    # 댓글 커밋 후 Discord DM 알림 대기 행 저장 (별도 트랜잭션, 실패해도 댓글은 유지)
+    try:
+        save_comment_notification(post_id, comment_id, member_id, data.parent_comment_id)
+    except Exception:
+        logger.exception("모임 댓글 알림 저장 실패: comment_id=%s", comment_id)
+
+    return result
 
 
 def _get_owned_comment(db: Session, post_id: int, comment_id: int, member_id: int):

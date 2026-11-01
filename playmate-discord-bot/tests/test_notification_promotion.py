@@ -1,9 +1,9 @@
-"""알림 / HOT PLAYMATE / 취업 소식 정책 검사. Discord와 DB에 연결하지 않는다."""
+"""알림 / HOT PLAYMATE 수동 추천·웹 링크 / 취업 소식 정책 검사. Discord와 DB에 연결하지 않는다."""
 
 import asyncio
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -15,6 +15,7 @@ os.environ["DISCORD_GUILD_ID"] = "1"
 
 import discord
 
+import config
 from config import KST
 from handlers import notification_command_handler as notify_cmd
 from handlers import promotion_command_handler as promo_cmd
@@ -29,6 +30,7 @@ from repositories.notification_repository import PostgresNotificationRepository
 from services import career_content_service as career
 from services import hot_content_service as hot
 from services import notification_service as notify
+from services import web_links
 
 checks = 0
 
@@ -68,12 +70,14 @@ def interaction(user_id=10, roles=()):
 
 
 async def notification_settings():
-    # 동의 정책: true만 허용
-    check(notify.dm_allowed(True) and not notify.dm_allowed(False) and not notify.dm_allowed(None),
-          "true만 알림 허용, false/NULL은 미허용")
-    check(notify_cmd.button_label(True) == "알림 끄기", "ON이면 '알림 끄기'")
-    check(notify_cmd.button_label(False) == "알림 켜기" and notify_cmd.button_label(None) == "알림 켜기",
-          "OFF/NULL이면 '알림 켜기'")
+    # 동의 정책: 기본 ON, 회원이 직접 끈 false만 미허용
+    check(notify.dm_allowed(True) and notify.dm_allowed(None) and not notify.dm_allowed(False),
+          "true/NULL(선택 안 함)은 알림 허용, false만 미허용")
+    check(notify_cmd.button_label(True) == "알림 끄기" and notify_cmd.button_label(None) == "알림 끄기",
+          "ON/NULL이면 '알림 끄기'")
+    check(notify_cmd.button_label(False) == "알림 켜기", "OFF면 '알림 켜기'")
+    check("켜짐" in notify_cmd.render_status(None) and "꺼짐" in notify_cmd.render_status(False),
+          "/알림설정 화면: NULL은 켜짐, false는 꺼짐으로 표시")
 
     # 회원 조회는 discord_id를 문자열로 비교한다
     db = FakeDb(rows={("555",): {"member_id": 7, "external_dm_opt_in": None}})
@@ -81,13 +85,23 @@ async def notification_settings():
     service = notify.NotificationService(Mock(), repo)
     check(await service.get_opt_in(555) is None, "discord_id로 회원과 동의 값 조회")
 
-    # NULL -> 켜짐 저장, external_dm_opt_in만 UPDATE
-    check(await service.toggle_opt_in(555) is True, "NULL에서 토글하면 켜짐")
+    # NULL(기본 ON) -> 꺼짐 저장, external_dm_opt_in만 UPDATE
+    check(await service.toggle_opt_in(555) is False, "NULL(기본 ON)에서 토글하면 꺼짐")
     sql, params = db.executed[-1]
-    check(sql == "UPDATE members SET external_dm_opt_in = %s WHERE member_id = %s" and params == (True, 7),
-          "external_dm_opt_in 컬럼만 갱신")
+    check(sql == "UPDATE members SET external_dm_opt_in = %s WHERE member_id = %s" and params == (False, 7),
+          "external_dm_opt_in 컬럼만 false로 갱신")
+    db.rows[("555",)] = {"member_id": 7, "external_dm_opt_in": False}
+    check(await service.toggle_opt_in(555) is True, "꺼짐에서 토글하면 켜짐")
+    check(db.executed[-1][1] == (True, 7), "켜짐은 true로 저장")
     db.rows[("555",)] = {"member_id": 7, "external_dm_opt_in": True}
     check(await service.toggle_opt_in(555) is False, "켜짐에서 토글하면 꺼짐")
+
+    # 사용자 설정 보존: 조회만으로는 저장하지 않고, 직접 끈 false는 false 그대로 읽는다
+    off_db = FakeDb(rows={("556",): {"member_id": 8, "external_dm_opt_in": False}})
+    off_service = notify.NotificationService(Mock(), PostgresNotificationRepository(off_db))
+    check(await off_service.get_opt_in(556) is False and len(off_db.executed) == 1
+          and off_db.executed[0][0].startswith("SELECT"),
+          "/알림설정 조회는 false를 그대로 보여 주고 UPDATE하지 않음")
 
     # 연결된 회원이 없음
     try:
@@ -186,7 +200,7 @@ async def notification_polling():
     pending = [
         {**base, "notification_id": 1, "receiver_discord_id": "101"},
         {**base, "notification_id": 2, "receiver_discord_id": "102"},
-        {**base, "notification_id": 3, "receiver_discord_id": "103", "receiver_dm_opt_in": None},
+        {**base, "notification_id": 3, "receiver_discord_id": "103", "receiver_dm_opt_in": False},
         {**base, "notification_id": 4, "receiver_discord_id": None},
         {**base, "notification_id": 5, "receiver_discord_id": "101", "actor_member_id": 2},
         {**base, "notification_id": 6, "receiver_discord_id": "101", "target_missing": True},
@@ -208,9 +222,9 @@ async def notification_polling():
     failure = fake.record_failure.call_args
     check(failure.args[0] == 2 and failure.args[2] == 3, "DM 실패 -> 재시도 기록 (최대 3회)")
     skipped = {c.args[0]: c.args[1] for c in fake.mark_skipped.call_args_list}
-    check(skipped == {3: "DM 알림 미동의", 4: "Discord 계정 없음", 5: "본인 알림",
+    check(skipped == {3: "DM 알림 꺼짐", 4: "Discord 계정 없음", 5: "본인 알림",
                       6: "대상 없음", 7: "Discord 사용자 없음"},
-          "미동의 / discord_id 없음 / 본인 / 대상 없음 / Discord 사용자 없음 -> SKIPPED")
+          "알림 꺼짐 / discord_id 없음 / 본인 / 대상 없음 / Discord 사용자 없음 -> SKIPPED")
     check(user_ok.send.await_count == 1 and "첫 글" in user_ok.send.await_args.args[0], "DM에 게시글 제목 포함")
 
     # 3회째 실패하면 FAILED (상태 결정은 저장소 SQL, 서비스는 결과를 그대로 전달)
@@ -231,51 +245,153 @@ async def notification_polling():
     check(True, "polling 예외가 루프를 멈추지 않음")
 
 
-async def hot_policy():
-    B, R = hot.BOARD, hot.RECRUIT
-    check(hot.hot_score(hot.HotCandidate(B, 1, like_count=2, comment_count=3)) == 12, "게시판 점수 = 좋아요x3 + 댓글x2")
-    check(hot.hot_score(hot.HotCandidate(R, 1, like_count=2, member_count=3)) == 18, "모임 점수 = 좋아요x3 + 멤버x4")
-    check(not hot.is_eligible(hot.HotCandidate(B, 1, like_count=1, comment_count=9)), "게시판 좋아요 < 2 제외")
-    check(not hot.is_eligible(hot.HotCandidate(B, 1, like_count=9, comment_count=1)), "게시판 댓글 < 2 제외")
-    check(not hot.is_eligible(hot.HotCandidate(R, 1, like_count=9, member_count=1)), "모임 멤버 < 2 제외")
-    check(hot.is_eligible(hot.HotCandidate(R, 1, like_count=2, member_count=2)), "모임 경계값 포함")
+async def notification_reply():
+    """REPLY는 부모 댓글 작성자에게 DM으로 보내고, REACTION은 #61 범위에서 제외되어 SKIPPED로 남긴다."""
+    base = {"receiver_member_id": 2, "actor_member_id": 3, "post_id": 4, "comment_id": 6,
+            "post_title": "첫 글", "retry_count": 0, "target_missing": False,
+            "receiver_dm_opt_in": True, "receiver_discord_id": "101"}
+    comment_text = notify.build_dm_message({**base, "notification_type": "COMMENT"})
+    reply_text = notify.build_dm_message({**base, "notification_type": "REPLY"})
+    check(comment_text == "💬 내 게시글에 새 댓글이 달렸어요.\n게시글: 첫 글", "COMMENT 문구는 기존 그대로")
+    check(reply_text == "↪️ 내 댓글에 새 답글이 달렸어요.\n게시글: 첫 글", "REPLY 문구: 내 댓글에 새 답글")
+    check(notify.build_dm_message({**base, "notification_type": "REPLY", "post_title": None})
+          == "↪️ 내 댓글에 새 답글이 달렸어요.", "제목이 없으면 문구만")
+    check(notify.build_dm_message({**base, "notification_type": "REACTION"}) is None, "REACTION DM은 보내지 않음 (#61 범위 제외)")
 
-    top = hot.HotCandidate(R, 7, like_count=5, member_count=5)      # 35
-    second = hot.HotCandidate(B, 3, like_count=5, comment_count=5)  # 25
-    ranked = hot.rank_candidates([second, hot.HotCandidate(B, 9, like_count=1, comment_count=1), top])
-    check(ranked == [top, second], "최소 조건 통과 후보만 점수순 정렬")
+    fake = Mock()
+    fake.record_failure.return_value = "PENDING"
+    user = SimpleNamespace(send=AsyncMock())
+    client = Mock()
+    client.get_user.side_effect = lambda uid: {101: user}.get(uid)
+    service = notify.NotificationService(client, fake)
+    check(await service.deliver({**base, "notification_id": 11, "notification_type": "REPLY"}) == "SENT",
+          "REPLY -> DM 전송 후 SENT (SKIPPED 아님)")
+    check(fake.mark_sent.call_args.args == (11,) and user.send.await_args.args[0] == reply_text,
+          "REPLY DM 본문 전송, mark_sent 호출")
+    check(await service.deliver({**base, "notification_id": 12, "notification_type": "REPLY",
+                                 "actor_member_id": 2}) == "SKIPPED"
+          and fake.mark_skipped.call_args.args == (12, "본인 알림"), "본인 대댓글 REPLY -> SKIPPED")
+    check(await service.deliver({**base, "notification_id": 13, "notification_type": "REPLY",
+                                 "receiver_dm_opt_in": False}) == "SKIPPED"
+          and fake.mark_skipped.call_args.args == (13, "DM 알림 꺼짐"), "DM 끈 회원 REPLY -> SKIPPED")
+    check(await service.deliver({**base, "notification_id": 17, "notification_type": "COMMENT",
+                                 "receiver_dm_opt_in": None}) == "SENT"
+          and fake.mark_sent.call_args.args == (17,), "선택 안 한 회원(NULL)도 기본 ON -> COMMENT DM 전송")
+    check(await service.deliver({**base, "notification_id": 18, "notification_type": "REPLY",
+                                 "receiver_dm_opt_in": None}) == "SENT", "NULL 회원 REPLY DM 전송")
+    check(await service.deliver({**base, "notification_id": 14, "notification_type": "REPLY",
+                                 "target_missing": True}) == "SKIPPED"
+          and fake.mark_skipped.call_args.args == (14, "대상 없음"), "삭제된 대상 REPLY -> SKIPPED")
+    check(await service.deliver({**base, "notification_id": 15, "notification_type": "REACTION"}) == "SKIPPED"
+          and fake.mark_skipped.call_args.args == (15, "지원하지 않는 알림 종류: REACTION"),
+          "REACTION -> SKIPPED (#61 범위 제외, 타입·테이블 구조는 유지)")
+    user.send.side_effect = discord.Forbidden(Mock(status=403), "blocked")
+    check(await service.deliver({**base, "notification_id": 16, "notification_type": "REPLY"}) == "PENDING"
+          and fake.record_failure.call_args.args[0] == 16, "REPLY DM 차단 -> 기존 재시도 정책")
 
-    picker = hot.HotPicker()
-    today = date(2026, 10, 19)
-    check(picker.pick(ranked, today, 13) == top, "13시: TOP 1")
-    check(picker.pick(ranked, today, 19) == second, "19시 TOP 1이 13시와 같으면 TOP 2")
-    check(picker.pick([top], today, 19) is None, "TOP 2가 없으면 게시하지 않음")
-    check(picker.pick([second, top], today, 19) == second, "19시 TOP 1이 다르면 TOP 1")
-    check(picker.pick(ranked, date(2026, 10, 20), 19) == top, "다른 날에는 13시 기억을 쓰지 않음")
-    check(hot.HotPicker().pick(ranked, today, 19) == top, "재시작(기억 없음) 후 19시는 TOP 1")
-    check(picker.pick([], today, 13) is None, "후보 없으면 게시하지 않음")
 
-    # 좋아요 스키마 연결 전: 자동 후보 0건, 게시 없음
+async def hot_auto_removed():
+    """자체 HOT 자동 선정(점수 SQL, 13:00/19:00 스케줄)은 제거되었다. 수동 /게시글추천만 남는다."""
+    for name in ("HotCandidate", "HotPicker", "hot_score", "is_eligible", "rank_candidates", "create_hot_task"):
+        check(not hasattr(hot, name), f"HOT 자동 선정 {name} 제거")
+    check(not hasattr(hot.HotContentService, "post_scheduled"), "자동 게시 메서드 제거")
+    for name in ("list_board_candidates", "list_recruit_candidates"):
+        check(not hasattr(PostgresContentRepository, name), f"HOT 후보 집계 SQL {name} 제거")
+    check(not hasattr(config, "HOT_POST_TIMES") and not hasattr(config, "HOT_CANDIDATE_HOURS"),
+          "자동 게시 시각·후보 기간 설정 제거")
+    source = (ROOT / "bot.py").read_text(encoding="utf-8")
+    check("create_hot_task" not in source and "자동 게시 (13:00" not in source, "bot.py는 HOT 자동 task를 시작하지 않음")
+
+
+async def web_link_policy():
+    base = "https://playmate.example.com"
+    check(web_links.board_post_url(base, 2, 15) == f"{base}/board/2/posts/15", "게시판: /board/{board_id}/posts/{post_id}")
+    check(web_links.recruit_url(base, 8) == f"{base}/meetup/8", "모임: /meetup/{recruit_id}")
+    for category in ("reviews", "talk", "lounge", "lab"):
+        check(web_links.career_post_url(base, category, 31) == f"{base}/career/{category}/31",
+              f"취업: /career/{category}/{{post_id}}")
+    check(web_links.career_post_url(base, "insights", 31) is None, "글이 없는 채용 인사이트는 링크 없음")
+    check(web_links.career_post_url(base, "jobs", 31) is None, "모르는 취업 카테고리는 링크 없음")
+    check(web_links.board_post_url(None, 2, 15) is None, "기본 주소가 없으면 링크 없음")
+    check(web_links.board_post_url(base, None, 15) is None and web_links.recruit_url(base, 0) is None
+          and web_links.recruit_url(base, True) is None and web_links.recruit_url(base, "x") is None,
+          "ID가 없거나 0 이하·숫자가 아니면 링크 없음")
+
+    # 기본 주소 환경변수: 끝의 / 제거, http(s)만, localhost는 테스트 모드에서만
+    check(config._web_base_url(" https://playmate.example.com/ ", allow_local=False) == base, "끝의 / 제거")
+    check(config._web_base_url("", allow_local=False) is None and config._web_base_url(None, allow_local=True) is None,
+          "비어 있으면 링크 없음")
+    check(config._web_base_url("ftp://playmate.example.com", allow_local=False) is None, "http(s)가 아니면 무시")
+    check(config._web_base_url("playmate.example.com", allow_local=False) is None, "scheme이 없으면 무시")
+    for local in ("http://localhost:5173", "http://127.0.0.1:5173", "http://LOCALHOST", "http://[::1]:5173",
+                  "http://0.0.0.0:5173"):
+        check(config._web_base_url(local, allow_local=False) is None, f"운영에서는 {local} 링크 금지")
+    check(config._web_base_url("http://localhost:5173", allow_local=True) == "http://localhost:5173",
+          "PLAYMATE_TEST_MODE=true면 localhost 허용 (로컬 확인용)")
+    check(config._web_base_url("https://localhost.playmate.example.com", allow_local=False)
+          == "https://localhost.playmate.example.com", "localhost로 시작하는 실제 도메인은 허용")
+
+
+async def promotion_service():
+    """수동 추천: 최소 조건 없이 게시, 게시판·모임·취업 글에 웹 상세 링크를 붙인다."""
+    B, R, C = hot.BOARD, hot.RECRUIT, hot.CAREER
+    base = "https://playmate.example.com"
     channel = SimpleNamespace(send=AsyncMock())
     client = Mock()
     client.get_channel.return_value = channel
-    service = hot.HotContentService(client, PostgresContentRepository(FakeDb()), channel_id=50)
-    check(await service.post_scheduled(datetime(2026, 10, 19, 13, 0, tzinfo=KST)) is None, "자동 후보 0건이면 None")
-    channel.send.assert_not_awaited()
-    check(True, "자동 후보 0건이면 채널에 아무것도 보내지 않음")
 
-    # 수동 추천: 최소 조건 없이 게시, 형식은 자동과 동일
-    db = FakeDb(rows={(11,): {"post_id": 11, "title": "댓글 0개 글", "body": "본문", "comment_count": 0,
-                              "board_name": "자유게시판"}})
-    service = hot.HotContentService(client, PostgresContentRepository(db), channel_id=50)
+    db = FakeDb(rows={(11,): {"post_id": 11, "board_id": 2, "title": "댓글 0개 글", "body": "본문",
+                              "comment_count": 0, "board_name": "자유게시판"}})
+    service = hot.HotContentService(client, PostgresContentRepository(db), channel_id=50, base_url=base)
     check(await service.recommend(B, 11), "조건 미달 글도 운영자 추천은 게시")
     embed = channel.send.await_args.kwargs["embed"]
     check(embed.title == "🔥 HOT PLAYMATE", "제목은 🔥 HOT PLAYMATE")
+    check(embed.url == f"{base}/board/2/posts/11", "게시판 추천 Embed 제목에 상세 링크")
+    check(any(f.name == "바로가기" and f"({base}/board/2/posts/11)" in f.value for f in embed.fields),
+          "게시판 추천에 'PlayMate에서 보기' 링크 표시")
     text = str(embed.to_dict())
     check("ADMIN" not in text.upper() and "운영자" not in text, "운영자 추천 표시 없음")
-    check(not getattr(channel.send.await_args.kwargs.get("view"), "children", None), "상세 링크 버튼 없음")
     check(await service.recommend(B, 999) is False, "없는 글은 False")
-    check(service.picker._midday == {}, "수동 추천은 자동 선정 기억에 영향 없음")
+    sql = db.executed[0][0]
+    check("p.board_id IS NOT NULL" in sql and "NOT EXISTS (SELECT 1 FROM recruits" in sql,
+          "게시판 조회는 기존 조건 그대로 (취업 글·모집글 제외)")
+
+    db = FakeDb(rows={(8,): {"recruit_id": 8, "title": "풋살 모임", "body": "", "member_count": 3, "capacity": 6}})
+    service = hot.HotContentService(client, PostgresContentRepository(db), channel_id=50, base_url=base)
+    check(await service.recommend(R, 8), "모임 추천 게시")
+    embed = channel.send.await_args.kwargs["embed"]
+    check(embed.url == f"{base}/meetup/8", "모임 추천 링크: /meetup/{recruit_id}")
+
+    db = FakeDb(rows={(31,): {"post_id": 31, "category_code": "talk", "title": "이직 고민", "body": "본문",
+                              "comment_count": 2}})
+    service = hot.HotContentService(client, PostgresContentRepository(db), channel_id=50, base_url=base)
+    check(await service.recommend(C, 31), "취업 글 추천 게시")
+    embed = channel.send.await_args.kwargs["embed"]
+    check(embed.url == f"{base}/career/talk/31", "취업 추천 링크: /career/{category}/{post_id}")
+    fields = {f.name: f.value for f in embed.fields}
+    check(fields.get("취업") == "이직 고민" and fields.get("게시판") == "커리어 톡톡" and fields.get("댓글") == "2",
+          "취업 Embed: 제목·게시판 이름·댓글 수")
+    sql = db.executed[0][0]
+    check("JOIN career_posts cp" in sql and "p.post_type = 'CAREER'" in sql and "p.deleted_at IS NULL" in sql,
+          "취업 글 조회: Backend와 같은 대상 조건 (삭제 제외)")
+    check("author" not in sql and "nickname" not in sql, "취업 글 조회는 작성자를 읽지 않음 (익명 보호)")
+    check(await service.recommend(C, 999) is False, "없는 취업 글은 False")
+
+    # 기본 주소가 없으면 링크 없이 기존 형식으로 게시
+    db = FakeDb(rows={(11,): {"post_id": 11, "board_id": 2, "title": "글", "body": "본문", "comment_count": 0}})
+    service = hot.HotContentService(client, PostgresContentRepository(db), channel_id=50, base_url=None)
+    check(await service.recommend(B, 11), "기본 주소 없이도 게시")
+    embed = channel.send.await_args.kwargs["embed"]
+    check(embed.url is None and all(f.name != "바로가기" for f in embed.fields), "기본 주소가 없으면 링크 없음")
+    check(not getattr(channel.send.await_args.kwargs.get("view"), "children", None), "링크 버튼(View)은 쓰지 않음")
+
+    # HOT 채널 미설정이면 게시 실패 (명령 처리에서 실패 안내)
+    service = hot.HotContentService(client, PostgresContentRepository(db), channel_id=None, base_url=base)
+    try:
+        await service.recommend(B, 11)
+        check(False, "채널 미설정은 예외")
+    except RuntimeError:
+        check(True, "HOT 채널 미설정이면 RuntimeError")
 
 
 async def promotion_command():
@@ -294,9 +410,27 @@ async def promotion_command():
     service.recommend.assert_awaited_once_with(hot.BOARD, 5)
     check("게시했습니다" in event.followup.send.await_args.args[0], "Admin Role이면 게시")
 
+    event = interaction(roles=(77,))
+    await command.callback(event, SimpleNamespace(value=hot.CAREER), 31)
+    check(service.recommend.await_args.args == (hot.CAREER, 31)
+          and event.followup.send.await_args.args[0] == "취업 31번을 HOT PLAYMATE 채널에 게시했습니다.",
+          "취업 유형 추천")
+
+    service.recommend = AsyncMock(return_value=False)
+    event = interaction(roles=(77,))
+    await command.callback(event, board_choice, 404)
+    check(event.followup.send.await_args.args[0] == "게시판 404번을 찾지 못했습니다.", "없는 글 안내")
+
+    service.recommend = AsyncMock(side_effect=RuntimeError("PLAYMATE_HOT_CHANNEL_ID가 설정되지 않았습니다."))
+    event = interaction(roles=(77,))
+    await command.callback(event, board_choice, 5)
+    check("게시에 실패했습니다" in event.followup.send.await_args.args[0], "게시 실패 안내 (채널·권한 확인)")
+
     check(not promo_cmd.is_admin(SimpleNamespace(roles=[SimpleNamespace(id=77)]), None),
           "PLAYMATE_ADMIN_ROLE_ID 미설정이면 아무도 실행 불가")
     check([p.display_name for p in command.parameters] == ["유형", "id"], "입력값: 유형 / ID")
+    choices = [(c.name, c.value) for c in command.parameters[0].choices]
+    check(choices == [("게시판", "BOARD"), ("모임", "RECRUIT"), ("취업", "CAREER")], "유형 선택지: 게시판 / 모임 / 취업")
 
 
 async def career_policy():
@@ -328,7 +462,10 @@ async def main():
     await notification_settings()
     await notification_sql()
     await notification_polling()
-    await hot_policy()
+    await notification_reply()
+    await hot_auto_removed()
+    await web_link_policy()
+    await promotion_service()
     await promotion_command()
     await career_policy()
 

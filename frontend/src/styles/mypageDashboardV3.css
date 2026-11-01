@@ -1,0 +1,83 @@
+/* PLAYMATE 마이페이지 v3: 상단 프로필/레벨 아래 가로 메뉴 */
+.mypage.mypage-dashboard-v3 .mypage-dashboard-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  min-width: 0;
+}
+
+.mypage.mypage-dashboard-v3 .mypage-dashboard-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 10px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid #e8ecf2;
+}
+
+.mypage.mypage-dashboard-v3 .mypage-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 66px;
+  padding: 12px 16px;
+  gap: 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  text-align: left;
+}
+
+.mypage.mypage-dashboard-v3 .mypage-nav-item.active {
+  color: #6544aa;
+  border-color: #e7dcfa;
+  background: #f2edfc;
+}
+
+.mypage.mypage-dashboard-v3 .mypage-nav-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  font-size: 21px;
+}
+
+.mypage.mypage-dashboard-v3 .mypage-nav-copy {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mypage.mypage-dashboard-v3 .mypage-nav-copy strong { font-size: 14px; }
+.mypage.mypage-dashboard-v3 .mypage-nav-copy small { display: inline; font-size: 11px; }
+.mypage.mypage-dashboard-v3 .mypage-dashboard-content { width: 100%; box-sizing: border-box; }
+
+/* XP 이력의 10건 페이지 이동 버튼 */
+.mypage.mypage-dashboard-v3 .mypage-xplog-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+}
+.mypage.mypage-dashboard-v3 .mypage-xplog-pagination button { white-space: nowrap; }
+
+@media (max-width: 700px) {
+  .mypage.mypage-dashboard-v3 .mypage-dashboard-nav { gap: 5px; padding: 6px; }
+  .mypage.mypage-dashboard-v3 .mypage-nav-item {
+    min-height: 52px;
+    padding: 9px 5px;
+    justify-content: center;
+    gap: 6px;
+  }
+  .mypage.mypage-dashboard-v3 .mypage-nav-icon { font-size: 16px; }
+  .mypage.mypage-dashboard-v3 .mypage-nav-copy strong { font-size: 12px; white-space: nowrap; }
+  .mypage.mypage-dashboard-v3 .mypage-nav-copy small { display: none; }
+}
+@media (max-width: 385px) {
+  .mypage.mypage-dashboard-v3 .mypage-nav-item { flex-direction: column; gap: 3px; }
+  .mypage.mypage-dashboard-v3 .mypage-nav-icon { font-size: 14px; }
+}

@@ -1,3 +1,4 @@
+# PLAYMATE_ACTIVITY_V2
 
 # 마이페이지 API
 from backend.app.core.db_connect import db_cursor, CommitOutcomeUnknownError
@@ -23,11 +24,12 @@ from backend.app.services.xp_service import calculate_attendance_streak
 from backend.app.schemas.mypage import MySkillResponse
 from backend.app.schemas.mypage import MySkillTopicResponse
 from backend.app.schemas.mypage import MySkillAccuracyResponse
-from backend.app.schemas.mypage import MyScrapResponse
-from backend.app.schemas.mypage import MyMeetupResponse
+from backend.app.schemas.mypage import MyScrapPageResponse
+from backend.app.schemas.mypage import MyMeetupPageResponse
 from fastapi import Query
 from backend.app.schemas.mypage import MyPostPageResponse
 from backend.app.schemas.mypage import MyCommentPageResponse
+from backend.app.schemas.mypage import MyActivitySummaryResponse
 from backend.app.schemas.mypage import (
     MyCareerSpecUpdate,
     MyCareerSpecResponse,
@@ -35,6 +37,70 @@ from backend.app.schemas.mypage import (
 from backend.app.schemas.mypage import MyCareerSpecVisibilityUpdate
 
 router = APIRouter(prefix="/mypage", tags=["마이페이지"])
+
+
+# =========================================================
+# 내 활동 대시보드 (로그인한 본인만 조회 가능)
+# =========================================================
+@router.get("/summary", response_model=MyActivitySummaryResponse)
+def get_my_activity_summary(
+    member_id: int = Depends(get_current_member_id),
+):
+    # 모든 집계는 세션의 member_id만 사용합니다.
+    # 게시글/댓글은 삭제된 항목을 제외하고, 모임장은 참여 모임에 포함합니다.
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT
+                (
+                    SELECT COUNT(*)::int
+                    FROM posts p
+                    WHERE p.author_member_id = m.member_id
+                      AND p.deleted_at IS NULL
+                ) AS posts_count,
+                (
+                    SELECT COUNT(*)::int
+                    FROM comments c
+                    JOIN posts p ON p.post_id = c.post_id
+                    WHERE c.author_member_id = m.member_id
+                      AND c.deleted_at IS NULL
+                      AND p.deleted_at IS NULL
+                ) AS comments_count,
+                (
+                    SELECT COUNT(*)::int
+                    FROM post_likes l
+                    JOIN posts p ON p.post_id = l.post_id
+                    WHERE p.author_member_id = m.member_id
+                      AND p.deleted_at IS NULL
+                ) AS received_likes_count,
+                (
+                    SELECT COUNT(*)::int
+                    FROM post_scraps s
+                    JOIN posts p ON p.post_id = s.post_id
+                    WHERE s.member_id = m.member_id
+                      AND p.deleted_at IS NULL
+                ) AS scraps_count,
+                (
+                    SELECT COUNT(*)::int
+                    FROM recruit_members rm
+                    JOIN recruits r ON r.recruit_id = rm.recruit_id
+                    JOIN posts p ON p.post_id = r.post_id
+                    WHERE rm.member_id = m.member_id
+                      AND rm.status = 'JOINED'
+                      AND p.deleted_at IS NULL
+                ) AS meetups_count,
+                COALESCE(lv.total_xp, 0)::int AS total_xp
+            FROM members m
+            LEFT JOIN member_levels lv ON lv.member_id = m.member_id
+            WHERE m.member_id = %s
+            """,
+            (member_id,),
+        )
+        summary = cursor.fetchone()
+
+    if summary is None:
+        raise HTTPException(status_code=404, detail="회원 정보를 찾을 수 없습니다.")
+    return summary
 
 
 # 내 프로필 조회
@@ -49,7 +115,9 @@ def get_my_profile(
             SELECT
                 member_id,
                 COALESCE(NULLIF(nickname, ''), '익명') AS nickname,
-                profile_image_url
+                profile_image_url,
+                course,
+                cohort
             FROM members
             WHERE member_id = %s
             """,
@@ -128,21 +196,11 @@ async def update_profile_image(
     file: UploadFile = File(...),
     member_id: int = Depends(get_current_member_id),
 ):
-    saved = None
-    try:
-        saved = await save_profile_image(file)
-        image_url = f"/uploads/{saved['stored_name']}"
-        return await run_in_threadpool(_update_profile_image_in_db, member_id, image_url)
-    except CommitOutcomeUnknownError:
-        # COMMIT 응답이 유실됐다면 DB에 저장됐을 수 있으므로 파일을 삭제하지 않는다.
-        raise
-    except Exception:
-        # DB 저장에 실패하면 이번에 업로드한 파일만 정리한다.
-        if saved is not None:
-            saved["path"].unlink(missing_ok=True)
-        raise
-    finally:
-        await file.close()
+    # Discord avatar is authoritative; profile image uploads are disabled.
+    raise HTTPException(
+        status_code=403,
+        detail="프로필 사진은 Discord에서 변경해주세요.",
+    )
 
 
 # 내 종합 레벨 조회
@@ -491,6 +549,8 @@ def get_my_posts(
                 p.post_id,
                 p.board_id,
                 p.post_type,
+                (SELECT r.recruit_id FROM recruits r
+                 WHERE r.post_id = p.post_id LIMIT 1) AS recruit_id,
                 cp.category_code AS career_category,
                 CASE
                     WHEN p.post_type = 'CAREER' THEN
@@ -600,49 +660,79 @@ def get_my_comments(
         }
 
 
-# 내가 스크랩한 게시글 조회
-@router.get("/scraps", response_model=list[MyScrapResponse])
+# 내가 스크랩한 게시글 조회 (10개씩 서버 페이지네이션)
+@router.get("/scraps", response_model=MyScrapPageResponse)
 def get_my_scraps(
-    member_id: int = Depends(get_current_member_id)
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    member_id: int = Depends(get_current_member_id),
 ):
+    offset = (page - 1) * page_size
     with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*)::int AS total
+            FROM post_scraps s
+            JOIN posts p ON s.post_id = p.post_id
+            WHERE s.member_id = %s
+              AND p.deleted_at IS NULL
+            """,
+            (member_id,),
+        )
+        total = cursor.fetchone()["total"]
+
         cursor.execute(
             """
             SELECT
                 p.post_id,
                 p.board_id,
-                (
-                    SELECT r.recruit_id
-                    FROM recruits r
-                    WHERE r.post_id = p.post_id
-                    LIMIT 1
-                ) AS recruit_id,
+                (SELECT r.recruit_id FROM recruits r
+                 WHERE r.post_id = p.post_id LIMIT 1) AS recruit_id,
                 p.post_type,
                 cp.category_code AS career_category,
                 COALESCE(p.title, '제목 없음') AS title,
                 s.created_at AS scrapped_at
             FROM post_scraps s
-            JOIN posts p
-                ON s.post_id = p.post_id
-            LEFT JOIN career_posts cp
-                ON cp.post_id = p.post_id
+            JOIN posts p ON s.post_id = p.post_id
+            LEFT JOIN career_posts cp ON cp.post_id = p.post_id
             WHERE s.member_id = %s
-                AND p.deleted_at IS NULL
+              AND p.deleted_at IS NULL
             ORDER BY s.created_at DESC, s.post_id DESC
-            LIMIT 20
+            LIMIT %s OFFSET %s
             """,
-            (member_id,)
+            (member_id, page_size, offset),
         )
+        return {
+            "items": cursor.fetchall(),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
-        return cursor.fetchall()
 
-
-# 내가 생성하거나 참여한 모임 조회
-@router.get("/meetups", response_model=list[MyMeetupResponse])
+# 내가 생성하거나 참여한 모임 조회 (10개씩 서버 페이지네이션)
+@router.get("/meetups", response_model=MyMeetupPageResponse)
 def get_my_meetups(
-    member_id: int = Depends(get_current_member_id)
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    member_id: int = Depends(get_current_member_id),
 ):
+    offset = (page - 1) * page_size
     with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*)::int AS total
+            FROM recruit_members rm
+            JOIN recruits r ON rm.recruit_id = r.recruit_id
+            JOIN posts p ON r.post_id = p.post_id
+            WHERE rm.member_id = %s
+              AND rm.status = 'JOINED'
+              AND p.deleted_at IS NULL
+            """,
+            (member_id,),
+        )
+        total = cursor.fetchone()["total"]
+
         cursor.execute(
             """
             SELECT
@@ -656,21 +746,23 @@ def get_my_meetups(
                 r.state,
                 r.created_at
             FROM recruit_members rm
-            JOIN recruits r
-                ON rm.recruit_id = r.recruit_id
-            JOIN posts p
-                ON r.post_id = p.post_id
+            JOIN recruits r ON rm.recruit_id = r.recruit_id
+            JOIN posts p ON r.post_id = p.post_id
             WHERE rm.member_id = %s
-                AND rm.status = 'JOINED'
-                AND p.deleted_at IS NULL
-            ORDER BY r.created_at DESC NULLS LAST,
-                        r.recruit_id DESC
-            LIMIT 20
+              AND rm.status = 'JOINED'
+              AND p.deleted_at IS NULL
+            ORDER BY r.created_at DESC NULLS LAST, r.recruit_id DESC
+            LIMIT %s OFFSET %s
             """,
-            (member_id,)
+            (member_id, page_size, offset),
         )
+        return {
+            "items": cursor.fetchall(),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
-        return cursor.fetchall()
 
 # =========================================================
 # 취업 스펙 조회
@@ -980,3 +1072,88 @@ def get_public_career_specs(
         raise HTTPException(status_code=404, detail="공개된 취업 스펙이 없습니다.")
 
     return spec
+
+
+# PLAYMATE_MYPAGE_DASHBOARD_LIKES_V1
+# 로그인한 회원이 좋아요를 누른 게시글 목록 (서버 페이지네이션)
+@router.get("/likes")
+def get_my_liked_posts_dashboard_v1(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    member_id: int = Depends(get_current_member_id),
+):
+    offset = (page - 1) * page_size
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*)::int AS total
+            FROM post_likes l
+            JOIN posts p ON p.post_id = l.post_id
+            WHERE l.member_id = %s AND p.deleted_at IS NULL
+            """,
+            (member_id,),
+        )
+        total = cursor.fetchone()["total"]
+        cursor.execute(
+            """
+            SELECT
+                p.post_id,
+                p.board_id,
+                p.post_type,
+                cp.category_code AS career_category,
+                r.recruit_id,
+                COALESCE(p.title, '제목 없음') AS title,
+                CASE
+                    WHEN p.post_type = 'CAREER' THEN
+                        CASE cp.category_code
+                            WHEN 'reviews' THEN '취준도감'
+                            WHEN 'talk' THEN '커리어 톡톡'
+                            WHEN 'lounge' THEN '현직자 라운지'
+                            WHEN 'lab' THEN '커리어 연구소'
+                            ELSE '취업 게시판'
+                        END
+                    WHEN p.post_type = 'RECRUIT' THEN '모임'
+                    ELSE COALESCE(b.board_name, '기타 게시판')
+                END AS board_name,
+                l.created_at AS liked_at
+            FROM post_likes l
+            JOIN posts p ON p.post_id = l.post_id
+            LEFT JOIN career_posts cp ON cp.post_id = p.post_id
+            LEFT JOIN recruits r ON r.post_id = p.post_id
+            LEFT JOIN boards b ON b.board_id = p.board_id
+            WHERE l.member_id = %s AND p.deleted_at IS NULL
+            ORDER BY l.created_at DESC, p.post_id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (member_id, page_size, offset),
+        )
+        items = cursor.fetchall()
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+# PLAYMATE_MYPAGE_XP_PAGINATION_V3
+@router.get("/xp-history/paged")
+def get_my_xp_history_paged_v3(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=50),
+    member_id: int = Depends(get_current_member_id),
+):
+    offset = (page - 1) * page_size
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            "SELECT COUNT(*)::int AS total FROM member_xp_history WHERE member_id = %s",
+            (member_id,),
+        )
+        total = cursor.fetchone()["total"]
+        cursor.execute(
+            """
+            SELECT history_id, activity_type, xp_change, activity_date, created_at
+            FROM member_xp_history
+            WHERE member_id = %s
+            ORDER BY created_at DESC, history_id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (member_id, page_size, offset),
+        )
+        items = cursor.fetchall()
+    return {"items": items, "total": total, "page": page, "page_size": page_size}

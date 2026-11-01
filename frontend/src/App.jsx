@@ -215,7 +215,7 @@ function AppContent() {
                 )}
 
                 {section === 'mypage' && (
-                    <MyPage onOpenMeetup={handleOpenMeetup} />
+                    <MyPage onOpenMeetup={handleOpenMeetup} avatarUrl={avatarUrl} />
                 )}
             </>
         )

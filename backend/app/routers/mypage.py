@@ -517,7 +517,6 @@ def get_my_skill_accuracy(
 
 
 
-# 내가 작성한 게시글 조회
 # 내가 작성한 게시글 조회 (페이지네이션)
 @router.get("/posts", response_model=MyPostPageResponse)
 def get_my_posts(
@@ -633,12 +632,25 @@ def get_my_comments(
                 ) AS recruit_id,
                 p.post_type,
                 cp.category_code AS career_category,
+                CASE
+                    WHEN p.post_type = 'CAREER' THEN
+                        CASE cp.category_code
+                            WHEN 'reviews' THEN '취준도감'
+                            WHEN 'talk' THEN '커리어 톡톡'
+                            WHEN 'lounge' THEN '현직자 라운지'
+                            WHEN 'lab' THEN '커리어 연구소'
+                            ELSE '취업 게시글'
+                        END
+                    WHEN p.post_type = 'RECRUIT' THEN '모임'
+                    ELSE COALESCE(b.board_name, '기타 게시글')
+                END AS board_name,
                 COALESCE(p.title, '제목 없음') AS post_title,
                 c.body,
                 c.parent_comment_id,
                 c.created_at
             FROM comments c
             JOIN posts p ON c.post_id = p.post_id
+            LEFT JOIN boards b ON b.board_id = p.board_id
             LEFT JOIN career_posts cp
                 ON cp.post_id = p.post_id
             WHERE c.author_member_id = %s
@@ -690,10 +702,23 @@ def get_my_scraps(
                  WHERE r.post_id = p.post_id LIMIT 1) AS recruit_id,
                 p.post_type,
                 cp.category_code AS career_category,
+                CASE
+                    WHEN p.post_type = 'CAREER' THEN
+                        CASE cp.category_code
+                            WHEN 'reviews' THEN '취준도감'
+                            WHEN 'talk' THEN '커리어 톡톡'
+                            WHEN 'lounge' THEN '현직자 라운지'
+                            WHEN 'lab' THEN '커리어 연구소'
+                            ELSE '취업 게시글'
+                        END
+                    WHEN p.post_type = 'RECRUIT' THEN '모임'
+                    ELSE COALESCE(b.board_name, '기타 게시글')
+                END AS board_name,
                 COALESCE(p.title, '제목 없음') AS title,
                 s.created_at AS scrapped_at
             FROM post_scraps s
             JOIN posts p ON s.post_id = p.post_id
+            LEFT JOIN boards b ON b.board_id = p.board_id
             LEFT JOIN career_posts cp ON cp.post_id = p.post_id
             WHERE s.member_id = %s
               AND p.deleted_at IS NULL

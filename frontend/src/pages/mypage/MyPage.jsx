@@ -24,7 +24,7 @@ const LEVEL_TABS = [
   { id: 'history', label: 'XP 획득·회수 내역' },
 ]
 
-export default function MyPage({ onOpenMeetup, avatarUrl }) {
+export default function MyPage({ onOpenMeetup, onOpenPost, avatarUrl }) {
   const [selectedMenu, setSelectedMenu] = useState('level')
   const [selectedLevelTab, setSelectedLevelTab] = useState('overall')
   const menu = MENU.find((item) => item.id === selectedMenu)
@@ -36,7 +36,7 @@ export default function MyPage({ onOpenMeetup, avatarUrl }) {
         <p>프로필, 활동 기록, 나의 성장을 한곳에서 관리하세요.</p>
       </header>
 
-      {/* 어떤 메뉴를 선택해도 프로필과 종합 레벨은 상단에 유지됩니다. */}
+      {/* 71번: 프로필과 종합 레벨은 모든 메뉴에서 상단에 유지 */}
       <div className="mypage-dashboard-hero">
         <section className="mypage-profile-shell" aria-label="내 프로필">
           <ProfileCard avatarUrl={avatarUrl} />
@@ -46,7 +46,6 @@ export default function MyPage({ onOpenMeetup, avatarUrl }) {
         </section>
       </div>
 
-      {/* 왼쪽 세로 메뉴 대신, 상단 카드 아래 가로 탭을 사용합니다. */}
       <div className="mypage-dashboard-body">
         <nav className="mypage-dashboard-nav" aria-label="마이페이지 메뉴">
           {MENU.map((item) => (
@@ -100,7 +99,8 @@ export default function MyPage({ onOpenMeetup, avatarUrl }) {
             <>
               <MyPageActivityOverview />
               <div className="mypage-dashboard-activity">
-                <MyActivity onOpenMeetup={onOpenMeetup} />
+                {/* 58번: 게시글 상세 이동 / 71번: 모임 상세 이동 */}
+                <MyActivity onOpenMeetup={onOpenMeetup} onOpenPost={onOpenPost} />
               </div>
             </>
           )}

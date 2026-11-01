@@ -1,3 +1,5 @@
+// PLAYMATE_COMMENT_ANON_EDIT_V2
+// PLAYMATE_BOARD_ANONYMOUS_V1
 import { useState } from 'react'
 import { useCommentEditor } from '../../hooks/board/useBoardForms'
 import { formatBoardDate } from '../../utils/board'
@@ -14,8 +16,8 @@ function Comment({ comment, busy, onEdit, onDelete, onReply }) {
   const isReply = Boolean(comment.parent_comment_id)
 
   /** 답글 성공 응답을 받았을 때만 입력창을 닫는다. 실패하면 초안이 남는다. */
-  async function submitReply(body) {
-    const result = await onReply(body, comment.id)
+  async function submitReply(body, _parentCommentId, isAnonymous = false) {
+    const result = await onReply(body, comment.id, isAnonymous)
     if (result) setReplying(false)
     return result
   }
@@ -34,7 +36,7 @@ function Comment({ comment, busy, onEdit, onDelete, onReply }) {
 
   return (
     <article className={isReply ? 'comment reply' : 'comment'}>
-      <div className="comment-avatar">익</div>
+      <div className="comment-avatar">{comment.is_anonymous ? '익' : (comment.author_name?.charAt(0) || 'U')}</div>
       <div className="comment-content">
         <div>
           <strong>{comment.author_name}</strong>
@@ -42,15 +44,26 @@ function Comment({ comment, busy, onEdit, onDelete, onReply }) {
         </div>
         {editor.editing ? (
           <div className="inline-edit">
-            <textarea
-              aria-label="댓글 수정 내용"
-              value={editor.body}
-              maxLength={2000}
-              disabled={busy}
-              onChange={(event) => editor.setBody(event.target.value)}
-            />
-            <button disabled={busy || !editor.body.trim()} onClick={editor.save}>저장</button>
-            <button disabled={busy} onClick={editor.cancelEditing}>취소</button>
+            <div className="board-comment-edit-fields">
+              <textarea
+                aria-label="댓글 수정 내용"
+                value={editor.body}
+                maxLength={2000}
+                disabled={busy}
+                onChange={(event) => editor.setBody(event.target.value)}
+              />
+              <label className="board-anonymous-option">
+                <input
+                  type="checkbox"
+                  checked={editor.isAnonymous}
+                  disabled={busy}
+                  onChange={(event) => editor.setIsAnonymous(event.target.checked)}
+                />
+                익명으로 표시
+              </label>
+            </div>
+            <button type="button" disabled={busy || !editor.body.trim()} onClick={editor.save}>저장</button>
+            <button type="button" disabled={busy} onClick={editor.cancelEditing}>취소</button>
           </div>
         ) : (
           <p>{comment.body}</p>

@@ -1,13 +1,18 @@
-
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   getMyProfile,
   updateMyNickname,
-  uploadMyProfileImage,
 } from '../../services/mypageApi'
-import { resolveMediaUrl } from '../../config/api'
 
-export default function ProfileCard() {
+// 회원가입에서 저장하는 과정 코드와 동일한 표시 이름
+const COURSE_NAMES = {
+  'family-ai': 'SK네트웍스 Family AI 캠프',
+  'multi-agent': '멀티 에이전트 AI 오케스트레이션 캠프',
+  'data-engineering': 'AI Ready 데이터 엔지니어링 캠프',
+  'data-ml': '데이터 분석 & AI 머신러닝 캠프',
+}
+
+export default function ProfileCard({ avatarUrl }) {
   // 프로필 정보
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -18,9 +23,6 @@ export default function ProfileCard() {
   const [nickname, setNickname] = useState('')
   const [saving, setSaving] = useState(false)
 
-  // 프로필 이미지 변경
-  const [uploading, setUploading] = useState(false)
-  const imageInputRef = useRef(null)
 
   // 프로필 조회
   useEffect(() => {
@@ -32,42 +34,6 @@ export default function ProfileCard() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }, [])
-
-  // 프로필 이미지 변경
-  const handleImageChange = async (event) => {
-    const input = event.currentTarget
-    const file = input.files?.[0]
-
-    if (!file) return
-
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setError('JPG, PNG, WEBP 이미지만 업로드할 수 있습니다.')
-      input.value = ''
-      return
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setError('이미지는 5MB 이하여야 합니다.')
-      input.value = ''
-      return
-    }
-
-    setUploading(true)
-    setError('')
-
-    try {
-      await uploadMyProfileImage(file)
-
-      // 업로드 후 최신 프로필 조회
-      const updatedProfile = await getMyProfile()
-      setProfile(updatedProfile)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setUploading(false)
-      input.value = ''
-    }
-  }
 
   // 닉네임 저장
   const handleSave = async () => {
@@ -113,7 +79,7 @@ export default function ProfileCard() {
     return <p>프로필 조회 실패: {error}</p>
   }
 
-  const imageUrl = resolveMediaUrl(profile.profile_image_url)
+  const imageUrl = avatarUrl || null
 
   return (
     <>
@@ -135,25 +101,6 @@ export default function ProfileCard() {
             </div>
           )}
 
-          {/* 프로필 이미지 변경 */}
-          <div className="mypage-image-actions">
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={handleImageChange}
-              aria-label="프로필 이미지 선택"
-              hidden
-            />
-
-            <button
-              type="button"
-              disabled={uploading}
-              onClick={() => imageInputRef.current?.click()}
-            >
-              {uploading ? '업로드 중...' : '사진 변경'}
-            </button>
-          </div>
         </div>
 
         {/* 프로필 정보 */}
@@ -204,7 +151,13 @@ export default function ProfileCard() {
             </div>
           )}
 
-          <p>PLAYMATE 회원</p>
+          <p className="mypage-profile-course">
+            {COURSE_NAMES[profile.course] || profile.course || '과정 미등록'}
+            {' · '}
+            {profile.cohort != null && Number(profile.cohort) > 0
+              ? `${profile.cohort}기`
+              : '기수 미등록'}
+          </p>
 
           {error && (
             <p className="mypage-profile-error">

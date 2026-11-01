@@ -3,10 +3,12 @@ import BoardPage from '../../pages/board/BoardPage'
 import PostDetailPage from '../../pages/board/PostDetailPage'
 import PostEditorPage from '../../pages/board/PostEditorPage'
 import { useBoard } from '../../hooks/board/useBoard'
+import useBoardVisitTracker from '../../hooks/useBoardVisitTracker'
 
 /** 게시판 전용 hook의 상태와 화면만 연결한다. 인증·모임 상태는 여기서 관리하지 않는다. */
 export default function BoardSection({ resetVersion }) {
   const boardState = useBoard(resetVersion)
+  useBoardVisitTracker(boardState.board?.id)
   const {
     boards, board, posts, post, comments, view, query, loading,
     detailLoading, busy, modal, error, success, initialized,

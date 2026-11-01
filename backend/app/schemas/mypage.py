@@ -1,3 +1,4 @@
+# PLAYMATE_ACTIVITY_V2
 
 # 마이페이지 프로필 응답 스키마
 from pydantic import BaseModel, ConfigDict
@@ -7,6 +8,8 @@ class MyProfileResponse(BaseModel):
     member_id: int
     nickname: str
     profile_image_url: str | None = None
+    course: str | None = None
+    cohort: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -105,6 +108,8 @@ class MyPostResponse(BaseModel):
     board_id: int | None = None
     board_name: str | None = None
     post_type: str | None = None
+    career_category: str | None = None
+    recruit_id: int | None = None
     title: str
     created_at: datetime | None = None
 
@@ -159,6 +164,21 @@ class MyMeetupResponse(BaseModel):
 
 class MyCommentPageResponse(BaseModel):
     items: list[MyCommentResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+# 스크랩·모임도 게시글·댓글과 같은 페이지 응답을 사용합니다.
+class MyScrapPageResponse(BaseModel):
+    items: list[MyScrapResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class MyMeetupPageResponse(BaseModel):
+    items: list[MyMeetupResponse]
     total: int
     page: int
     page_size: int
@@ -234,3 +254,13 @@ class MyCareerSpecVisibilityUpdate(BaseModel):
 
     # True: 공개 / False: 비공개
     is_public: StrictBool
+
+
+# 마이페이지: 내 활동 요약 응답 (본인 데이터만 반환)
+class MyActivitySummaryResponse(BaseModel):
+    posts_count: int
+    comments_count: int
+    received_likes_count: int
+    scraps_count: int
+    meetups_count: int
+    total_xp: int

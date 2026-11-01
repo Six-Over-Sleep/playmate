@@ -184,7 +184,7 @@ class CurriculumUpdate(BaseModel):
 
 class ActivityCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    activity_type: Literal["WEEKLY_CHECK", "REVIEW", "OUTPUT"]
+    activity_type: Literal["WEEKLY_CHECK", "REVIEW", "OUTPUT", "PARTICIPATION_PROOF"]
     week: int | None = Field(default=None, ge=1)
     submission_stage: Literal["INTERIM", "FINAL"] | None = None
     title: str = Field(min_length=1)

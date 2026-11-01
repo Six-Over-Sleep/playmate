@@ -1,3 +1,5 @@
+// PLAYMATE_COMMENT_ANON_EDIT_V2
+// PLAYMATE_BOARD_ANONYMOUS_V1
 import { apiRequest } from './apiClient'
 import { resolveMediaUrl } from '../config/api'
 
@@ -32,6 +34,14 @@ export const boardApi = {
     )
   },
 
+  /** 좋아요 기준으로 자동 선정된 읽기 전용 게시글 목록 */
+  featuredPosts(kind, query = '', options = {}) {
+    return request(
+      `/boards/featured/${kind}/posts?q=${encodeURIComponent(query)}`,
+      options,
+    )
+  },
+
   /** 지정한 게시판에 속한 글의 본문·소유자 여부·이미지 정보를 조회한다. */
   post(boardId, postId, options = {}) {
     return request(`/boards/${boardId}/posts/${postId}`, options)
@@ -42,6 +52,7 @@ export const boardApi = {
     const form = new FormData()
     form.append('title', payload.title)
     form.append('body', payload.body)
+    form.append('is_anonymous', String(Boolean(payload.is_anonymous)))
     payload.images.forEach((image) => form.append('images', image))
     return request(`/boards/${boardId}/posts`, { method: 'POST', body: form })
   },
@@ -50,7 +61,7 @@ export const boardApi = {
   updatePost(boardId, postId, payload) {
     return request(`/boards/${boardId}/posts/${postId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ title: payload.title, body: payload.body }),
+      body: JSON.stringify({ title: payload.title, body: payload.body, is_anonymous: payload.is_anonymous }),
     })
   },
 
@@ -68,10 +79,10 @@ export const boardApi = {
    * 댓글 본문을 저장하고 생성 응답을 반환해 화면에서 추가 GET 없이 반영하게 한다.
    * parentCommentId를 주면 그 댓글의 대댓글로 저장한다. (서버는 1단계 대댓글만 허용)
    */
-  createComment(boardId, postId, body, parentCommentId = null) {
+  createComment(boardId, postId, body, parentCommentId = null, isAnonymous = false) {
     return request(`/boards/${boardId}/posts/${postId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ body, parent_comment_id: parentCommentId }),
+      body: JSON.stringify({ body, parent_comment_id: parentCommentId, is_anonymous: isAnonymous }),
     })
   },
 
@@ -96,10 +107,11 @@ export const boardApi = {
   },
 
   /** 댓글 id와 수정 본문을 보내며 수정된 댓글을 반환한다. */
-  updateComment(commentId, body) {
+  updateComment(commentId, body, isAnonymous = undefined) {
     return request(`/comments/${commentId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ body }),
+      // 익명 값이 없는 구형 호출은 상태를 변경하지 않습니다.
+      body: JSON.stringify({ body, is_anonymous: isAnonymous }),
     })
   },
 

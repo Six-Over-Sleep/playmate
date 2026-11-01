@@ -402,3 +402,50 @@ export function deleteCareerComment(commentId) {
         method: 'DELETE',
     })
 }
+
+
+
+// =========================================================
+// 8. 커리어 브리핑 뉴스 (Issue #74)
+// 크롤러가 수집한 뉴스를 career_news에서 조회한다. 스크랩은 게시글 스크랩과 별도(career_news_scraps)다.
+// =========================================================
+
+const NEWS_URL = '/api/career/news'
+
+
+// 8-1. 최근 뉴스 목록 → { items, count, field_code, days, limit }
+// fieldCode가 없으면 전체 분야. 최신순으로 days일 이내 최대 limit건.
+export function getCareerNews({ fieldCode, days = 30, limit = 300 } = {}, options = {}) {
+    const params = new URLSearchParams({ days: String(days), limit: String(limit) })
+    if (fieldCode) params.set('field_code', fieldCode)
+
+    return request(`${NEWS_URL}?${params}`, options)
+}
+
+
+// 8-2. 뉴스 스크랩 등록 → { news_id, scrapped_by_me }
+export function scrapCareerNews(newsId) {
+    return request(`${NEWS_URL}/${newsId}/scrap`, {
+        method: 'PUT',
+    })
+}
+
+
+// 8-3. 뉴스 스크랩 취소 → { news_id, scrapped_by_me }
+export function unscrapCareerNews(newsId) {
+    return request(`${NEWS_URL}/${newsId}/scrap`, {
+        method: 'DELETE',
+    })
+}
+
+
+// 8-4. 뉴스 상세 → 목록 한 건 + is_hidden (기간 제한 없음, 숨긴 뉴스는 내 스크랩일 때만)
+export function getCareerNewsItem(newsId, options = {}) {
+    return request(`${NEWS_URL}/${newsId}`, options)
+}
+
+
+// 8-5. 내가 스크랩한 뉴스 최근 limit건 → { items, count, limit } (마이페이지 내 스크랩)
+export function getMyNewsScraps(limit = 20) {
+    return request(`${NEWS_URL}/scraps?limit=${limit}`)
+}

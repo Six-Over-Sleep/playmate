@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMyActivities } from '../../services/mypageApi'
+import { getMyScraps } from '../../services/myScrapsApi'
 
 const PAGE_SIZE = 10
 
@@ -74,6 +75,11 @@ function getMeetupCategory(category) {
 // =========================================================
 
 function getPostUrl(item) {
+  // 커리어 브리핑 뉴스 스크랩 (게시글 ID와 별개인 news_id)
+  if (item.item_type === 'NEWS') {
+    return item.news_id ? `/career/briefing/news/${item.news_id}` : null
+  }
+
   const postId = item.post_id
 
   if (!postId) {
@@ -123,6 +129,8 @@ export default function MyActivity({ onOpenMeetup }) {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // 내 스크랩: 뉴스 스크랩만 조회 실패한 경우 안내 (게시글 스크랩은 표시)
+  const [newsScrapError, setNewsScrapError] = useState('')
 
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
@@ -176,8 +184,14 @@ export default function MyActivity({ onOpenMeetup }) {
     setLoading(true)
     setError('')
     setItems([])
+    setNewsScrapError('')
 
-    getMyActivities(activeTab, queryPage)
+    // 내 스크랩은 게시글·뉴스 스크랩을 합친 목록 { items, newsError }
+    const request = activeTab === 'scraps'
+      ? getMyScraps()
+      : getMyActivities(activeTab, queryPage)
+
+    request
       .then((data) => {
         if (!active) {
           return
@@ -194,14 +208,20 @@ export default function MyActivity({ onOpenMeetup }) {
           setTotalCount(Number(data.total) || 0)
 
         } else {
-          if (!Array.isArray(data)) {
+          const list = activeTab === 'scraps' ? data?.items : data
+
+          if (!Array.isArray(list)) {
             throw new Error(
               '활동 조회 응답 형식이 올바르지 않습니다.',
             )
           }
 
-          setItems(data)
-          setTotalCount(data.length)
+          setItems(list)
+          setTotalCount(list.length)
+
+          if (activeTab === 'scraps') {
+            setNewsScrapError(data.newsError)
+          }
         }
       })
 
@@ -252,7 +272,9 @@ export default function MyActivity({ onOpenMeetup }) {
         return {
           title: item.title,
           description: '',
-          meta: `스크랩 · ${formatDate(item.scrapped_at)}`,
+          meta: item.item_type === 'NEWS'
+            ? `뉴스 스크랩${item.is_hidden ? ' · 현재 표시되지 않는 뉴스' : ''} · ${formatDate(item.scrapped_at)}`
+            : `스크랩 · ${formatDate(item.scrapped_at)}`,
         }
 
       default:
@@ -315,6 +337,12 @@ export default function MyActivity({ onOpenMeetup }) {
         className="mypage-activity-content"
         role="tabpanel"
       >
+
+        {!loading && newsScrapError && (
+          <p className="mypage-profile-error" role="alert">
+            {newsScrapError}
+          </p>
+        )}
 
         {loading ? (
 
@@ -455,7 +483,7 @@ export default function MyActivity({ onOpenMeetup }) {
 
               return (
               <li
-                key={id}
+                key={item.scrap_key ?? id}
                 className="mypage-activity-item"
                 onClickCapture={(e) => {
                   if (

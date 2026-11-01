@@ -79,6 +79,9 @@ from backend.app.routers.mypage import router as mypage_router  # noqa: E402
 # 취업 카테고리
 from backend.app.routers.career import router as career_router  # noqa: E402
 
+# 커리어 브리핑 뉴스
+from backend.app.routers.career_news import router as career_news_router  # noqa: E402
+
 
 # =========================================================
 # 4. FastAPI 애플리케이션 생성
@@ -142,6 +145,10 @@ app.include_router(recruit_program_features_router)
 # 취업 카테고리 API
 # 최종 주소: /api/career/...
 app.include_router(career_router)
+
+# 커리어 브리핑 뉴스 API
+# 최종 주소: /api/career/news...
+app.include_router(career_news_router)
 
 # 마이페이지 API
 # 최종 주소: /api/mypage/...

@@ -33,3 +33,5 @@ pnpm-debug.log*
 # Runtime files
 uploads/
 *.log
+# career_news_crawler 단독 실행 시 생기는 SQLite DB·저널 (PlayMate는 PostgreSQL에 저장)
+crawler/career_news_crawler/data/

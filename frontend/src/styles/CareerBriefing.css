@@ -332,3 +332,31 @@
         min-width: 0;
     }
 }
+
+/* =========================================
+   커리어 브리핑 - 실제 뉴스 연동 (Issue #74)
+========================================= */
+
+.career-news-save:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
+.career-news-pending {
+    color: #9892a5;
+}
+
+.career-news-link-note,
+.career-news-error {
+    margin: 10px 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.career-news-link-note {
+    color: #898298;
+}
+
+.career-news-error {
+    color: #c0392b;
+}

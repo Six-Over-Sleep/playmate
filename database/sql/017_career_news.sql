@@ -5,7 +5,11 @@
 -- 크롤러(Google News RSS → SQLite)가 모은 뉴스를 database/scripts/import_career_news.py가 가져온다.
 -- 크롤러 SQLite의 news_id는 재수집 때마다 바뀌므로 쓰지 않고, career_news.news_id를 영구 식별자로 쓴다.
 -- 가져오기는 UPSERT만 하고 행을 지우지 않는다 (수집 결과에서 사라진 뉴스와 스크랩도 유지).
--- 시각 컬럼은 posts와 같은 UTC 기준 TIMESTAMP다.
+-- 시각 컬럼 기준 (모두 시간대 없는 TIMESTAMP):
+--   published_at·first_seen_at·last_seen_at: UTC. 가져오기 스크립트가 UTC 값을 직접 넣는다 (DEFAULT는 쓰지 않음).
+--   hidden_at: 숨김 여부(NULL 여부)만 쓴다. 운영자가 값을 넣을 때도 UTC를 권장한다.
+--   created_at(career_news_fields·career_news_scraps): DEFAULT CURRENT_TIMESTAMP, 즉 DB 세션 시간대 기준이며
+--   post_scraps.created_at과 같은 방식이다 (마이페이지에서 게시글·뉴스 스크랩을 같은 기준으로 정렬).
 
 BEGIN;
 

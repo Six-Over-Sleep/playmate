@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMyActivities, getMyLikes } from '../../services/mypageApi'
+import { getMyScraps, NEWS_SCRAP_LIMIT } from '../../services/myScrapsApi'
+import { formatKstDateTime } from '../../utils/scrapTime'
 
 const PAGE_SIZE = 10
 
@@ -19,6 +21,12 @@ function formatDate(value) {
 }
 
 function getPostUrl(item) {
+  // 커리어 브리핑 뉴스 스크랩 (게시글 ID와 별개인 news_id)
+  if (item.item_type === 'NEWS') {
+    const newsId = Number(item.news_id)
+    return Number.isSafeInteger(newsId) && newsId > 0 ? `/career/briefing/news/${newsId}` : null
+  }
+
   const postId = Number(item.post_id)
   const recruitId = Number(item.recruit_id)
   const postType = String(item.post_type || '').toUpperCase()
@@ -74,7 +82,10 @@ function getDisplay(type, item) {
       return {
         title: item.title || '제목 없음',
         description: '',
-        meta: `스크랩 · ${formatDate(item.scrapped_at)}`,
+        meta: item.item_type === 'NEWS'
+          // 게시글·뉴스 스크랩 시각은 모두 UTC로 저장되므로 같은 기준(한국 시간)으로 표시한다
+          ? `뉴스 스크랩${item.is_hidden ? ' · 현재 표시되지 않는 뉴스' : ''} · ${formatKstDateTime(item.scrapped_at)}`
+          : `스크랩 · ${formatKstDateTime(item.scrapped_at)}`,
       }
     default:
       return { title: '', description: '', meta: '' }
@@ -121,16 +132,21 @@ export default function MyActivity({ onOpenMeetup, onOpenPost }) {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // 스크랩 탭: 게시글·뉴스 스크랩을 합친 목록. 뉴스 조회 실패·최근 건수 제한이면 exact=false
+  const [scrapInfo, setScrapInfo] = useState({ newsError: '', exact: true })
 
   useEffect(() => {
     let active = true
     setItems([])
     setLoading(true)
     setError('')
+    setScrapInfo({ newsError: '', exact: true })
 
     const request = activeTab === 'likes'
       ? getMyLikes(page)
-      : getMyActivities(activeTab, page)
+      : activeTab === 'scraps'
+        ? getMyScraps(page)
+        : getMyActivities(activeTab, page)
 
     Promise.resolve(request)
       .then((data) => {
@@ -138,6 +154,9 @@ export default function MyActivity({ onOpenMeetup, onOpenPost }) {
         const result = normalizePage(data, page)
         setItems(result.items)
         setTotalCount(result.total)
+        if (activeTab === 'scraps') {
+          setScrapInfo({ newsError: data.newsError, exact: data.exact })
+        }
       })
       .catch((cause) => {
         if (active) setError(cause.message || '내 활동을 불러오지 못했습니다.')
@@ -166,7 +185,10 @@ export default function MyActivity({ onOpenMeetup, onOpenPost }) {
 
   const openOriginal = (item, url) => {
     if (!url) return
-    if (url.startsWith('/meetup/')) {
+    // 뉴스는 게시글 이동(onOpenPost)이 아닌 커리어 브리핑 상세 주소로 이동한다.
+    if (item.item_type === 'NEWS') {
+      navigate(url)
+    } else if (url.startsWith('/meetup/')) {
       openMeetup(item.recruit_id)
     } else if (typeof onOpenPost === 'function') {
       onOpenPost(item)
@@ -176,12 +198,20 @@ export default function MyActivity({ onOpenMeetup, onOpenPost }) {
   }
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
+  // 스크랩 건수가 실제 전체 수가 아니면 '총 N건'으로만 표시하지 않는다.
+  // 뉴스 조회 실패: 게시글 스크랩 수만 정확 / 뉴스가 최근 NEWS_SCRAP_LIMIT건 이상: 실제는 더 많을 수 있음
+  const countText = `${totalCount.toLocaleString('ko-KR')}건`
+  const countLabel = activeTab !== 'scraps' || scrapInfo.exact
+    ? `총 ${countText}`
+    : scrapInfo.newsError
+      ? `게시글 스크랩 총 ${countText}`
+      : `총 ${countText} 이상`
 
   return (
     <section className="mypage-activity" aria-labelledby="mypage-activity-heading">
       <div className="mypage-activity-heading">
         <h3 id="mypage-activity-heading">활동 상세 내역</h3>
-        {!loading && !error && <span>총 {totalCount.toLocaleString('ko-KR')}건</span>}
+        {!loading && !error && <span>{countLabel}</span>}
       </div>
 
       <div className="mypage-activity-tabs" role="tablist" aria-label="활동 유형">
@@ -200,6 +230,14 @@ export default function MyActivity({ onOpenMeetup, onOpenPost }) {
       </div>
 
       <div className="mypage-activity-content" role="tabpanel">
+        {!loading && !error && scrapInfo.newsError && (
+          <p className="mypage-profile-error" role="alert">{scrapInfo.newsError}</p>
+        )}
+        {!loading && !error && activeTab === 'scraps' && !scrapInfo.exact && !scrapInfo.newsError && (
+          <p className="mypage-activity-meta">
+            뉴스 스크랩은 최근 {NEWS_SCRAP_LIMIT}건까지 함께 표시합니다.
+          </p>
+        )}
         {loading ? (
           <p className="mypage-activity-empty">활동 내역을 불러오는 중...</p>
         ) : error ? (
@@ -250,7 +288,8 @@ export default function MyActivity({ onOpenMeetup, onOpenPost }) {
             {items.map((item) => {
               const display = getDisplay(activeTab, item)
               const url = getPostUrl(item)
-              const key = activeTab === 'comments' ? item.comment_id : item.post_id
+              // 스크랩은 게시글·뉴스 ID가 같을 수 있어 scrap_key(post-ID / news-ID)를 쓴다.
+              const key = activeTab === 'comments' ? item.comment_id : (item.scrap_key ?? item.post_id)
               return (
                 <li className="mypage-activity-item" key={key}>
                   {url ? (

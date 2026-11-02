@@ -97,10 +97,30 @@ def get_my_activity_summary(
             (member_id,),
         )
         summary = cursor.fetchone()
+        news_scraps_count = (
+            _count_news_scraps(cursor, member_id) if summary is not None else 0
+        )
 
     if summary is None:
         raise HTTPException(status_code=404, detail="회원 정보를 찾을 수 없습니다.")
-    return summary
+    # 스크랩 수 = 게시글 스크랩(위 집계) + 커리어 브리핑 뉴스 스크랩 (Issue #74, #58 협의)
+    return {**summary, "scraps_count": summary["scraps_count"] + news_scraps_count}
+
+
+def _count_news_scraps(cursor, member_id: int) -> int:
+    """회원의 커리어 브리핑 뉴스 스크랩 전체 수 (Issue #74).
+
+    뉴스 테이블(database/sql/017_career_news.sql)이 아직 없는 DB에서는 0으로 본다.
+    테이블 존재만 확인하며, 그 밖의 DB 오류는 숨기지 않고 그대로 올린다.
+    """
+    cursor.execute("SELECT to_regclass('career_news_scraps') IS NOT NULL AS has_table")
+    if not cursor.fetchone()["has_table"]:
+        return 0
+    cursor.execute(
+        "SELECT COUNT(*)::int AS news_scraps FROM career_news_scraps WHERE member_id = %s",
+        (member_id,),
+    )
+    return cursor.fetchone()["news_scraps"]
 
 
 # 내 프로필 조회

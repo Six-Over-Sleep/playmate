@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMyActivities, getMyLikes } from '../../services/mypageApi'
 import { getMyScraps, NEWS_SCRAP_LIMIT } from '../../services/myScrapsApi'
+import { formatKstDateTime } from '../../utils/scrapTime'
 
 const PAGE_SIZE = 10
 
@@ -82,8 +83,9 @@ function getDisplay(type, item) {
         title: item.title || '제목 없음',
         description: '',
         meta: item.item_type === 'NEWS'
-          ? `뉴스 스크랩${item.is_hidden ? ' · 현재 표시되지 않는 뉴스' : ''} · ${formatDate(item.scrapped_at)}`
-          : `스크랩 · ${formatDate(item.scrapped_at)}`,
+          // 게시글·뉴스 스크랩 시각은 모두 UTC로 저장되므로 같은 기준(한국 시간)으로 표시한다
+          ? `뉴스 스크랩${item.is_hidden ? ' · 현재 표시되지 않는 뉴스' : ''} · ${formatKstDateTime(item.scrapped_at)}`
+          : `스크랩 · ${formatKstDateTime(item.scrapped_at)}`,
       }
     default:
       return { title: '', description: '', meta: '' }

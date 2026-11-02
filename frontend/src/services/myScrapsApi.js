@@ -1,5 +1,6 @@
 import { apiRequest } from './apiClient'
 import { getMyNewsScraps } from './careerApi'
+import { parseServerTime } from '../utils/scrapTime'
 
 // =========================================================
 // 마이페이지 '스크랩' (Issue #74)
@@ -20,10 +21,10 @@ const devMemberId = import.meta.env.DEV
   ? import.meta.env.VITE_DEV_MEMBER_ID
   : null
 
-// 두 API 모두 같은 DB 기본값(CURRENT_TIMESTAMP)을 시간대 없는 ISO 문자열로 보낸다.
-// 마이크로초는 밀리초까지만 읽어 같은 기준으로 비교한다.
+// 두 API 모두 같은 DB 기본값(CURRENT_TIMESTAMP, 공용 DB는 UTC)을 시간대 없는 ISO 문자열로 보낸다.
+// 둘 다 같은 규칙(UTC, 밀리초까지)으로 읽어 비교하므로 순서는 DB 시간대와 관계없이 유지된다.
 function scrapTime(value) {
-  const time = Date.parse(String(value || '').replace(/(\.\d{3})\d+/, '$1'))
+  const time = parseServerTime(value)
   return Number.isNaN(time) ? 0 : time
 }
 

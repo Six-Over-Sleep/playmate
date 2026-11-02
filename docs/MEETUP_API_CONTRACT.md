@@ -131,7 +131,7 @@ XP 공통 구현을 복제하거나 모임을 POST 보상으로 속여 호출하
 
 개인 인정과 XP_GRANT 예약은 같은 트랜잭션에 저장합니다. 재시도는 같은 사건 키를 사용하며, 무효 시 XP_REVOKE가 원 지급 참조를 지정합니다. 실제 어댑터가 없으면 PENDING으로 유지합니다. 외부 지급 확정 참조를 받은 뒤에만 지급 확인 상태를 기록합니다. 주간 한도·재인정/복구·판정 권한은 공통 담당자와 확정할 항목입니다.
 
-예약 실행은 `backend.app.jobs.process_recruit_jobs.process_once(service, gateways)`를 별도 실행기가 호출합니다. API worker 시작 시 반복 작업을 만들지 않습니다. 서비스와 gateway를 명시적으로 구성해야 하며 기본 구성만으로 공유 DB나 디스코드에 전송하지 않습니다.
+상태 변경 전용 실행기는 `backend.app.jobs.run_recruit_scheduler`입니다. API worker 시작 시 반복 작업을 만들지 않습니다. 기존 `process_once(service, gateways)`는 Outbox 전송을 포함하는 별도 진입점이며, 이번 실행기에서는 호출하지 않습니다.
 
 DISCORD_PREPARE/SCHEDULE_CHANGED/ROSTER_CHANGED/PROGRAM_CANCELED/PROGRAM_ABORTED/OPERATING_PERIOD_ENDED는 중복 방지 키·모임 ID·일정 버전으로 전달합니다. 일정 변경 시 구버전 대기 요청은 SUPERSEDED 처리합니다. 전달 실패는 활동 저장을 취소하지 않고 재시도합니다. 수신 측 중복 방지와 네트워크 타임아웃은 어댑터 계약입니다.
 
@@ -148,6 +148,95 @@ DISCORD_PREPARE/SCHEDULE_CHANGED/ROSTER_CHANGED/PROGRAM_CANCELED/PROGRAM_ABORTED
 
 전용 DB에서만 `RUN_RECRUIT_POSTGRES_TESTS=1`, `RECRUIT_TEST_DATABASE_URL`을 설정하면 UUID 테스트 스키마를 생성/삭제하는 테스트가 실행됩니다. 공유 운영 DB URL을 넣으면 안 됩니다. 기존 test_host.py/test_database.py 등의 전체 수집은 별도 확인 전 실행하지 않습니다.
 
-마이그레이션: `database/sql/20261026_recruit_programs.sql`. 새 테이블 9개를 추가하는 검토용 파일이며 공유 DB에 적용하지 않았습니다. 기존 다른 팀 마이그레이션 번호와 충돌하지 않도록 날짜 이름을 사용했습니다. 실제 적용 이력 관리 방식도 팀 기준에 맞춰야 합니다.
+마이그레이션: `database/sql/012_recruit_programs.sql`. 현재 저장소의 번호형 파일을 참조합니다. 이번 작업에서는 이 파일과 공유 DB를 변경하지 않습니다.
 
 후속 검증: 로컬 전용 PostgreSQL 16.15에서 해당 SQL 파일 실행과 동시 신청 검증 3개를 통과했습니다. 공유 DB에 적용한 것은 아닙니다. `docs/MEETUP_POSTGRES_VERIFICATION.md`에 검사 범위와 결과를 기록했습니다.
+
+## #76 후기 작성 권한 추가 (2026-11-02)
+
+기존 경로·요청 형식은 유지합니다. Domain 권한 응답에 `can_write_review`만 추가하며
+기존 `can_write_activity`의 진행 중 활동 의미는 바꾸지 않습니다.
+
+정상 운영 종료 후 확정 참여자의 응답 예시:
+
+```json
+{
+  "lifecycle_status": "COMPLETED",
+  "permissions": {
+    "can_write_activity": false,
+    "can_write_review": true
+  }
+}
+```
+
+소희님 연결 기준:
+- 진행 중 인증·결과물 버튼은 기존 `can_write_activity`를 사용합니다.
+- 종료 후 후기 버튼은 `can_write_review`를 사용합니다.
+- 비로그인·비참여자·ABORTED·CANCELED에는 후기 작성 권한을 주지 않습니다.
+- 버튼 표시와 별도로 서버가 활동 종류·확정 참여자·현재 상태를 다시 검사합니다.
+- 프론트엔드 코드는 이번에 수정하지 않았습니다.
+
+예약 실행은 기존 상태 변경 서비스만 호출합니다. 상태 변경 사건은 Outbox에 기록하지만
+XP·디스코드 전송은 호출하지 않습니다. 실행 방법과 담당자 확인 사항은
+`docs/MEETUP_BACKEND_IMPLEMENTATION.md`의 #76 항목을 참고합니다.
+
+## 프로젝트·스터디 상세 통합 응답
+
+신규 프로젝트·스터디의 `GET /api/recruits/{recruit_id}`는 기존 상세 필드를 유지하고
+`members`와 `participation`을 추가합니다. 상세·참여자·인원을 한 HTTP 요청으로
+받을 수 있습니다. 기존 `/members`, `/count`는 호환성을 위해 유지합니다.
+기존 운동·게임·공동구매 및 확장 행이 없는 옛 스터디의 응답은 변경하지 않았습니다.
+
+추가 필드 예시:
+
+```json
+{
+  "recruit_id": 1,
+  "participant_count": 2,
+  "waiting_count": 1,
+  "members": [
+    {
+      "member_id": 1,
+      "role": "HOST",
+      "is_leader": false,
+      "display_name": "회원 닉네임",
+      "joined_at": "2026-11-02T00:00:00+00:00",
+      "skill_ids": []
+    },
+    {
+      "member_id": 2,
+      "role": "MEMBER",
+      "is_leader": false,
+      "display_name": "참여자 닉네임",
+      "joined_at": "2026-11-02T00:00:00+00:00",
+      "skill_ids": []
+    }
+  ],
+  "participation": {
+    "recruit_id": 1,
+    "current_members": 2,
+    "capacity": 2,
+    "remaining": 0,
+    "waiting_count": 1
+  }
+}
+```
+
+소희님 연결 예시:
+
+```javascript
+const detail = await meetupApi.detail(recruitId)
+// 통합 필드가 있으면 members/count API를 추가 호출하지 않습니다.
+const members = detail.members
+const participation = detail.participation
+```
+
+기존 모임과 함께 사용하는 화면에서는 통합 필드 존재 여부로 분기해 기존 경로를
+유지합니다. URL Effect와 targetMeetupId Effect가 동시에 상세를 호출하는 문제도
+프론트에서 한 진입점으로 정리해야 합니다. 이번 백엔드 수정만으로 브라우저 요청이
+자동 감소하지는 않습니다. 신청·취소 후에도 상세를 다시 한 번 조회하면 신규 상태를
+받을 수 있으며 기존 변경 API 응답에 통합 필드가 항상 있다고 가정하지 않습니다.
+
+확정자 공개 정보와 본인 신청 상태만 반환합니다. 다른 대기자의 목록·커리어는 공개하지
+않습니다. 핵심 데이터는 한 SQL에서 읽되 기존 인증·회원 확인·기존/신규 모임 분기는
+유지합니다. 인증을 포함한 모든 DB 쿼리가 한 개가 됐다는 의미는 아닙니다.

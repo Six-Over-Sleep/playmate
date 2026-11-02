@@ -471,4 +471,7 @@ class Program:
             "can_write_activity": item is not None
             and item.status == "ACCEPTED"
             and self.lifecycle_status == "IN_PROGRESS",
+            "can_write_review": item is not None
+            and item.status == "ACCEPTED"
+            and self.lifecycle_status == "COMPLETED",
         }

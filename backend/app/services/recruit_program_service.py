@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
+import logging
 from zoneinfo import ZoneInfo
 from typing import Protocol
 
@@ -114,46 +115,72 @@ class ProgramService:
         """공개 상세를 반환하고 로그인 회원에게만 본인 신청 상태와 서버 권한을 추가한다."""
         if member_id is not None:
             self.repository.actor(member_id)
-        program = self.repository.load(recruit_id)
-        return self.view(program, member_id)
+        bundle = self.repository.detail_bundle(recruit_id, member_id)
+        program = bundle["program"]
+        result = program_view(
+            program,
+            member_id,
+            bundle["basic"],
+            bundle["details"],
+            bundle["eligibility"],
+            self.clock(),
+            self.curriculum_policy,
+            {"waiting_count": bundle["counts"]["waiting"]},
+        )
+        result["members"] = self.member_views(
+            program.creator_type,
+            program.creator_id,
+            program.leader_id,
+            bundle["members"],
+        )
+        result["participation"] = self.participation_view(recruit_id, bundle["counts"])
+        return result
 
     def members(self, recruit_id, member_id):
         """확정 참여자만 반환한다. 신청서·대기자 비공개 자료는 전달하지 않는다."""
         if member_id is not None:
             self.repository.actor(member_id)
-        program = self.repository.load(recruit_id)
-        names = self.repository.member_names(
-            [item.member_id for item in program.accepted()]
+        program, members = self.repository.participant_roster(recruit_id)
+        return self.member_views(
+            program["creator_type"],
+            program["creator_id"],
+            program["leader_id"],
+            members,
         )
+
+    @staticmethod
+    def member_views(creator_type, creator_id, leader_id, members):
+        """독립 API와 통합 상세에서 개설자/팀장 표시 규칙을 공유한다."""
         return [
             {
-                "member_id": item.member_id,
+                **item,
                 "role": (
                     "HOST"
-                    if program.creator_type == "USER"
-                    and item.member_id == program.creator_id
+                    if creator_type == "USER" and item["member_id"] == creator_id
                     else "MEMBER"
                 ),
-                "joined_at": (item.changed_at or item.submitted_at).isoformat(),
-                "is_leader": item.member_id == program.leader_id,
-                "display_name": names.get(item.member_id),
-                "skill_ids": item.skill_ids,
+                "is_leader": item["member_id"] == leader_id,
             }
-            for item in program.accepted()
+            for item in members
         ]
 
     def count(self, recruit_id, member_id):
         """기존 count 응답을 유지하면서 확정/대기 인원을 분리한다."""
         if member_id is not None:
             self.repository.actor(member_id)
-        program = self.repository.load(recruit_id)
-        count = len(program.accepted())
+        counts = self.repository.participation_counts(recruit_id)
+        return self.participation_view(recruit_id, counts)
+
+    @staticmethod
+    def participation_view(recruit_id, counts):
+        """통합/독립 응답에서 정원·빈자리 계산을 동일하게 유지한다."""
+        count = counts["accepted"]
         return {
             "recruit_id": recruit_id,
             "current_members": count,
-            "capacity": program.capacity,
-            "remaining": max(0, program.capacity - count),
-            "waiting_count": len(program.waiting()),
+            "capacity": counts["capacity"],
+            "remaining": max(0, counts["capacity"] - count),
+            "waiting_count": counts["waiting"],
         }
 
     def list(self, member_id, category=None, base_rows=None):
@@ -185,7 +212,7 @@ class ProgramService:
 
     def view(self, program, member_id):
         """상세에 필요한 부가 정보를 읽고 공통 직렬화 함수에 전달한다."""
-        basic = self.repository.basic_detail(program.recruit_id)
+        _, basic, details = self.repository.detail_context(program.recruit_id)
         basic.update(
             self.repository.social_summaries([program.recruit_id], member_id)[
                 program.recruit_id
@@ -195,7 +222,7 @@ class ProgramService:
             program,
             member_id,
             basic,
-            self.repository.metadata(program.recruit_id),
+            details,
             self.repository.eligibility_info(member_id),
             self.clock(),
             self.curriculum_policy,
@@ -451,13 +478,26 @@ class ProgramService:
                 recruit_id, member_id, data.model_dump(mode="json"), now
             )
 
-    def tick(self):
-        """별도 예약 실행기가 호출한다. API 프로세스마다 반복 작업을 시작하지 않는다."""
+    def tick(self, on_error=None):
+        """모임별로 확정/롤백한다. 오류 통지는 예약 실행기가 재시도 주기를 고를 때 쓴다."""
         ids = self.repository.pending_ids(self.clock())
         self.repository.session.rollback()
+        processed = 0
         for recruit_id in ids:
-            with self.transaction():
-                program = self.repository.load(recruit_id, lock=True)
-                program.tick(self.clock())
-                self.repository.save(program)
-        return len(ids)
+            try:
+                with self.transaction():
+                    # 조회 후 일정 연장/취소가 발생할 수 있어 잠금 뒤 최신 상태를 읽는다.
+                    program = self.repository.load(recruit_id, lock=True)
+                    program.tick(self.clock())
+                    self.repository.save(program)
+                processed += 1
+            except Exception as error:
+                # DB 예외 본문에는 접속 정보나 개인 자료가 포함될 수 있다.
+                logging.getLogger(__name__).error(
+                    "모임 상태 변경 실패 recruit_id=%s error_type=%s",
+                    recruit_id,
+                    type(error).__name__,
+                )
+                if on_error is not None:
+                    on_error(recruit_id)
+        return processed

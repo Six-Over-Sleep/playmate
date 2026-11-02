@@ -120,6 +120,11 @@ class ProgramRepository:
             if member_id is not None
             else None
         )
+        return self.eligibility_values(state)
+
+    @staticmethod
+    def eligibility_values(state):
+        """별도 조회와 통합 조회에서 본인 이탈 제한 표시를 동일하게 직렬화한다."""
         count = state.withdrawal_count if state else 0
         return {
             "withdrawal_count": count,
@@ -564,6 +569,226 @@ class ProgramRepository:
     def metadata(self, recruit_id):
         """스터디 종류·난이도·정기 일정 등 프로그램 상세 저장값을 반환한다."""
         return self.session.get(ProgramRecord, recruit_id).details
+
+    def detail_context(self, recruit_id):
+        """모임·게시글·상세 설정을 한 번에 읽어 동일 행의 재조회를 피한다."""
+        row = self.session.execute(
+            select(ProgramRecord, Recruit, Post)
+            .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
+            .join(Post, Post.post_id == Recruit.post_id)
+            .where(ProgramRecord.recruit_id == recruit_id, self.visible_post())
+        ).first()
+        if row is None:
+            raise PolicyError("신규 프로젝트·스터디를 찾을 수 없습니다.", 404)
+        record, recruit, post = row
+        return record, self.basic_values(recruit, post), record.details
+
+    def _detail_bundle_query(self, recruit_id, member_id):
+        """상세·확정자·인원·본인 상태를 읽는 단일 SELECT를 구성한다.
+
+        확정자와 본인 대기 신청의 표시 필드만 JOIN한다. 다른 대기자는 수만 집계하고
+        커리어 JSON/취소 이력은 읽지 않아 신청 수에 비례한 응답 행 증가를 피한다.
+        좋아요와 대기 수는 상관 집계로 계산해 JOIN 간 인원 중복을 막는다.
+        """
+        waiting_count = (
+            select(func.count())
+            .select_from(ApplicationRecord)
+            .where(
+                ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                ApplicationRecord.status == "WAITING",
+            )
+            .correlate(ProgramRecord)
+            .scalar_subquery()
+        )
+        like_count = (
+            select(func.count())
+            .select_from(PostLike)
+            .where(PostLike.post_id == Post.post_id)
+            .correlate(Post)
+            .scalar_subquery()
+        )
+        liked = (
+            exists()
+            .where(PostLike.post_id == Post.post_id, PostLike.member_id == member_id)
+            .correlate(Post)
+        )
+        scrapped = (
+            exists()
+            .where(PostScrap.post_id == Post.post_id, PostScrap.member_id == member_id)
+            .correlate(Post)
+        )
+        visible_application = ApplicationRecord.status == "ACCEPTED"
+        if member_id is not None:
+            visible_application = or_(
+                visible_application,
+                and_(
+                    ApplicationRecord.status == "WAITING",
+                    ApplicationRecord.member_id == member_id,
+                ),
+            )
+        return (
+            select(
+                ProgramRecord,
+                Recruit,
+                Post,
+                EligibilityRecord,
+                ApplicationRecord.application_id,
+                ApplicationRecord.member_id.label("application_member_id"),
+                ApplicationRecord.sequence,
+                ApplicationRecord.submitted_at,
+                ApplicationRecord.status,
+                ApplicationRecord.payload["skill_ids"].label("skill_ids"),
+                ApplicationRecord.payload["leader_volunteer"].label("volunteer"),
+                ApplicationRecord.payload["changed_at"].label("changed_at"),
+                Member.nickname,
+                waiting_count.label("waiting_count"),
+                like_count.label("like_count"),
+                liked.label("liked_by_me"),
+                scrapped.label("scrapped_by_me"),
+            )
+            .select_from(ProgramRecord)
+            .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
+            .join(Post, Post.post_id == Recruit.post_id)
+            .outerjoin(EligibilityRecord, EligibilityRecord.member_id == member_id)
+            .outerjoin(
+                ApplicationRecord,
+                and_(
+                    ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                    visible_application,
+                ),
+            )
+            .outerjoin(Member, Member.member_id == ApplicationRecord.member_id)
+            .where(ProgramRecord.recruit_id == recruit_id, self.visible_post())
+            .order_by(ApplicationRecord.sequence)
+        )
+
+    def detail_bundle(self, recruit_id, member_id):
+        """단일 SQL 결과를 업무 객체와 표시 데이터로 변환한다. 추가 조회는 하지 않는다."""
+        rows = self.session.execute(
+            self._detail_bundle_query(recruit_id, member_id)
+        ).all()
+        if not rows:
+            raise PolicyError("신규 프로젝트·스터디를 찾을 수 없습니다.", 404)
+        first = rows[0]
+        program = self.hydrate(first[0], [])
+        roster = []
+        for row in rows:
+            if row.application_member_id is None:
+                continue
+            application = Application(
+                member_id=row.application_member_id,
+                sequence=row.sequence,
+                submitted_at=utc(row.submitted_at),
+                skill_ids=row.skill_ids or [],
+                leader_volunteer=bool(row.volunteer),
+                status=row.status,
+                application_id=row.application_id,
+                changed_at=(
+                    datetime.fromisoformat(row.changed_at) if row.changed_at else None
+                ),
+            )
+            program.applications.append(application)
+            if application.status == "ACCEPTED":
+                roster.append(
+                    {
+                        "member_id": application.member_id,
+                        "joined_at": (
+                            application.changed_at or application.submitted_at
+                        ).isoformat(),
+                        "display_name": row.nickname,
+                        "skill_ids": application.skill_ids,
+                    }
+                )
+        basic = {
+            **self.basic_values(first[1], first[2]),
+            "like_count": first.like_count,
+            "liked_by_me": bool(first.liked_by_me),
+            "scrapped_by_me": bool(first.scrapped_by_me),
+        }
+        return {
+            "program": program,
+            "basic": basic,
+            "details": first[0].details,
+            "eligibility": self.eligibility_values(first[3]),
+            "members": roster,
+            "counts": {
+                "capacity": program.capacity,
+                "accepted": len(roster),
+                "waiting": first.waiting_count,
+            },
+        }
+
+    def participation_counts(self, recruit_id):
+        """신청서 JSON을 읽지 않고 확정/대기 수를 DB에서 집계한다."""
+        row = self.session.execute(
+            select(
+                Recruit.capacity,
+                func.count(case((ApplicationRecord.status == "ACCEPTED", 1))),
+                func.count(case((ApplicationRecord.status == "WAITING", 1))),
+            )
+            .select_from(ProgramRecord)
+            .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
+            .join(Post, Post.post_id == Recruit.post_id)
+            .outerjoin(
+                ApplicationRecord,
+                and_(
+                    ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                    ApplicationRecord.status.in_(["ACCEPTED", "WAITING"]),
+                ),
+            )
+            .where(ProgramRecord.recruit_id == recruit_id, self.visible_post())
+            .group_by(Recruit.recruit_id, Recruit.capacity)
+        ).first()
+        if row is None:
+            raise PolicyError("신규 프로젝트·스터디를 찾을 수 없습니다.", 404)
+        return {"capacity": row[0], "accepted": row[1], "waiting": row[2]}
+
+    def participant_roster(self, recruit_id):
+        """확정자 표시 필드와 닉네임만 조회해 대기자·커리어 적재를 피한다."""
+        rows = self.session.execute(
+            select(
+                ProgramRecord.payload,
+                ApplicationRecord.member_id,
+                ApplicationRecord.submitted_at,
+                ApplicationRecord.payload["changed_at"].label("changed_at"),
+                ApplicationRecord.payload["skill_ids"].label("skill_ids"),
+                Member.nickname,
+            )
+            .select_from(ProgramRecord)
+            .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
+            .join(Post, Post.post_id == Recruit.post_id)
+            .outerjoin(
+                ApplicationRecord,
+                and_(
+                    ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                    ApplicationRecord.status == "ACCEPTED",
+                ),
+            )
+            .outerjoin(Member, Member.member_id == ApplicationRecord.member_id)
+            .where(ProgramRecord.recruit_id == recruit_id, self.visible_post())
+            .order_by(ApplicationRecord.sequence)
+        ).all()
+        if not rows:
+            raise PolicyError("신규 프로젝트·스터디를 찾을 수 없습니다.", 404)
+        members = []
+        for row in rows:
+            # LEFT JOIN의 빈 확정자 행도 모임 존재 확인에는 사용한다.
+            if row.member_id is None:
+                continue
+            changed = (
+                datetime.fromisoformat(row.changed_at)
+                if row.changed_at
+                else utc(row.submitted_at)
+            )
+            members.append(
+                {
+                    "member_id": row.member_id,
+                    "joined_at": changed.isoformat(),
+                    "display_name": row.nickname,
+                    "skill_ids": row.skill_ids or [],
+                }
+            )
+        return rows[0].payload, members
 
     def basic_detail(self, recruit_id):
         """기존 게시글과 모임 필드를 읽어 응답 계약을 유지한다."""

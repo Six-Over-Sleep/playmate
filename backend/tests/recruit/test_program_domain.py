@@ -18,6 +18,48 @@ def program(category="study", capacity=2, skills=None, creator_type="USER"):
     )
 
 
+@pytest.mark.parametrize("status", ["IN_PROGRESS", "COMPLETED", "ABORTED", "CANCELED"])
+def test_activity_and_review_permissions_are_separate(status):
+    group = program()
+    group.apply(1, group.starts_at - timedelta(days=3))
+    group.lifecycle_status = status
+    permissions = group.permissions(1, group.ends_at)
+    assert permissions["can_write_activity"] == (status == "IN_PROGRESS")
+    assert permissions["can_write_review"] == (status == "COMPLETED")
+    assert group.permissions(2, group.ends_at)["can_write_review"] is False
+
+
+@pytest.mark.parametrize("offset", [-1, 0, 1])
+def test_cutoff_start_end_boundaries(offset):
+    group = program()
+    group.apply(1, group.starts_at - timedelta(days=3))
+    group.apply(2, group.starts_at - timedelta(days=3))
+    group.tick(group.starts_at + timedelta(seconds=offset))
+    assert (group.lifecycle_status == "IN_PROGRESS") == (offset >= 0)
+    group.tick(group.ends_at + timedelta(seconds=offset))
+    assert (group.lifecycle_status == "COMPLETED") == (offset >= 0)
+    empty = program()
+    empty.tick(empty.deadline_at + timedelta(seconds=offset))
+    assert (empty.lifecycle_status == "CANCELED") == (offset >= 0)
+
+
+def test_extended_group_is_not_started_by_old_start_time():
+    group = program("project", 4, [101, 102])
+    group.apply(1, group.starts_at - timedelta(days=3), [101], creator=True)
+    old_start = group.starts_at
+    group.tick(group.deadline_at)
+    group.extend(
+        1,
+        group.deadline_at,
+        old_start + timedelta(days=14),
+        group.ends_at + timedelta(days=14),
+        1,
+    )
+    group.tick(old_start)
+    assert group.lifecycle_status == "RECRUITING"
+    assert group.schedule_version == 2
+
+
 def test_study_waiter_promotes_in_order_without_newcomer_overtaking():
     group = program()
     now = group.starts_at - timedelta(days=3)

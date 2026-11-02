@@ -23,6 +23,16 @@ from backend.app.routers.recruit_program import build_program_service
 
 @pytest.fixture
 def runtime(service, monkeypatch):
+    from backend.app.services import recruit_member
+
+    # 기존 모임도 같은 가상 KST 시각을 사용해 실제 날짜가 바뀌어도 마감되지 않게 한다.
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setattr(
+        recruit_member,
+        "kst_now",
+        lambda: service.clock().astimezone(ZoneInfo("Asia/Seoul")).replace(tzinfo=None),
+    )
     engine = service.repository.session.get_bind()
     Base.metadata.create_all(
         engine,
@@ -239,7 +249,8 @@ def test_legacy_join_and_cancel_use_authenticated_member(
     assert participants() == [1]
     assert runtime.request("POST", path + "/join").status_code == 401
     assert runtime.request("DELETE", path + "/join").status_code == 401
-    assert runtime.request("POST", path + "/join", legacy_login=True).status_code == 400
+    # 기존 서비스는 HOST 재신청을 일반 중복(400)과 구분해 권한 오류로 반환한다.
+    assert runtime.request("POST", path + "/join", legacy_login=True).status_code == 403
     assert participants() == [1]
     assert runtime.request("POST", path + "/join", member=2).status_code == 200
     assert runtime.request("POST", path + "/join", member=2).status_code == 400

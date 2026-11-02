@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
 from datetime import timedelta
+from threading import Barrier
 
 import pytest
 from sqlalchemy import create_engine, inspect
@@ -45,7 +46,7 @@ def postgres(service):
         Base.metadata.create_all(engine, tables=tables)
         migration = (
             Path(__file__).resolve().parents[3]
-            / "database/sql/20261026_recruit_programs.sql"
+            / "database/sql/012_recruit_programs.sql"
         ).read_text(encoding="utf-8")
         with base.connect().execution_options(
             isolation_level="AUTOCOMMIT"
@@ -125,6 +126,18 @@ def test_summary_projection_and_due_filter_on_postgres(postgres, service, payloa
         assert summary["participant_count"] == 2
         assert summary["waiting_count"] == 1
         assert summary["my_application"]["application_status"] == "WAITING"
+        detail = actual.detail(recruit, 3)
+        assert detail["waiting_count"] == 1
+        assert detail["my_application"]["application_status"] == "WAITING"
+        roster = actual.members(recruit, 1)
+        assert [item["member_id"] for item in roster] == [1, 2]
+        assert [item["role"] for item in roster] == ["HOST", "MEMBER"]
+        assert all(item["skill_ids"] == [] for item in roster)
+        assert detail["members"] == roster
+        counts = actual.count(recruit, 1)
+        assert counts["current_members"] == 2
+        assert counts["waiting_count"] == 1
+        assert detail["participation"] == counts
         assert actual.repository.pending_ids(now) == []
         cutoff = payload["starts_at"] - timedelta(hours=24)
         assert actual.repository.pending_ids(cutoff) == [recruit]
@@ -156,6 +169,119 @@ def test_same_member_concurrent_duplicate_is_rejected(postgres, service, payload
     with Session(postgres) as session:
         program = ProgramRepository(session).load(recruit)
         assert len([item for item in program.accepted() if item.member_id == 2]) == 1
+
+
+def test_concurrent_scheduler_reloads_locked_state_and_deduplicates_events(
+    postgres, service, payload
+):
+    """두 실행기가 같은 대상을 조회해도 잠금 후 전날 사건을 한 번만 저장한다."""
+    from sqlalchemy import func, select
+    from backend.app.models.recruit_program import OutboxRecord
+
+    now = service.clock()
+    with Session(postgres) as session:
+        actual = ProgramService(ProgramRepository(session), clock=lambda: now)
+        recruit = actual.create(1, ProgramCreate(**payload))["recruit_id"]
+        actual.apply(recruit, 2, ProgramApplication())
+    cutoff = payload["starts_at"] - timedelta(hours=24)
+    barrier = Barrier(2, timeout=15)
+
+    def run():
+        with Session(postgres) as session:
+            repository = ProgramRepository(session)
+            original = repository.pending_ids
+
+            def both_read(moment):
+                ids = original(moment)
+                barrier.wait()
+                return ids
+
+            repository.pending_ids = both_read
+            failures = []
+            count = ProgramService(repository, clock=lambda: cutoff).tick(
+                on_error=failures.append
+            )
+            return count, failures
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(run) for _ in range(2)]
+        assert [future.result(timeout=30) for future in futures] == [(1, []), (1, [])]
+    with Session(postgres) as session:
+        assert session.scalar(select(func.count()).select_from(OutboxRecord)) == 1
+        actual = ProgramService(ProgramRepository(session), clock=lambda: cutoff)
+        assert actual.tick() == 0
+        assert actual.repository.load(recruit).lifecycle_status != "IN_PROGRESS"
+        actual.clock = lambda: payload["starts_at"]
+        assert actual.tick() == 1
+        assert actual.repository.load(recruit).lifecycle_status == "IN_PROGRESS"
+        actual.clock = lambda: payload["ends_at"]
+        assert actual.tick() == 1
+        assert actual.tick() == 0
+        assert actual.repository.load(recruit).lifecycle_status == "COMPLETED"
+        assert session.scalar(select(func.count()).select_from(OutboxRecord)) == 2
+
+
+def test_scheduler_cli_once_uses_existing_database_configuration(
+    postgres, service, payload
+):
+    """실제 별도 프로세스가 전용 스키마만 처리하고 반복 실행에도 중복 저장하지 않는다."""
+    import subprocess
+    import sys
+
+    schema = postgres.get_execution_options()["schema_translate_map"][None]
+    with Session(postgres) as session:
+        actual = ProgramService(ProgramRepository(session), clock=service.clock)
+        recruit = actual.create(1, ProgramCreate(**payload))["recruit_id"]
+        actual.apply(recruit, 2, ProgramApplication())
+    url = postgres.url
+    environment = {
+        **os.environ,
+        "DB_HOST": url.host,
+        "DB_PORT": str(url.port or 5432),
+        "DB_NAME": url.database,
+        "DB_USER": url.username,
+        "DB_PASSWORD": url.password,
+        "DB_SSLMODE": "disable",
+        "PGOPTIONS": f"-c search_path={schema},pg_catalog",
+        "ENABLE_RECRUIT_PROGRAMS": "true",
+        "DISCORD_CLIENT_ID": "isolated-test",
+        "DISCORD_CLIENT_SECRET": "isolated-test",
+        "DISCORD_REDIRECT_URI": "http://test/callback",
+        "SESSION_SECRET_KEY": "isolated-test",
+    }
+    command = [
+        sys.executable,
+        "-m",
+        "backend.app.jobs.run_recruit_scheduler",
+        "--once",
+    ]
+    for _ in range(2):
+        result = subprocess.run(
+            command,
+            cwd=Path(__file__).resolve().parents[3],
+            env=environment,
+            capture_output=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, "예약 실행 CLI가 실패했습니다."
+    with Session(postgres) as session:
+        # 실제 현재 시각에 따라 도래한 상태까지만 진행한다.
+        from datetime import datetime, timezone
+
+        expected = ProgramRepository(session).load(recruit)
+        expected.tick(datetime.now(timezone.utc))
+        assert (
+            ProgramRepository(session).load(recruit).lifecycle_status
+            == expected.lifecycle_status
+        )
+    invalid = subprocess.run(
+        command,
+        cwd=Path(__file__).resolve().parents[3],
+        env={**environment, "RECRUIT_SCHEDULER_INTERVAL_SECONDS": "0"},
+        capture_output=True,
+        timeout=30,
+    )
+    assert invalid.returncode == 2
 
 
 def test_main_api_program_flow_on_postgres(postgres, service, payload, monkeypatch):

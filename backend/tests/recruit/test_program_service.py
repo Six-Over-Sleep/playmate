@@ -20,6 +20,29 @@ def create(service, payload, member=1):
     return service.create(member, ProgramCreate(**payload))["recruit_id"]
 
 
+def test_completed_review_permission_matches_registration(service, payload):
+    recruit = create(service, payload)
+    service.apply(recruit, 2, ProgramApplication())
+    service.test_clock[0] = payload["ends_at"]
+    service.tick()
+    permissions = service.detail(recruit, 1)["permissions"]
+    assert permissions["can_write_activity"] is False
+    assert permissions["can_write_review"] is True
+    service.activities(
+        recruit,
+        1,
+        ActivityCreate(activity_type="REVIEW", title="회고", body="정상 종료 후기"),
+    )
+    assert len(service.activities(recruit, 1)) == 1
+    assert service.detail(recruit, None)["permissions"]["can_write_review"] is False
+    with pytest.raises(PolicyError):
+        service.activities(
+            recruit,
+            3,
+            ActivityCreate(activity_type="REVIEW", title="회고", body="비참여자"),
+        )
+
+
 def test_round_trip_waiting_snapshot_and_no_xp_on_apply(service, payload):
     recruit = create(service, payload)
     result = service.apply(

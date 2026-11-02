@@ -1,3 +1,4 @@
+# PLAYMATE_BOARD_REPORTS_V1
 
 """
 PlayMate FastAPI 메인 서버
@@ -48,7 +49,7 @@ if str(PROJECT_ROOT_PATH) not in sys.path:
 from backend.app.core.config import SESSION_SECRET_KEY  # noqa: E402
 
 # DB 연결
-from backend.app.core.db_connect import db_cursor  # noqa: E402
+from app.core.db_connect import db_cursor  # noqa: E402
 
 # 이미지 업로드 경로
 from backend.app.core.uploads import PROJECT_ROOT  # noqa: E402
@@ -66,6 +67,9 @@ from backend.app.routers.auth import router as auth_router  # noqa: E402
 
 # 일반 게시판
 from backend.app.routers.board import router as board_router  # noqa: E402
+from backend.app.routers.board_moderation import (  # noqa: E402
+    router as board_reports_router, admin_router as board_reports_admin_router,
+)
 from backend.app.routers.activity import router as activity_router  # noqa: E402
 from backend.app.routers.admin import router as admin_router  # noqa: E402
 
@@ -139,6 +143,8 @@ app.include_router(auth_router)
 
 # 일반 게시판 API
 app.include_router(board_router)
+app.include_router(board_reports_router)
+app.include_router(board_reports_admin_router)
 app.include_router(activity_router)
 app.include_router(admin_router)
 

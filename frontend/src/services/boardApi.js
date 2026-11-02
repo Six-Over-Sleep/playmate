@@ -1,3 +1,4 @@
+// PLAYMATE_BOARD_REPORTS_V1
 // PLAYMATE_COMMENT_ANON_EDIT_V2
 // PLAYMATE_BOARD_ANONYMOUS_V1
 import { apiRequest } from './apiClient'
@@ -68,6 +69,14 @@ export const boardApi = {
   /** 글 삭제를 요청한다. 서버가 204를 반환하면 공용 client의 결과는 null이다. */
   deletePost(boardId, postId) {
     return request(`/boards/${boardId}/posts/${postId}`, { method: 'DELETE' })
+  },
+
+  /** 로그인 회원으로 신고: 동일 게시글은 1회만 가능. */
+  reportPost(boardId, postId, reason, details = '') {
+    return request(`/boards/${boardId}/posts/${postId}/reports`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, details }),
+    })
   },
 
   /** 상세 글의 댓글 목록을 서버 순서대로 조회한다. options로 요청 취소를 지원한다. */

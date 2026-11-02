@@ -1,3 +1,4 @@
+// PLAYMATE_BOARD_REPORTS_V1
 // PLAYMATE_COMMENT_ANON_EDIT_V2
 // PLAYMATE_BOARD_ANONYMOUS_V1
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -547,6 +548,31 @@ export function useBoard(resetVersion) {
     )
   }
 
+  /** 3명 신고로 숨김 처리되면 상세를 닫고 목록을 갱신합니다. */
+  function reportPost(reason, details = '') {
+    if (!post || !board || mutationLock.current) return null
+    return mutate(
+      () => boardApi.reportPost(board.id, post.id, reason, details),
+      (result) => {
+        if (result.hidden) {
+          cancelDetail()
+          cancelList()
+          dirty.current = true
+          setPost(null)
+          setComments([])
+          setView('list')
+          const path = `/board/${board.id}`
+          handledPath.current = path
+          navigate(path)
+          loadPosts(board, query)
+          notify('신고 누적으로 게시글이 자동 비노출 처리되었습니다.')
+        } else {
+          notify('신고가 접수되었습니다.')
+        }
+      },
+    )
+  }
+
   /** 스크랩 상태에 맞춰 등록·취소를 보내고 서버가 돌려준 여부로 상세를 갱신한다. */
   function toggleScrap() {
     return mutate(
@@ -672,6 +698,6 @@ export function useBoard(resetVersion) {
     busy, modal, error, success, initialized,
     selectBoard, searchPosts, openPost, backToList, createBoard, savePost,
     deletePost, addComment, editComment, deleteComment, openEditor,
-    editPost, cancelEditor, openModal, closeModal, toggleLike, toggleScrap,
+    editPost, cancelEditor, openModal, closeModal, toggleLike, toggleScrap, reportPost,
   }
 }

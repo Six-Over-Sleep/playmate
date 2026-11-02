@@ -58,7 +58,7 @@ export default function BoardCreateModal({ open, busy, onClose, onCreate }) {
               onChange={(event) => setDescription(event.target.value)}
               placeholder="어떤 이야기를 나눌 공간인가요?"
             />
-            <small>게시판 목록에 공개돼요.</small>
+            <small>입력한 소개는 게시판 제목 바로 아래에 표시됩니다.</small>
           </label>
 
           <label>

@@ -20,7 +20,7 @@ def comment(comment_id=1, owner=True):
     return {"id": comment_id, "post_id": 1, "body": "댓글", "author_id": 1, "author_name": "익명 A001", "created_at": NOW, "updated_at": NOW, "is_owner": owner}
 
 def test_list_boards(monkeypatch):
-    monkeypatch.setattr(board_service, "list_boards", lambda: [board()])
+    monkeypatch.setattr(board_service, "list_boards", lambda *_: [board()])
     assert routes.list_boards(1)[0]["name"] == "자유게시판"
 
 def test_create_board(monkeypatch):
@@ -52,7 +52,7 @@ def test_search_and_latest_sort_are_forwarded(monkeypatch):
     assert seen == {"q": "React", "sort": "latest"}
 
 def test_update_and_delete_post(monkeypatch):
-    monkeypatch.setattr(board_service, "update_post", lambda board_id, post_id, title, body, member_id: post(post_id, title=title))
+    monkeypatch.setattr(board_service, "update_post", lambda board_id, post_id, title, body, member_id, is_anonymous=None: post(post_id, title=title))
     monkeypatch.setattr(board_service, "delete_post", lambda *args: None)
     assert routes.update_post(1, 1, PostWrite(title="수정", body="수정 본문"), 1)["title"] == "수정"
     assert routes.delete_post(1, 1, 1).status_code == 204
@@ -72,7 +72,7 @@ def test_missing_post_returns_404(monkeypatch):
 def test_comment_crud(monkeypatch):
     monkeypatch.setattr(board_service, "list_comments", lambda *args: [comment()])
     monkeypatch.setattr(board_service, "create_comment", lambda *args: comment())
-    monkeypatch.setattr(board_service, "update_comment", lambda comment_id, body, member_id: {**comment(comment_id), "body": body})
+    monkeypatch.setattr(board_service, "update_comment", lambda comment_id, body, member_id, is_anonymous=None: {**comment(comment_id), "body": body})
     monkeypatch.setattr(board_service, "delete_comment", lambda *args: None)
     assert routes.list_comments(1, 1, 1)[0]["body"] == "댓글"
     assert routes.create_comment(1, 1, CommentWrite(body="댓글"), 1)["id"] == 1
@@ -81,7 +81,7 @@ def test_comment_crud(monkeypatch):
 
 def test_reply_forwards_parent_comment_id(monkeypatch):
     seen = {}
-    def fake(board_id, post_id, body, member_id, parent_comment_id):
+    def fake(board_id, post_id, body, member_id, parent_comment_id, is_anonymous=False):
         seen.update(parent_comment_id=parent_comment_id); return {**comment(5), "parent_comment_id": parent_comment_id}
     monkeypatch.setattr(board_service, "create_comment", fake)
     assert routes.create_comment(1, 1, CommentWrite(body="답글", parent_comment_id=3), 1)["parent_comment_id"] == 3

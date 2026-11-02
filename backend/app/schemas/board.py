@@ -1,3 +1,5 @@
+# PLAYMATE_COMMENT_AVATAR_V1
+# PLAYMATE_COURSE_BOARD_PERMISSIONS_V1
 # PLAYMATE_BOARD_ANONYMOUS_V1
 # 게시판, 게시글, 댓글의 API 요청 및 응답 데이터 형식을 정의하는 Pydantic Schema
 from datetime import datetime
@@ -31,6 +33,9 @@ class BoardResponse(BaseModel):
     id: int
     name: str
     description: str | None = None
+    course_code: str | None = None
+    cohort: int | None = None
+    can_write: bool = True
     created_at: datetime
 
 
@@ -128,6 +133,7 @@ class CommentResponse(BaseModel):
     # 작성자 정보
     author_id: int | None
     author_name: str
+    author_avatar_url: str | None = None
 
     # 익명 여부
     is_anonymous: bool = False

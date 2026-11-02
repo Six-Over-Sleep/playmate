@@ -1,3 +1,6 @@
+/* PLAYMATE_FRONTEND_POLISH_V1 */
+import '../../styles/boardBetaPolish.css'
+// PLAYMATE_BOARD_REPORTS_V1
 import BoardCreateModal from './BoardCreateModal'
 import BoardPage from '../../pages/board/BoardPage'
 import PostDetailPage from '../../pages/board/PostDetailPage'
@@ -6,7 +9,7 @@ import { useBoard } from '../../hooks/board/useBoard'
 import useBoardVisitTracker from '../../hooks/useBoardVisitTracker'
 
 /** 게시판 전용 hook의 상태와 화면만 연결한다. 인증·모임 상태는 여기서 관리하지 않는다. */
-export default function BoardSection({ resetVersion }) {
+export default function BoardSection({ resetVersion, memberCourse, memberCohort }) {
   const boardState = useBoard(resetVersion)
   useBoardVisitTracker(boardState.board?.id)
   const {
@@ -35,6 +38,8 @@ export default function BoardSection({ resetVersion }) {
           {view === 'list' && (
             <BoardPage
               boards={boards}
+              memberCourse={memberCourse}
+              memberCohort={memberCohort}
               board={board}
               posts={posts}
               query={query}
@@ -62,6 +67,8 @@ export default function BoardSection({ resetVersion }) {
           {view === 'detail' && post && (
             <PostDetailPage
               key={post.id}
+              memberCourse={memberCourse}
+              memberCohort={memberCohort}
               boards={boards}
               board={board}
               post={post}
@@ -74,6 +81,7 @@ export default function BoardSection({ resetVersion }) {
               onDelete={boardState.deletePost}
               onLike={boardState.toggleLike}
               onScrap={boardState.toggleScrap}
+              onReport={boardState.reportPost}
               onComment={boardState.addComment}
               onEditComment={boardState.editComment}
               onDeleteComment={boardState.deleteComment}

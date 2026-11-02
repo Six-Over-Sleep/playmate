@@ -82,6 +82,15 @@ def run_import(conn, path, seen_at):
     return report
 
 
+def run_rows(conn, collected, seen_at):
+    """수집 스크립트(collect_career_news.py)와 같은 경로: SQLite 없이 수집 행을 바로 저장한다."""
+    articles, _ = importer.build_articles(collected)
+    with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+        report = importer.import_articles(cursor, articles, seen_at)
+    conn.commit()
+    return report
+
+
 def rows(conn, sql, params=()):
     with conn.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute(sql, params)
@@ -202,8 +211,8 @@ def test_reimport_keeps_news_id_merges_fields_and_preserves_scraps(connection, t
 
 def test_changed_link_with_same_source_and_title_keeps_news(connection, tmp_path):
     run_import(connection, make_sqlite(tmp_path / "run1.db", [
-        ("데이터·AI", "AI 반도체 수요 증가", "예시신문", link("OLDTOKEN"), None),
-        ("데이터·AI", "AI 반도체 수요 증가", "다른신문", link("OTHER"), None),
+        ("데이터·AI", "AI 반도체 수요 증가", "예시신문", link("OLDTOKEN"), "2026-10-28T23:00:00+00:00"),
+        ("데이터·AI", "AI 반도체 수요 증가", "다른신문", link("OTHER"), "2026-10-28T23:00:00+00:00"),
     ]), T1)
     assert len(rows(connection, "SELECT * FROM career_news")) == 2  # 같은 제목이라도 언론사가 다르면 다른 뉴스
 
@@ -215,8 +224,83 @@ def test_changed_link_with_same_source_and_title_keeps_news(connection, tmp_path
     after = rows(connection, "SELECT * FROM career_news WHERE source_name = '예시신문'")
     assert len(after) == 1 and after[0]["news_id"] == original["news_id"]
     assert after[0]["link_url"] == original["link_url"]  # 기존 링크·link_key 유지
-    assert after[0]["last_seen_at"] == T2 and after[0]["published_at"] == datetime(2026, 10, 29, 1)
+    # 발행일은 기존 링크와 맞는 값을 유지하고, 마지막 확인 시각만 갱신한다
+    assert after[0]["last_seen_at"] == T2 and after[0]["published_at"] == datetime(2026, 10, 28, 23)
     assert fields_of(connection, original["news_id"]) == {"data_ai", "security"}
+
+
+def test_real_case_same_article_two_links_30_minutes_apart_is_one_news(connection, tmp_path):
+    """실제 수집(2026-11-01)에서 230→229로 합쳐진 사례: 같은 언론사·제목, 다른 Google 링크, 30분 차이."""
+    title = "플래티어, 폐쇄망 대응 테스트 관리 솔루션 출시"
+    report = run_rows(connection, [
+        ("qa_test", title, "아시아경제", link("CBMiggFBVV95cUxPemVKN0t"), "2026-10-25T22:54:00+00:00"),
+        ("qa_test", title, "아시아경제", link("CBMiYEFVX3lxTFA3YmxQSkp"), "2026-10-25T23:24:39+00:00"),
+        ("qa_test", title, "아시아경제", link("CBMiYEFVX3lxTFA3YmxQSkp"), "2026-10-25T23:24:39+00:00"),  # 같은 링크 중복
+    ], T1)
+    stored = rows(connection, "SELECT * FROM career_news")
+    assert len(stored) == 1 and (report.inserted, report.matched_by_title) == (1, 1)
+    assert stored[0]["link_url"].endswith("CBMiggFBVV95cUxPemVKN0t")
+    assert stored[0]["published_at"] == datetime(2026, 10, 25, 22, 54)  # 먼저 저장된 링크의 발행일 유지
+
+
+@pytest.mark.parametrize("second_published,expected_news", [
+    ("2026-10-11T09:00:00+00:00", 2),  # 14일 전: 다른 기사 (정기 연재 등)
+    ("2026-11-08T09:00:00+00:00", 2),  # 14일 후
+    ("2026-10-22T09:00:00+00:00", 1),  # 정확히 3일 전: 같은 기사
+    ("2026-10-28T09:00:00+00:00", 1),  # 정확히 3일 후
+    ("2026-10-28T09:01:00+00:00", 2),  # 3일 1분 후: 다른 기사
+])
+def test_same_source_and_title_merge_only_within_three_days(connection, tmp_path, second_published, expected_news):
+    run_import(connection, make_sqlite(tmp_path / "a.db", [
+        ("데이터·AI", "주간 AI 동향", "예시신문", link("WEEK1"), "2026-10-25T09:00:00+00:00"),
+    ]), T1)
+    run_import(connection, make_sqlite(tmp_path / "b.db", [
+        ("데이터·AI", "주간 AI 동향", "예시신문", link("WEEK2"), second_published),
+    ]), T2)
+    stored = rows(connection, "SELECT link_url, published_at FROM career_news ORDER BY news_id")
+    assert len(stored) == expected_news
+    assert stored[0]["published_at"] == datetime(2026, 10, 25, 9)  # 첫 기사 발행일은 어느 경우에도 그대로
+    if expected_news == 2:
+        assert stored[1]["link_url"].endswith("WEEK2")  # 새 기사는 자기 링크·발행일로 따로 저장
+        assert stored[1]["published_at"] == datetime.fromisoformat(second_published).replace(tzinfo=None)
+
+
+@pytest.mark.parametrize("first_published,second_published", [
+    (None, "2026-10-25T09:00:00+00:00"),                       # 기존 기사 발행일 없음
+    ("2026-10-25T09:00:00+00:00", None),                       # 새 기사 발행일 없음
+    (None, None),                                              # 둘 다 없음
+])
+def test_missing_published_date_never_merges_by_title(connection, tmp_path, first_published, second_published):
+    run_import(connection, make_sqlite(tmp_path / "a.db", [
+        ("데이터·AI", "AI 반도체 수요 증가", "예시신문", link("FIRST"), first_published),
+    ]), T1)
+    report = run_import(connection, make_sqlite(tmp_path / "b.db", [
+        ("데이터·AI", "AI 반도체 수요 증가", "예시신문", link("SECOND"), second_published),
+    ]), T2)
+    assert (report.inserted, report.matched_by_title) == (1, 0)
+    assert len(rows(connection, "SELECT * FROM career_news")) == 2
+
+
+def test_same_link_recollected_and_repeated_import_is_idempotent(connection, tmp_path):
+    batch = [
+        ("data_ai", "AI 반도체 수요 증가", "예시신문", link("SAME"), "2026-10-25T09:00:00+00:00"),
+        ("security", "보안 투자 확대", "예시신문", link("SEC"), "2026-10-25T10:00:00+00:00"),
+        ("security", "보안 투자 확대", "예시신문", link("SEC2"), "2026-10-25T10:30:00+00:00"),  # 같은 기사 다른 링크
+    ]
+    first = run_rows(connection, batch, T1)
+    snapshot = rows(connection, """SELECT news_id, link_url, title, published_at,
+                                          ARRAY(SELECT field_code FROM career_news_fields f
+                                                WHERE f.news_id = n.news_id ORDER BY 1) AS fields
+                                   FROM career_news n ORDER BY news_id""")
+    assert (first.inserted, first.matched_by_title) == (2, 1) and len(snapshot) == 2
+    for seen_at in (T2, T3):  # 같은 결과를 두 번 더 가져와도 변화 없음 (마지막 확인 시각만 갱신)
+        again = run_rows(connection, batch, seen_at)
+        assert again.inserted == 0 and again.field_links_added == 0
+        assert rows(connection, """SELECT news_id, link_url, title, published_at,
+                                          ARRAY(SELECT field_code FROM career_news_fields f
+                                                WHERE f.news_id = n.news_id ORDER BY 1) AS fields
+                                   FROM career_news n ORDER BY news_id""") == snapshot
+    assert {r["last_seen_at"] for r in rows(connection, "SELECT last_seen_at FROM career_news")} == {T3}
 
 
 def test_old_it_news_crawler_format(connection, tmp_path):

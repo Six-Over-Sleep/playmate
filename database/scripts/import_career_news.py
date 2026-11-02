@@ -6,7 +6,8 @@
 - 크롤러 원본 코드는 바꾸지 않고, 결과 SQLite(news 테이블)만 읽기 전용으로 연다.
 - 크롤러 SQLite의 news_id는 재수집 때마다 바뀌므로 쓰지 않는다. 링크를 정규화한 SHA-256(link_key)으로
   같은 뉴스를 찾아 UPSERT하므로 career_news.news_id가 유지된다.
-- 링크가 바뀌어도 언론사 + 제목이 같으면 같은 뉴스로 본다 (기존 news_id·링크 유지).
+- 링크가 바뀌어도 언론사 + 제목이 같고 발행일이 3일 이내면 같은 뉴스로 본다 (기존 news_id·링크·발행일 유지).
+  발행일이 어느 한쪽이라도 없으면 제목만으로 합치지 않는다 (정기 연재처럼 제목이 같은 다른 기사를 보호).
 - 같은 뉴스가 여러 분야에 있으면 career_news_fields에 분야만 추가한다.
 - 행을 지우지 않는다. 이번 수집에 없는 뉴스·분야·스크랩·숨김(hidden_at)은 그대로 둔다.
 - Google News RSS 링크는 GOOGLE_NEWS_RSS로 저장한다. 언론사 원문 주소로 검증하지 않았으므로 원문 URL로 표시하지 않는다.
@@ -18,7 +19,7 @@ import sqlite3
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -48,6 +49,8 @@ TITLE_LIMIT = 500
 SOURCE_LIMIT = 200
 # 동시에 두 가져오기가 실행되지 않도록 잡는 advisory lock 키
 IMPORT_LOCK_KEY = 740_014_001
+# 링크가 다른 같은 기사(언론사 + 제목)로 볼 발행일 차이 한도
+TITLE_MATCH_WINDOW = timedelta(days=3)
 
 
 @dataclass
@@ -184,32 +187,39 @@ def import_articles(cursor, articles: list[NewsArticle], seen_at: datetime) -> I
     for article in articles:
         news_id = None
 
-        # 1. 링크가 다르게 들어온 같은 기사: 언론사 + 제목이 같으면 기존 news_id·링크를 유지한다.
+        # 1. 링크가 다르게 들어온 같은 기사: 언론사 + 제목이 같고 발행일이 TITLE_MATCH_WINDOW 이내면
+        #    기존 news_id·링크·발행일을 유지한다. 발행일이 없으면 제목만으로 합치지 않고 새 기사로 저장한다.
         cursor.execute("SELECT 1 FROM career_news WHERE link_key = %s", (article.link_key,))
-        if cursor.fetchone() is None and article.source_name:
+        if cursor.fetchone() is None and article.source_name and article.published_at is not None:
             cursor.execute(
                 """
                 SELECT news_id
                 FROM career_news
                 WHERE source_name = %s
                   AND title = %s
-                ORDER BY news_id
+                  AND published_at BETWEEN %s AND %s
+                ORDER BY ABS(EXTRACT(EPOCH FROM published_at - %s)), news_id
                 LIMIT 1
                 """,
-                (article.source_name, article.title),
+                (
+                    article.source_name,
+                    article.title,
+                    article.published_at - TITLE_MATCH_WINDOW,
+                    article.published_at + TITLE_MATCH_WINDOW,
+                    article.published_at,
+                ),
             )
             row = cursor.fetchone()
             if row is not None:
                 news_id = row["news_id"]
+                # 기존 링크와 맞는 발행일을 지키기 위해 published_at은 바꾸지 않는다.
                 cursor.execute(
                     """
                     UPDATE career_news
-                    SET
-                        published_at = COALESCE(%s, published_at),
-                        last_seen_at = %s
+                    SET last_seen_at = %s
                     WHERE news_id = %s
                     """,
-                    (article.published_at, seen_at, news_id),
+                    (seen_at, news_id),
                 )
                 report.matched_by_title += 1
 

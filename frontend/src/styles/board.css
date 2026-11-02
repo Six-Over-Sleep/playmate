@@ -1,3 +1,5 @@
+/* PLAYMATE_COMMENT_AVATAR_V1 */
+/* PLAYMATE_BOARD_REPORTS_V1 */
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800;900&display=swap');
 
 /* 공통 글꼴과 기본 색상 */
@@ -842,4 +844,86 @@ select:focus-visible {
     align-items: stretch;
     flex-direction: column;
   }
+}
+
+
+/* PLAYMATE_COURSE_BOARD_PERMISSIONS_V1 */
+.board-course-description {
+  font-size: 0.87rem;
+  color: #667085;
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+.board-course-readonly {
+  border-radius: 8px;
+  padding: 9px 12px;
+  background-color: #fff6e7;
+  color: #875b14;
+  font-size: 0.87rem;
+  margin: 10px 0;
+}
+
+
+/* 게시글 신고 영역 */
+.board-report-area { margin: 18px 0; padding: 14px; border: 1px solid #e5e7eb; border-radius: 10px; }
+.board-report-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; max-width: 420px; }
+.board-report-form select, .board-report-form textarea { width: 100%; padding: 9px; border: 1px solid #d0d5dd; border-radius: 8px; }
+.board-report-form textarea { min-height: 70px; resize: vertical; }
+.board-report-form button { align-self: flex-start; padding: 8px 14px; }
+
+/* PLAYMATE_BOARD_INTRO_BELOW_TITLE_V1 */
+/* 게시판 만들기의 '게시판 소개'를 제목 바로 아래에 표시합니다. */
+.feed-head .board-intro-description {
+  margin: 7px 0 0;
+  color: #758199;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* PLAYMATE_POST_ANONYMOUS_CHECKBOX_ALIGN_V1 */
+/* 일반 입력 필드의 width:100%가 체크박스까지 늘리지 않도록 제한 */
+.editor-card label.board-anonymous-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  justify-self: start;
+  gap: 8px;
+  width: auto;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+.editor-card label.board-anonymous-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: #7458aa;
+  cursor: pointer;
+}
+
+/* 비익명 댓글의 Discord 프로필 사진 */
+.comment-avatar.has-photo {
+  overflow: hidden;
+  background: #eeebf6;
+}
+.comment-avatar.has-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* 게시글 정렬 버튼 텍스트 가운데 정렬 */
+select.sort-pill {
+  text-align: center;
+  text-align-last: center;
+  padding-left: 24px;
+  padding-right: 24px;
 }

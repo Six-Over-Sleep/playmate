@@ -1,9 +1,11 @@
+# PLAYMATE_COURSE_BOARD_PERMISSIONS_V1
 # PLAYMATE_COMMENT_ANON_EDIT_V2
 # PLAYMATE_BOARD_ANONYMOUS_V1
 """게시판 업무 순서·권한·트랜잭션을 관리한다."""
 
 # Any : 반환되는 DB 데이터(딕셔너리)의 값 타입을 유연하게 표현함.
 from typing import Any
+import re
 
 # HTTPException : API 요청 처리 중 HTTP 오류 응답을 발생시킴.
 from fastapi import HTTPException
@@ -11,7 +13,7 @@ from fastapi import HTTPException
 from psycopg2 import errors
 
 # db_cursor : DB 커서를 생성하고 조회/저장 트랜잭션을 관리함.
-from backend.app.core.db_connect import db_cursor
+from app.core.db_connect import db_cursor
 # repository : 게시판·게시글·댓글에 대한 실제 SQL 실행을 담당함.
 from backend.app.repositories import board_repository as repository
 import logging
@@ -35,6 +37,59 @@ def _require_board(cursor, board_id: int) -> dict[str, Any]:
     if board is None:
         raise HTTPException(status_code=404, detail="게시판을 찾을 수 없습니다.")
     return board
+
+
+
+def _get_board_member(cursor, member_id: int) -> dict[str, Any]:
+    """세션 회원 ID로 서버 DB의 과정·기수를 조회합니다."""
+    cursor.execute(
+        "SELECT course, cohort, role_code FROM members WHERE member_id = %s",
+        (member_id,),
+    )
+    member = cursor.fetchone()
+    if member is None:
+        raise HTTPException(status_code=401, detail="회원 정보를 찾을 수 없습니다.")
+    return member
+
+
+def _can_write_course_board(board: dict[str, Any], member: dict[str, Any]) -> bool:
+    """일반 게시판은 그대로 두고, 과정 게시판만 과정+기수 일치를 요구합니다."""
+    if board.get("course_code") is None:
+        return True
+    if (member.get("role_code") or "").strip().upper() == "ADMIN":
+        return True
+    return (
+        member.get("course") == board.get("course_code")
+        and member.get("cohort") == board.get("cohort")
+    )
+
+
+def _require_course_board_writer(cursor, board_id: int, member_id: int) -> None:
+    board = _require_board(cursor, board_id)
+    if board.get("course_code") is None:
+        return
+    if not _can_write_course_board(board, _get_board_member(cursor, member_id)):
+        raise HTTPException(
+            status_code=403,
+            detail="이 게시판은 해당 과정·기수 수강생만 작성할 수 있습니다.",
+        )
+
+
+def _require_comment_board_writer(cursor, comment_id: int, member_id: int) -> None:
+    """댓글 수정·삭제 API는 댓글 ID만 받으므로 부모 게시판을 추적합니다."""
+    cursor.execute(
+        """
+        SELECT p.board_id
+        FROM comments AS c
+        JOIN posts AS p ON p.post_id = c.post_id
+        WHERE c.comment_id = %s AND c.deleted_at IS NULL
+        """,
+        (comment_id,),
+    )
+    comment = cursor.fetchone()
+    if comment is not None:
+        _require_course_board_writer(cursor, comment["board_id"], member_id)
+
 
 def _require_notice_admin(cursor, board_id: int, member_id: int):
     """공지사항 게시판은 관리자만 변경할 수 있도록 검사"""
@@ -94,18 +149,26 @@ def _comment_detail(cursor, comment_id: int, member_id: int) -> dict[str, Any]:
 # =========================================================
 # 2. 게시판 목록·생성·상세 조회
 # =========================================================
-def list_boards() -> list[dict[str, Any]]:
-    """기본 게시판을 우선하는 기존 순서로 게시판 목록을 반환한다."""
-    # read_only=True : 조회용 트랜잭션으로 DB 작업을 수행함.
+def list_boards(member_id: int | None = None) -> list[dict[str, Any]]:
+    """전체 게시판 조회를 허용하고, 현재 회원의 작성 가능 여부를 표시합니다."""
     with db_cursor(read_only=True) as cursor:
-        return repository.list_boards(cursor)
+        boards = repository.list_boards(cursor)
+        if member_id is not None:
+            member = _get_board_member(cursor, member_id)
+            for board in boards:
+                board["can_write"] = _can_write_course_board(board, member)
+        return boards
 
 
 def create_board(
     name: str, description: str | None, creation_reason: str | None, member_id: int
 ) -> dict[str, Any]:
     """게시판 저장·응답 조회를 한 트랜잭션으로 처리한다. 이름 중복은 409이다."""
-    if name.strip().casefold() in {"공지사항", "명예의 전당", "hot 게시판"}:
+    reserved = re.fullmatch(
+        r"(?:패밀리 AI|멀티 에이전트|데이터 엔지니어링|데이터·머신러닝) [1-9][0-9]*기",
+        name.strip(),
+    )
+    if name.strip().casefold() in {"공지사항", "명예의 전당", "hot 게시판"} or reserved:
         raise HTTPException(status_code=403, detail="운영 전용 게시판 이름입니다.")
     try:
         with db_cursor(commit=True) as cursor:
@@ -123,10 +186,15 @@ def create_board(
 
 
 
-def get_board(board_id: int) -> dict[str, Any]:
-    """게시판 ID의 상세를 반환한다. 없으면 404이다."""
+def get_board(board_id: int, member_id: int | None = None) -> dict[str, Any]:
+    """게시판 상세와 회원별 작성 권한을 반환합니다."""
     with db_cursor(read_only=True) as cursor:
-        return _require_board(cursor, board_id)
+        board = _require_board(cursor, board_id)
+        if member_id is not None:
+            board["can_write"] = _can_write_course_board(
+                board, _get_board_member(cursor, member_id)
+            )
+        return board
 
 
 # =========================================================
@@ -171,6 +239,8 @@ def create_post(
     # 1. 게시글 저장
     with db_cursor(commit=True) as cursor:
 
+        # 과정 게시판은 해당 과정·기수만 작성 가능
+        _require_course_board_writer(cursor, board_id, member_id)
         # 공지사항 관리자 권한 검사
         _require_notice_admin(cursor, board_id, member_id)
 
@@ -258,6 +328,7 @@ def update_post(
     """작성자 조건으로 수정 후 응답을 조회한다. 실패 시 전체 롤백한다."""
     with db_cursor(commit=True) as cursor:
         _require_notice_admin(cursor, board_id, member_id)
+        _require_course_board_writer(cursor, board_id, member_id)
         if is_anonymous and _require_board(cursor, board_id)["name"] == "공지사항":
             raise HTTPException(status_code=422, detail="공지사항은 익명으로 작성할 수 없습니다.")
         # Repository에서 작성자 ID와 게시글 상태를 조건으로 수정함.
@@ -275,6 +346,7 @@ def update_post(
 def delete_post(board_id: int, post_id: int, member_id: int) -> None:
     with db_cursor(commit=True) as cursor:
         _require_notice_admin(cursor, board_id, member_id)
+        _require_course_board_writer(cursor, board_id, member_id)
 
         # 1. 게시글 논리 삭제
         if not repository.delete_post(cursor, board_id, post_id, member_id):
@@ -392,8 +464,9 @@ def create_comment(
 ) -> dict[str, Any]:
     """게시글·부모 댓글 확인, 댓글 저장, 응답 조회를 한 트랜잭션에서 수행한다."""
     with db_cursor(commit=True) as cursor:
-        # 1. 게시글 존재 확인
+        # 1. 게시글 및 과정·기수 작성 권한 확인
         _require_post(cursor, board_id, post_id)
+        _require_course_board_writer(cursor, board_id, member_id)
 
         # 2. 대댓글이면 부모 댓글 검증
         if parent_comment_id is not None:
@@ -468,6 +541,7 @@ def update_comment(
 ) -> dict[str, Any]:
     """작성자만 본문/익명 여부를 수정합니다. None이면 익명 여부를 유지합니다."""
     with db_cursor(commit=True) as cursor:
+        _require_comment_board_writer(cursor, comment_id, member_id)
         if not repository.update_comment(
             cursor, comment_id, body, member_id, is_anonymous
         ):
@@ -478,6 +552,7 @@ def update_comment(
 # 댓글 및 대댓글 삭제 시 XP 회수
 def delete_comment(comment_id: int, member_id: int) -> None:
     with db_cursor(commit=True) as cursor:
+        _require_comment_board_writer(cursor, comment_id, member_id)
 
         # 1. 댓글 논리 삭제
         if not repository.delete_comment(cursor, comment_id, member_id):

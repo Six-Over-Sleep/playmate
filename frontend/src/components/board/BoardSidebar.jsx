@@ -43,6 +43,8 @@ function isSpecialBoard(board) {
 /** 게시판 검색·접기·펼치기를 관리하고, 선택 및 생성은 부모에게 전달한다. */
 export default function BoardSidebar({
   boards = [],
+  memberCourse = null,
+  memberCohort = null,
   busy,
   selectedId,
   onSelect,
@@ -54,17 +56,41 @@ export default function BoardSidebar({
 
   const allBoards = Array.isArray(boards) ? boards : []
 
+  // 로그인 회원의 실제 과정·기수와 비교합니다. 관리자의 can_write는
+  // 모든 게시판에서 true일 수 있으므로 소속 판별에 사용하지 않습니다.
+  const hasMemberProfile = Boolean(memberCourse) && memberCohort != null
+  const writableCourseBoards = allBoards.filter(
+    (item) => item.course_code && item.can_write === true
+  )
+  const fallbackBoardId = !hasMemberProfile && writableCourseBoards.length === 1
+    ? writableCourseBoards[0].id
+    : null
+
+  const isMyCourseBoard = (item) => {
+    if (!item.course_code) return false
+    if (hasMemberProfile) {
+      return String(item.course_code) === String(memberCourse)
+        && Number(item.cohort) === Number(memberCohort)
+    }
+    // 개발용 헤더 로그인처럼 프로필이 없을 때만 안전한 대체 기준을 사용합니다.
+    return fallbackBoardId != null && String(item.id) === String(fallbackBoardId)
+  }
+
   // 주요 게시판은 검색·접기 여부에 상관없이 상단에 고정한다.
   const specialBoards = allBoards
-    .filter(isSpecialBoard)
+    .filter((item) => isSpecialBoard(item) || isMyCourseBoard(item))
     .sort((first, second) => {
-      const firstOrder = SPECIAL_BOARD_ORDER[getOriginalName(first)] ?? 99
-      const secondOrder = SPECIAL_BOARD_ORDER[getOriginalName(second)] ?? 99
-
+      const firstOrder = SPECIAL_BOARD_ORDER[getOriginalName(first)]
+        ?? (isMyCourseBoard(first) ? 4 : 99)
+      const secondOrder = SPECIAL_BOARD_ORDER[getOriginalName(second)]
+        ?? (isMyCourseBoard(second) ? 4 : 99)
       return firstOrder - secondOrder
     })
 
-  const normalBoards = allBoards.filter((board) => !isSpecialBoard(board))
+  // 다른 과정·기수 게시판은 읽기 가능하되 '일반 게시판'으로 분류합니다.
+  const normalBoards = allBoards.filter(
+    (item) => !isSpecialBoard(item) && !isMyCourseBoard(item)
+  )
   const searchWord = search.trim().toLocaleLowerCase()
 
   // 게시판 이름만 검색한다. 게시글 검색과는 별개다.
@@ -94,7 +120,7 @@ export default function BoardSidebar({
       <button
         type="button"
         key={board.id}
-        className={`board-directory-item${selected ? ' active' : ''}`}
+        className={`board-directory-item${selected ? ' active' : ''}${isMyCourseBoard(board) ? ' board-my-course' : ''}`}
         aria-current={selected ? 'page' : undefined}
         disabled={busy}
         onClick={() => onSelect(board)}

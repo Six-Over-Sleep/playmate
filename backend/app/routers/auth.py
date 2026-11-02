@@ -1,3 +1,4 @@
+# PLAYMATE_COMMENT_AVATAR_V1
 """Discord OAuth2 로그인, 회원 상태, 로그아웃, 추가 회원가입 API."""
 
 import logging
@@ -17,7 +18,7 @@ from app.core.config import (
 )
 from app.schemas.member import MemberSignup
 from app.services.auth_service import exchange_code_for_token, get_discord_user
-from app.services.member_service import get_member, register_member
+from app.services.member_service import get_member, register_member, sync_member_avatar
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -121,6 +122,15 @@ async def get_current_user(request: Request):
             f"https://cdn.discordapp.com/avatars/"
             f"{discord_user['discord_id']}/{avatar_hash}.{ext}"
         )
+
+    # 다른 회원의 댓글에도 프로필 사진을 표시할 수 있도록 저장합니다.
+    # 로그인 조회에 이미지 동기화가 필수는 아니므로 실패해도 로그인은 유지합니다.
+    # 테스트용 회원 대역에는 profile_image_url 필드가 없어 기존 인증 테스트에 영향이 없습니다.
+    if "profile_image_url" in member and member["profile_image_url"] != avatar_url:
+        try:
+            await run_in_threadpool(sync_member_avatar, member["member_id"], avatar_url)
+        except DB_ERRORS:
+            logger.warning("Discord 프로필 사진 동기화 실패", exc_info=True)
 
     return {
         "authenticated": True,

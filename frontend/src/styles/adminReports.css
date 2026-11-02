@@ -1,0 +1,119 @@
+/* PLAYMATE 관리자 신고 관리: 기존 관리자 센터의 라벤더 테마를 따릅니다. */
+.admin-reports-panel { min-width: 0; }
+.admin-reports-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 19px;
+}
+.admin-reports-summary > div {
+  display: grid;
+  gap: 9px;
+  padding: 17px;
+  border: 1px solid #ece8f4;
+  border-radius: 14px;
+  background: #faf9fe;
+}
+.admin-reports-summary span { color: #847b9b; font-size: 12px; font-weight: 700; }
+.admin-reports-summary strong { color: #51388a; font-size: 24px; font-weight: 900; }
+.admin-reports-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 18px;
+}
+.admin-reports-toolbar input,
+.admin-reports-toolbar select {
+  min-width: 0;
+  border: 1px solid #e3dfed;
+  border-radius: 11px;
+  background: #fff;
+  color: #302745;
+  padding: 11px 12px;
+  font: inherit;
+  font-size: 13px;
+}
+.admin-reports-toolbar input { flex: 1; }
+.admin-reports-toolbar button {
+  flex: 0 0 auto;
+  padding: 11px 14px;
+  background: #f1eef9;
+  border: 0;
+  border-radius: 10px;
+  color: #51388a;
+  font-size: 12px;
+  font-weight: 800;
+}
+.admin-reports-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+.admin-reports-list { display: grid; gap: 14px; }
+.admin-report-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #eae4f3;
+  border-radius: 16px;
+  background: #fff;
+}
+.admin-report-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.admin-report-title { min-width: 0; }
+.admin-report-title h3 {
+  margin: 0 0 7px;
+  font-size: 16px;
+  color: #302646;
+  overflow-wrap: anywhere;
+}
+.admin-report-title p { margin: 0; color: #847b9b; font-size: 12px; }
+.admin-report-badges { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
+.admin-report-count {
+  padding: 5px 9px;
+  border-radius: 99px;
+  background: #fff0f2;
+  color: #ac485e;
+  font-size: 11px;
+  font-weight: 900;
+}
+.admin-report-history {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: #faf9fd;
+}
+.admin-report-history h4 { margin: 0 0 2px; color: #65577e; font-size: 13px; }
+.admin-report-reason { padding: 9px 0; border-top: 1px solid #ede9f3; }
+.admin-report-reason:first-of-type { border-top: 0; }
+.admin-report-reason-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.admin-report-reason-meta > span:last-child { color: #8a819b; font-size: 11px; }
+.admin-report-reason-tag {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: #ece8f8;
+  color: #543d85;
+  font-weight: 800;
+  font-size: 11px;
+}
+.admin-report-reason p {
+  margin: 9px 0 1px;
+  color: #534969;
+  line-height: 1.6;
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.admin-report-actions { justify-content: flex-end; }
+.admin-reports-limit { margin-top: 15px; font-size: 12px; color: #877e9d; }
+@media (max-width: 650px) {
+  .admin-report-card-head { flex-direction: column; }
+  .admin-reports-toolbar { flex-wrap: wrap; }
+  .admin-reports-toolbar input { flex-basis: 100%; }
+  .admin-reports-toolbar select { flex: 1; }
+  .admin-reports-summary { gap: 6px; }
+  .admin-reports-summary > div { padding: 12px; }
+  .admin-reports-summary strong { font-size: 20px; }
+}

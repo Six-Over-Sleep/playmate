@@ -74,7 +74,7 @@ export default function PostForm({ initial, busy, onCancel, onSubmit, allowAnony
       )}
       <p className="privacy-note">
         {allowAnonymous
-          ? '익명을 선택하면 다른 회원에게 작성자 닉네임과 회원 ID가 표시되지 않습니다. 관리자는 운영 목적으로 확인할 수 있습니다.'
+          ? '익명을 선택하면 다른 회원에게 작성자 닉네임과 회원 ID가 표시되지 않습니다.'
           : '공지사항은 관리자 이름으로 표시됩니다.'}
       </p>
       <div className="form-actions">

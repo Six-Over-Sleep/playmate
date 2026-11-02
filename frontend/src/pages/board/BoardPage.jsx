@@ -1,3 +1,4 @@
+// PLAYMATE_COURSE_BOARD_PERMISSIONS_V1
 import { useState } from 'react'
 import PostSearch from '../../components/board/PostSearch'
 import { useSortedPosts } from '../../hooks/board/useBoardSearch'
@@ -6,6 +7,8 @@ import PostCard from '../../components/board/PostCard'
 
 export default function BoardPage({
   boards,
+  memberCourse,
+  memberCohort,
   board,
   posts,
   query,
@@ -31,7 +34,8 @@ export default function BoardPage({
   const canWrite =
     board &&
     board.name !== '공지사항' &&
-    !board.featured
+    !board.featured &&
+    board.can_write !== false
 
   return (
     <main className="board-shell">
@@ -46,6 +50,8 @@ export default function BoardPage({
 
         <BoardSidebar
           boards={boards}
+          memberCourse={memberCourse}
+          memberCohort={memberCohort}
           busy={busy}
           selectedId={board?.id}
           onSelect={onSelectBoard}
@@ -60,7 +66,14 @@ export default function BoardPage({
                 {board?.name === '공지사항'
                   ? '📢 공지사항'
                   : board?.name || '게시판'}
-              </h2>             
+              </h2>
+
+              {typeof board?.description === 'string' && board.description.trim() && (
+                <p className="board-intro-description">{board.description}</p>
+              )}
+              {board?.course_code && board.can_write === false && (
+                <p className="board-course-readonly">다른 과정·기수 게시판입니다. 열람만 가능합니다.</p>
+              )}
             </div>
 
             {/* 일반 게시판에서만 글쓰기 표시 */}

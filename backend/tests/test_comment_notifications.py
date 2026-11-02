@@ -47,6 +47,8 @@ def comment_row(comment_id, parent_comment_id=None):
 def prepare_board(monkeypatch, events, fail=False):
     monkeypatch.setattr(board_service, "db_cursor", fake_db_cursor(events))
     monkeypatch.setattr(board_service, "_require_post", lambda cursor, board_id, post_id: None)
+    monkeypatch.setattr(board_service, "_require_course_board_writer",
+                        lambda cursor, board_id, member_id: None)
     monkeypatch.setattr(board_service, "_require_parent_comment", lambda cursor, post_id, parent_id: None)
     monkeypatch.setattr(board_service.repository, "create_comment",
                         lambda cursor, post_id, body, member_id, parent_id=None, is_anonymous=False: 9)

@@ -1,3 +1,4 @@
+# PLAYMATE_COURSE_BOARD_PERMISSIONS_V1
 # PLAYMATE_COMMENT_ANON_EDIT_V2
 # PLAYMATE_BOARD_ANONYMOUS_V1
 # 게시판, 게시글, 댓글 API 요청을 처리하고 Service와 연결하는 Router
@@ -50,10 +51,8 @@ router.add_event_handler("shutdown", close_pool)
 # GET /api/boards : 전체 게시판 목록 조회
 # response_model : 응답 데이터가 BoardResponse 목록 형식인지 검증함.
 @router.get("/boards", response_model=list[BoardResponse])
-def list_boards(_: int = Depends(get_current_member_id)):
-    # Depends() : 로그인 회원을 확인하는 인증 함수 실행
-    # _ : 회원 ID를 직접 쓰지 않고 인증 여부만 확인할 때 사용하는 변수명
-    return board_service.list_boards()
+def list_boards(member_id: int = Depends(get_current_member_id)):
+    return board_service.list_boards(member_id)
 
 
 # POST /api/boards : 새 게시판 생성
@@ -71,9 +70,8 @@ def create_board(payload: BoardCreate, member_id: int = Depends(get_current_memb
 
 # GET /api/boards/{board_id} : 특정 게시판 상세 조회
 @router.get("/boards/{board_id}", response_model=BoardResponse)
-def get_board(board_id: int, _: int = Depends(get_current_member_id)):
-    # board_id : 주소에 포함된 게시판 고유 번호
-    return board_service.get_board(board_id)
+def get_board(board_id: int, member_id: int = Depends(get_current_member_id)):
+    return board_service.get_board(board_id, member_id)
 
 
 # =========================================================

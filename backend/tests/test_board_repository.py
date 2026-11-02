@@ -81,6 +81,22 @@ def database(monkeypatch):
 
     return install
 
+@pytest.fixture(autouse=True)
+def isolate_legacy_board_crud_from_new_features(monkeypatch):
+    """Only this legacy CRUD test module isolates cross-cutting integrations.
+
+    Course/cohort and notice authorization are verified separately in
+    test_course_board_permissions.py and other dedicated tests. Never stub
+    permissions in production code. XP/DM delivery likewise has its own tests.
+    """
+    monkeypatch.setattr(service, "_require_course_board_writer", lambda *_: None)
+    monkeypatch.setattr(service, "_require_comment_board_writer", lambda *_: None)
+    monkeypatch.setattr(service, "_require_notice_admin", lambda *_: None)
+    monkeypatch.setattr(service, "grant_xp", lambda *_: {"awarded": False})
+    monkeypatch.setattr(service, "revoke_xp", lambda *_: None)
+    monkeypatch.setattr(service, "grant_post_like_xp", lambda *_: None)
+    monkeypatch.setattr(service, "save_comment_notification", lambda *_: 0)
+
 
 @pytest.mark.parametrize("count", [0, 1, 25, 100])
 def test_list_posts_bounded_queries_and_image_mapping(database, count):
@@ -142,7 +158,20 @@ def test_comments_only_check_post_existence(database):
     ],
 )
 @pytest.mark.parametrize("exists,status", [(None, 404), ({"exists": 1}, 403)])
-def test_owner_failure_rolls_back(database, method, args, exists, status):
+def test_owner_failure_rolls_back(database, method, args, exists, status, monkeypatch):
+    # 이 테스트는 작성자 권한·롤백을 검사합니다. 기존 자유게시판으로 가정하여
+    # 과정별 접근 권한 검사의 SQL이 기존 Cursor 응답 순서를 바꾸지 않게 합니다.
+    monkeypatch.setattr(
+        service.repository,
+        "get_board",
+        lambda _cursor, board_id: {
+            "id": board_id, "name": "자유게시판", "course_code": None,
+        },
+    )
+    # 댓글 ID만 받는 API의 게시판 추적은 과정별 권한 테스트에서 따로 검증합니다.
+    monkeypatch.setattr(
+        service, "_require_comment_board_writer", lambda *_args: None,
+    )
     cursor, connection, _ = database([None, exists], rowcount=0)
     with pytest.raises(HTTPException) as error:
         method(*args)
@@ -153,18 +182,32 @@ def test_owner_failure_rolls_back(database, method, args, exists, status):
     connection.close.assert_called_once()
 
 
-def test_create_post_response_failure_rolls_back(database):
-    _, connection, _ = database(
-        [{"id": 1}, {"post_id": 2}, RuntimeError("response read failure")]
+def test_create_post_response_failure_rolls_back(database, monkeypatch):
+    # 이 테스트는 권한이 아니라 DB 롤백 동작만 검증
+    monkeypatch.setattr(
+        service, "_require_notice_admin", lambda *_: None
     )
+    monkeypatch.setattr(
+        service, "_require_course_board_writer", lambda *_: None
+    )
+
+    # 게시글 INSERT 성공 → 상세 조회 실패
+    _, connection, _ = database([
+        {"post_id": 2},
+        RuntimeError("response read failure"),
+    ])
+
     with pytest.raises(RuntimeError):
         service.create_post(1, "제목", "본문", 1)
+
+    # 실패 시 커밋하지 않고 롤백해야 함
     connection.commit.assert_not_called()
     connection.rollback.assert_called_once()
     connection.close.assert_called_once()
 
 
 def test_create_post_single_transaction(database):
+    """자유게시판 게시글과 첨부 이미지가 한 트랜잭션에 저장된다."""
     images = [
         dict(
             stored_name="posts/a.png",
@@ -173,19 +216,28 @@ def test_create_post_single_transaction(database):
             file_size=12,
         )
     ]
-    cursor, connection, factory = database(
-        [{"id": 1}, {"post_id": 2}, None, post_row(2), []]
-    )
+    cursor, connection, factory = database([
+        {"post_id": 2},  # INSERT posts ... RETURNING post_id
+        None,  # INSERT post_images
+        post_row(2),  # SELECT post
+        [],  # SELECT post_images
+    ])
     result = service.create_post(1, "제목", "본문", 1, images)
     assert result["id"] == 2 and result["images"] == []
-    assert cursor.queries[2][1][-1] == 0
+    assert "INSERT INTO posts" in cursor.queries[0][0]
+    assert "INSERT INTO post_images" in cursor.queries[1][0]
+    assert cursor.queries[1][1][-1] == 0  # display_order
     factory.assert_called_once()
     connection.commit.assert_called_once()
     connection.rollback.assert_not_called()
     connection.close.assert_called_once()
 
 
-def test_commit_failure_rolls_back(database):
+def test_commit_failure_rolls_back(database, monkeypatch):
+    # 커밋 실패와 롤백만 분리 검증합니다.
+    monkeypatch.setattr(service, "_require_notice_admin", lambda *_: None)
+    monkeypatch.setattr(service, "_require_course_board_writer", lambda *_: None)
+    monkeypatch.setattr(service, "revoke_xp", lambda *_: None)
     _, connection, _ = database([None])
     connection.commit.side_effect = RuntimeError("commit failed")
     with pytest.raises(RuntimeError):
@@ -229,7 +281,15 @@ def test_real_auth_missing_member(database):
 
 
 def test_real_auth_valid_dev_member(database):
-    cursor, _, _ = database([{"exists": 1}, []])
+    cursor, _, _ = database([
+        {"exists": 1},  # 회원 인증
+        [],              # 게시판 목록
+        {                # 회원의 과정·기수 정보
+            "course": "family-ai",
+            "cohort": 1,
+            "role_code": "USER",
+        },
+    ])
     with TestClient(app) as client:
         response = client.get("/api/boards", headers={"X-Dev-Member-ID": "1"})
     assert response.status_code == 200 and response.json() == []
@@ -238,7 +298,15 @@ def test_real_auth_valid_dev_member(database):
 
 def test_real_signed_session_precedes_dev_header(database, monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
-    cursor, _, _ = database([{"exists": 1}, []])
+    cursor, _, _ = database([
+        {"exists": 1},  # 회원 인증
+        [],              # 게시판 목록
+        {                # 회원의 과정·기수 정보
+            "course": "family-ai",
+            "cohort": 1,
+            "role_code": "USER",
+        },
+    ])
     with TestClient(app) as client:
         client.cookies.set("playmate_session", session_cookie())
         response = client.get("/api/boards", headers={"X-Dev-Member-ID": "99"})
@@ -280,13 +348,47 @@ def test_http_missing_post_and_bad_sort(client, database):
     assert client.get("/api/boards/1/posts?q=" + "a" * 101).status_code == 422
 
 
-def test_http_wrong_owner(client, database):
-    database([None, {"exists": 1}], rowcount=0)
-    assert (
-        client.patch(
-            "/api/boards/1/posts/2", json={"title": "수정", "body": "본문"}
-        ).status_code
-        == 403
+def test_http_wrong_owner(client, database, monkeypatch):
+    """다른 사용자의 게시글 수정 요청은 403을 반환해야 한다."""
+
+    # 과정·기수 권한 검사는 별도 테스트에서 검증
+    monkeypatch.setattr(
+        service,
+        "_require_course_board_writer",
+        lambda *args: None,
+    )
+
+    # 공지사항 관리자 권한 검사도 별도 테스트에서 검증
+    monkeypatch.setattr(
+        service,
+        "_require_notice_admin",
+        lambda *args: None,
+    )
+
+    # 게시글 수정 실패 → 게시글은 존재함
+    cursor, _, _ = database(
+        [
+            None,
+            {"exists": 1},
+        ],
+        rowcount=0,
+    )
+
+    response = client.patch(
+        "/api/boards/1/posts/2",
+        json={
+            "title": "수정",
+            "body": "본문",
+        },
+    )
+
+    # 게시글은 존재하지만 작성자가 아니므로 403
+    assert response.status_code == 403, response.text
+
+    # 작성자 검증 조건이 실제 SQL에 포함되어야 함
+    assert any(
+        "author_member_id = %s" in sql
+        for sql, _ in cursor.queries
     )
 
 
@@ -622,8 +724,8 @@ def test_create_top_level_comment_skips_parent_check(database, monkeypatch):
     assert service.create_comment(1, 2, "댓글", 1) == row
     assert len(cursor.queries) == 3
     sql, params = cursor.queries[1]
-    assert "INSERT INTO comments (post_id, author_member_id, body, parent_comment_id)" in sql
-    assert params == (2, 1, "댓글", None)
+    assert "INSERT INTO comments" in sql and "is_anonymous" in sql
+    assert params == (2, 1, "댓글", None, False)
     connection.commit.assert_called_once()
 
 
@@ -642,7 +744,7 @@ def test_create_reply_validates_parent_in_same_transaction(database, monkeypatch
     sql, params = cursor.queries[1]
     assert "FROM comments WHERE comment_id = %s AND deleted_at IS NULL" in sql
     assert params == (3,)
-    assert cursor.queries[2][1] == (2, 1, "답글", 3)
+    assert cursor.queries[2][1] == (2, 1, "답글", 3, False)
     factory.assert_called_once()
     connection.commit.assert_called_once()
     connection.rollback.assert_not_called()
@@ -805,7 +907,7 @@ def test_http_response_query_failure_cleans_upload_and_rolls_back(
     monkeypatch.setattr(uploads, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "uploads" / "posts")
     _, connection, _ = database(
-        [{"id": 1}, {"post_id": 2}, None, RuntimeError("response read failed")]
+        [{"post_id": 2}, None, RuntimeError("response read failed")]
     )
     response = client.post(
         "/api/boards/1/posts",
@@ -842,7 +944,7 @@ def test_http_commit_disconnect_preserves_upload(
 
     monkeypatch.setattr(uploads, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "uploads" / "posts")
-    _, connection, _ = database([{"id": 1}, {"post_id": 2}, None, post_row(2), []])
+    _, connection, _ = database([{"post_id": 2}, None, post_row(2), []])
     connection.commit.side_effect = OperationalError("commit acknowledgement lost")
     if rollback_fails:
         connection.rollback.side_effect = InterfaceError("connection closed")
@@ -866,7 +968,7 @@ def test_http_confirmed_commit_close_failure_preserves_upload(
 
     monkeypatch.setattr(uploads, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "uploads" / "posts")
-    _, connection, _ = database([{"id": 1}, {"post_id": 2}, None, post_row(2), []])
+    _, connection, _ = database([{"post_id": 2}, None, post_row(2), []])
     connection.close.side_effect = InterfaceError("close failed")
     response = client.post(
         "/api/boards/1/posts",
@@ -891,7 +993,7 @@ def test_http_known_commit_rejection_cleans_upload(
 
     monkeypatch.setattr(uploads, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(uploads, "UPLOAD_DIR", tmp_path / "uploads" / "posts")
-    _, connection, _ = database([{"id": 1}, {"post_id": 2}, None, post_row(2), []])
+    _, connection, _ = database([{"post_id": 2}, None, post_row(2), []])
     connection.commit.side_effect = RejectedCommit("server rejected commit")
     with pytest.raises(RejectedCommit):
         client.post(

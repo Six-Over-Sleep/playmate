@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { adminApi } from '../../services/adminApi'
+import AdminReportsPanel from '../../components/admin/AdminReportsPanel'
 import AdminUsagePanel from '../../components/admin/AdminUsagePanel'
 import '../../styles/admin.css'
 
 const TABS = [
   { key: 'notices', label: '공지사항 관리', icon: '📢' },
   { key: 'posts', label: '게시글 관리', icon: '📝' },
+  { key: 'reports', label: '신고 관리', icon: '🚨' },
   { key: 'members', label: '회원 조회', icon: '👥' },
   { key: 'usage', label: '이용 통계', icon: '📈' },
 ]
@@ -41,6 +43,7 @@ export default function AdminPage() {
         adminApi.dashboard(),
         tab === 'notices' ? adminApi.notices()
           : tab === 'posts' ? adminApi.posts(appliedSearch)
+          : tab === 'reports' ? []
           : tab === 'usage' ? [] : adminApi.members(),
       ])
       setStats(summary)
@@ -254,6 +257,8 @@ export default function AdminPage() {
                   </div>}
             </>
           )}
+
+          {tab === 'reports' && <AdminReportsPanel />}
 
           {tab === 'usage' && <AdminUsagePanel />}
 

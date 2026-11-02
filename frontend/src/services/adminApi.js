@@ -16,5 +16,7 @@ export const adminApi = {
   setVisibility: (id, hidden) => apiRequest(`${base}/posts/${id}/visibility`, {
     method: 'PATCH', body: JSON.stringify({ hidden }),
   }),
+  /** 신고받은 글과 신고별 상세 사유를 관리자에게 조회합니다. */
+  reportedPosts: () => apiRequest(`${base}/board-reports/details`),
   members: () => apiRequest(`${base}/members`),
 }

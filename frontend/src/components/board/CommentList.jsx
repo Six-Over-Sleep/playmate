@@ -1,3 +1,5 @@
+// PLAYMATE_COMMENT_AVATAR_V1
+// PLAYMATE_COURSE_BOARD_PERMISSIONS_V1
 // PLAYMATE_COMMENT_ANON_EDIT_V2
 // PLAYMATE_BOARD_ANONYMOUS_V1
 import { useState } from 'react'
@@ -5,12 +7,37 @@ import { useCommentEditor } from '../../hooks/board/useBoardForms'
 import { formatBoardDate } from '../../utils/board'
 import CommentForm from './CommentForm'
 
+import { mediaUrl } from '../../services/boardApi'
 /**
  * 댓글 한 개의 표시와 편집 UI. 서버가 내려준 is_owner로 기존 버튼 표시를 유지한다.
  * 서버가 부모 → 대댓글 순서로 내려주므로 parent_comment_id가 있으면 들여쓰기만 한다.
  * 대댓글은 1단계까지만 허용되므로 최상위 댓글에만 답글 버튼을 둔다.
  */
-function Comment({ comment, busy, onEdit, onDelete, onReply }) {
+/** 익명 댓글은 사진을 공개하지 않습니다. 이미지 실패 시 글자로 대체합니다. */
+function CommentAvatar({ comment }) {
+  const url = !comment.is_anonymous && !comment.is_deleted
+    ? comment.author_avatar_url
+    : null
+  const [failedUrl, setFailedUrl] = useState(null)
+  const showImage = Boolean(url) && failedUrl !== url
+
+  return (
+    <div className={`comment-avatar${showImage ? ' has-photo' : ''}`}>
+      {showImage ? (
+        <img
+          src={mediaUrl(url)}
+          alt=""
+          referrerPolicy="no-referrer"
+          onError={() => setFailedUrl(url)}
+        />
+      ) : (
+        comment.is_anonymous ? '익' : (comment.author_name?.charAt(0) || 'U')
+      )}
+    </div>
+  )
+}
+
+function Comment({ comment, busy, onEdit, onDelete, onReply, canReply }) {
   const editor = useCommentEditor(comment, busy, onEdit)
   const [replying, setReplying] = useState(false)
   const isReply = Boolean(comment.parent_comment_id)
@@ -36,7 +63,7 @@ function Comment({ comment, busy, onEdit, onDelete, onReply }) {
 
   return (
     <article className={isReply ? 'comment reply' : 'comment'}>
-      <div className="comment-avatar">{comment.is_anonymous ? '익' : (comment.author_name?.charAt(0) || 'U')}</div>
+      <CommentAvatar comment={comment} />
       <div className="comment-content">
         <div>
           <strong>{comment.author_name}</strong>
@@ -70,12 +97,12 @@ function Comment({ comment, busy, onEdit, onDelete, onReply }) {
         )}
         {!editor.editing && (
           <div className="comment-actions">
-            {!isReply && (
+            {canReply && !isReply && (
               <button disabled={busy} onClick={() => setReplying((open) => !open)}>
                 {replying ? '답글 취소' : '답글'}
               </button>
             )}
-            {comment.is_owner && (
+            {canReply && comment.is_owner && (
               <div className="owner-actions">
                 <button disabled={busy} onClick={editor.startEditing}>수정</button>
                 <button disabled={busy} onClick={() => onDelete(comment.id)}>삭제</button>
@@ -97,7 +124,7 @@ function Comment({ comment, busy, onEdit, onDelete, onReply }) {
 }
 
 /** 서버의 댓글 순서와 id를 유지해 편집 중인 댓글의 상태가 다른 댓글로 이동하지 않게 한다. */
-export default function CommentList({ comments, busy, onEdit, onDelete, onReply }) {
+export default function CommentList({ comments, busy, onEdit, onDelete, onReply, canReply = true }) {
   if (!comments.length) return <p className="empty-state compact">첫 댓글을 남겨보세요.</p>
 
   return (
@@ -110,6 +137,7 @@ export default function CommentList({ comments, busy, onEdit, onDelete, onReply 
           onEdit={onEdit}
           onDelete={onDelete}
           onReply={onReply}
+          canReply={canReply}
         />
       ))}
     </div>

@@ -27,6 +27,8 @@ def test_register_member_saves_dm_opt_in_true(monkeypatch):
         yield cursor
 
     monkeypatch.setattr(member_service, "db_cursor", db_cursor)
+    monkeypatch.setattr(member_service, "ensure_course_board", lambda *args: None)
+    monkeypatch.setattr(member_service, "announce_course_board", lambda *args: None)
     signup = MemberSignup(nickname="민혁", track="family-ai", cohort=1)
 
     result = member_service.register_member("555", signup)

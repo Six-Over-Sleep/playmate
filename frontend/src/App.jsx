@@ -33,6 +33,9 @@ function AppContent() {
     const [authView, setAuthView] = useState('checking')
     const [nickname, setNickname] = useState('')
     const [roleCode, setRoleCode] = useState('')
+    // 과정 게시판 분류에는 관리자 작성 권한이 아닌 실제 소속 정보를 사용합니다.
+    const [memberCourse, setMemberCourse] = useState(null)
+    const [memberCohort, setMemberCohort] = useState(null)
     const [avatarUrl, setAvatarUrl] = useState(null)
 
     const [savedSection, setSavedSection] = useState(getSavedSection)
@@ -62,6 +65,8 @@ function AppContent() {
             if (data.signup_required) {
                 setNickname('')
                 setRoleCode('')
+                setMemberCourse(null)
+                setMemberCohort(null)
                 setAvatarUrl(null)
                 setAuthView('signup')
                 return
@@ -69,12 +74,16 @@ function AppContent() {
 
             setNickname(data.member?.nickname || '')
             setRoleCode((data.member?.role_code || '').toUpperCase())
+            setMemberCourse(data.member?.course ?? null)
+            setMemberCohort(data.member?.cohort ?? null)
             setAvatarUrl(data.discord_user?.avatar_url || null)
             enterService()
         } catch (error) {
             if (error.status !== 401) console.error(error)
             setNickname('')
             setRoleCode('')
+            setMemberCourse(null)
+            setMemberCohort(null)
             setAvatarUrl(null)
             setAuthView('login')
         } finally {
@@ -108,6 +117,8 @@ function AppContent() {
 
             setNickname('')
             setRoleCode('')
+            setMemberCourse(null)
+            setMemberCohort(null)
             setAvatarUrl(null)
             setSavedSection('board')
             sessionStorage.removeItem(SECTION_STORAGE_KEY)
@@ -253,7 +264,7 @@ function AppContent() {
                 <ActivityTracker />
 
                 {section === 'board' && (
-                    <BoardSection resetVersion={boardKey} />
+                    <BoardSection resetVersion={boardKey} memberCourse={memberCourse} memberCohort={memberCohort} />
                 )}
 
                 {section === 'admin' && roleCode === 'ADMIN' && <AdminPage />}

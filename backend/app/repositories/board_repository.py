@@ -1,3 +1,5 @@
+# PLAYMATE_COMMENT_AVATAR_V1
+# PLAYMATE_COURSE_BOARD_PERMISSIONS_V1
 # PLAYMATE_COMMENT_ANON_EDIT_V2
 # PLAYMATE_BOARD_ANONYMOUS_V1
 """게시판 SQL과 결과 매핑. 연결·권한·트랜잭션은 Service에서 관리한다."""
@@ -73,6 +75,8 @@ def list_boards(cursor) -> list[dict[str, Any]]:
             board_id AS id,
             board_name AS name,
             description,
+            course_code,
+            cohort,
             created_at
         FROM boards
         ORDER BY
@@ -121,6 +125,8 @@ def get_board(cursor, board_id: int) -> dict[str, Any] | None:
             board_id AS id,
             board_name AS name,
             description,
+            course_code,
+            cohort,
             created_at
         FROM boards
         WHERE board_id = %s
@@ -506,6 +512,11 @@ def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
             END AS author_name,
 
             CASE
+                WHEN c.deleted_at IS NOT NULL OR c.is_anonymous THEN NULL
+                ELSE NULLIF(m.profile_image_url, '')
+            END AS author_avatar_url,
+
+            CASE
                 WHEN c.deleted_at IS NOT NULL THEN FALSE
                 ELSE c.is_anonymous
             END AS is_anonymous,
@@ -623,6 +634,11 @@ def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | Non
                 WHEN c.is_anonymous THEN '익명'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
+
+            CASE
+                WHEN c.is_anonymous THEN NULL
+                ELSE NULLIF(m.profile_image_url, '')
+            END AS author_avatar_url,
 
             c.is_anonymous,
             c.created_at,

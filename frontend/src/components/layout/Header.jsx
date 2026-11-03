@@ -9,6 +9,7 @@ export default function Header({
   nickname,
   avatarUrl,
   onLogout,
+  onWithdraw,
   isAdmin = false,
 }) {
   const [profileOpen, setProfileOpen] = useState(false)
@@ -148,14 +149,16 @@ export default function Header({
               로그아웃
             </button>
 
-            {/* 회원 탈퇴 - 추후 구현 */}
+            {/* 회원 탈퇴 */}
             <button
               type="button"
               className="withdraw-button"
-              disabled
-              title="회원 탈퇴 정책 협의 중"
+              onClick={() => {
+                setProfileOpen(false)
+                onWithdraw?.()
+              }}
             >
-              회원 탈퇴 (준비 중)
+              회원 탈퇴
             </button>
           </div>
         )}

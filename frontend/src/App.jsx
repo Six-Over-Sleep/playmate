@@ -110,6 +110,8 @@ function AppContent() {
   // =========================================================
 
   const enterService = useCallback(() => {
+    // 일반 Discord 로그인은 개발용 관리자 모드를 사용하지 않는다.
+    setDevAdminMode(false)
     setAuthView('board')
   }, [])
 
@@ -127,6 +129,7 @@ function AppContent() {
       const data = await apiRequest('/me', {
         urlBuilder: getAuthUrl,
         credentials: 'include',
+        cache: 'no-store',
       })
 
       // 추가 회원가입 정보가 필요한 경우
@@ -246,67 +249,44 @@ function AppContent() {
   // =========================================================
 
   const handleLogout = async () => {
-    if (
-      !window.confirm(
-        '정말 로그아웃 하시겠습니까?',
-      )
-    ) {
-      return
-    }
-
-    // 개발 관리자 모드
-    if (devAdminMode) {
-      setDevAdminMode(false)
-
-      setNickname('')
-      setRoleCode('')
-      setMemberCourse(null)
-      setMemberCohort(null)
-      setAvatarUrl(null)
-
-      setSavedSection('board')
-
-      sessionStorage.removeItem(
-        SECTION_STORAGE_KEY,
-      )
-
-      navigate('/')
-
-      setAuthView('login')
-
-      return
-    }
+    if (!window.confirm('정말 로그아웃 하시겠습니까?')) return
 
     try {
+      // 일반 로그인과 개발용 관리자 모드 모두 백엔드 세션을 종료한다.
       await apiRequest('/logout', {
         urlBuilder: getAuthUrl,
         method: 'POST',
         credentials: 'include',
+        cache: 'no-store',
       })
-
-      setNickname('')
-      setRoleCode('')
-      setMemberCourse(null)
-      setMemberCohort(null)
-      setAvatarUrl(null)
-
-      setSavedSection('board')
-
-      sessionStorage.removeItem(
-        SECTION_STORAGE_KEY,
-      )
-
-      navigate('/')
-
-      setAuthView('login')
-
+      sessionStorage.removeItem(SECTION_STORAGE_KEY)
+      window.location.replace('/')
     } catch (error) {
-      console.error(error)
+      console.error('로그아웃 실패:', error)
+      alert(error.message || '로그아웃 중 오류가 발생했습니다.')
+    }
+  }
 
-      alert(
-        error.message ||
-          '로그아웃 중 오류가 발생했습니다.',
-      )
+  const handleWithdraw = async () => {
+    if (devAdminMode) {
+      alert('개발용 관리자 모드에서는 회원 탈퇴를 할 수 없습니다.')
+      return
+    }
+    if (!window.confirm('정말 회원 탈퇴하시겠습니까?')) return
+
+    try {
+      await apiRequest('/withdraw', {
+        urlBuilder: getAuthUrl,
+        method: 'DELETE',
+        credentials: 'include',
+        cache: 'no-store',
+      })
+      sessionStorage.removeItem(SECTION_STORAGE_KEY)
+      alert('회원 탈퇴가 완료되었습니다.')
+      window.location.replace('/')
+    } catch (error) {
+      console.error('회원 탈퇴 실패:', error)
+      alert(error.message || '회원 탈퇴 중 오류가 발생했습니다.')
     }
   }
 
@@ -594,6 +574,7 @@ function AppContent() {
             roleCode === 'ADMIN'
           }
           onLogout={handleLogout}
+          onWithdraw={handleWithdraw}
         />
 
         <ActivityTracker />

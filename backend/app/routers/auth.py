@@ -18,7 +18,7 @@ from app.core.config import (
 )
 from app.schemas.member import MemberSignup
 from app.services.auth_service import exchange_code_for_token, get_discord_user
-from app.services.member_service import get_member, register_member, sync_member_avatar
+from app.services.member_service import get_member, register_member, sync_member_avatar, withdraw_member
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -105,6 +105,10 @@ async def get_current_user(request: Request):
         raise HTTPException(status_code=503, detail="회원 정보를 조회하지 못했습니다.") from exc
 
     if member is None:
+        # 가입 전 사용자와 탈퇴한 회원이 가진 예전 세션을 구분한다.
+        if request.session.get("member_id") is not None:
+            request.session.clear()
+            raise HTTPException(status_code=401, detail="로그인 세션이 만료되었습니다.")
         request.session.pop("member_id", None)
         return {
             "authenticated": True,
@@ -184,3 +188,27 @@ def signup(request: Request, signup_data: MemberSignup):
         "signup_required": False,
         "member": member,
     }
+
+
+@router.delete("/withdraw")
+async def withdraw_account(request: Request):
+    """현재 Discord 로그인 회원만 본인 계정을 비식별화합니다."""
+    member_id = request.session.get("member_id")
+    discord_user = request.session.get("user")
+    if (type(member_id) is not int or not isinstance(discord_user, dict)
+            or not discord_user.get("discord_id")):
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+
+    try:
+        success = await run_in_threadpool(
+            withdraw_member, member_id, str(discord_user["discord_id"])
+        )
+    except DB_ERRORS as exc:
+        logger.exception("회원 탈퇴 처리 실패")
+        raise HTTPException(status_code=503, detail="회원 탈퇴에 실패했습니다.") from exc
+
+    if not success:
+        raise HTTPException(status_code=404, detail="탈퇴 가능한 회원을 찾을 수 없습니다.")
+
+    request.session.clear()
+    return {"message": "회원 탈퇴가 완료되었습니다."}

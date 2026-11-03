@@ -7,7 +7,7 @@ commit/rollback 등 트랜잭션 처리는 Service에서 관리함.
 
 # func : SQL COUNT, COALESCE 등의 함수를 사용하기 위한 도구
 # or_ : 여러 조회 조건을 OR로 연결하는 도구
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 # insert : PostgreSQL의 INSERT ... ON CONFLICT 구문 생성 (좋아요·스크랩 중복 방지)
 from sqlalchemy.dialects.postgresql import insert
 
@@ -292,7 +292,7 @@ def list_post_comments(db: Session, post_id: int):
     Member 모델의 다른 컬럼은 읽지 않고 nickname만 조회함.
     """
     return (
-        db.query(Comment, Member.nickname)
+        db.query(Comment, case((Member.member_status == "WITHDRAWN", "탈퇴한 사용자"), else_=Member.nickname))
         .join(Member, Member.member_id == Comment.author_member_id)
         .filter(Comment.post_id == post_id)
         .order_by(Comment.created_at, Comment.comment_id)
@@ -312,7 +312,7 @@ def get_active_comment(db: Session, comment_id: int):
 def get_member_nickname(db: Session, member_id: int):
     """회원 닉네임만 조회함. 응답의 작성자 이름에 사용함."""
     return (
-        db.query(Member.nickname).filter(Member.member_id == member_id).scalar()
+        db.query(case((Member.member_status == "WITHDRAWN", "탈퇴한 사용자"), else_=Member.nickname)).filter(Member.member_id == member_id).scalar()
     )
 
 

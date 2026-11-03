@@ -707,8 +707,9 @@ backend/.venv/Scripts/python.exe -m compileall -q backend/app backend/tests
 모든 DB 결과는 대역이며 Discord 토큰 교환·회원 조회도 대역입니다.
 파일 테스트는 backend 내부 임시 경로만 사용합니다.
 
-통합 테스트는 `RUN_POSTGRES_INTEGRATION=1`일 때 쓰기를 수행하므로 **독립된 폐기 가능한
-테스트 DB를 확인한 경우에만** 실행합니다. 이번 환경에는 격리 DB가 없고 Docker 엔진도
+게시판 통합 테스트는 `PLAYMATE_BOARD_TEST_DB_URL`에 로컬(localhost·127.0.0.1)이고 DB 이름에
+`test`가 들어간 **독립된 폐기 가능한 테스트 DB**를 지정한 경우에만 쓰기를 수행합니다.
+`RUN_POSTGRES_INTEGRATION`은 더 이상 사용하지 않으며, 설정해도 `.env`의 DB로 접속하지 않습니다. 이번 환경에는 격리 DB가 없고 Docker 엔진도
 실행 중이지 않아 통합 테스트를 제외했습니다. 공유 Aiven DB에서는 실행하지 않습니다.
 Python 3.14에서 FastAPI/Starlette의 deprecated API 경고 56개가 발생했으며 실패는 아닙니다.
 

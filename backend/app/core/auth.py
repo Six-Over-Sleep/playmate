@@ -32,6 +32,7 @@ def get_current_member_id(
                 FROM members
                 WHERE member_id = %s
                     AND discord_id = %s
+                    AND member_status = 'ACTIVE'
                 """,
                 (member_id, str(user["discord_id"])),
             )
@@ -51,7 +52,7 @@ def get_current_member_id(
             detail="개발 환경에서는 X-Dev-Member-ID 헤더가 필요합니다.",
         )
     with db_cursor(read_only=True) as cursor:
-        cursor.execute("SELECT 1 FROM members WHERE member_id = %s", (x_dev_member_id,))
+        cursor.execute("SELECT 1 FROM members WHERE member_id = %s AND member_status = 'ACTIVE'", (x_dev_member_id,))
         if cursor.fetchone() is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

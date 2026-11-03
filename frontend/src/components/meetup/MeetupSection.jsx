@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useState } from 'react'
+import { MeetupNotice, MeetupConfirm } from './MeetupFeedback'
 import { useNavigate } from 'react-router-dom'
 
 import MeetupPage from '../../pages/meetup/MeetupPage'
@@ -8,9 +9,10 @@ import useMeetups from '../../hooks/meetup/useMeetups'
 
 export default function MeetupSection({
   currentMemberId = null,
-  targetMeetupId = null,
-}) {
+  isAdmin = false,
+} = {}) {
   const navigate = useNavigate()
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // =========================================================
   // 1. 모임 상태 및 함수
@@ -28,8 +30,8 @@ export default function MeetupSection({
     joined,
     error,
     actionMessage,
+    comments, toggleLike, toggleScrap, addComment, editComment, deleteComment, dismissNotice,
 
-    openMeetup,
     goBack,
     backToDetail,
     openWrite,
@@ -38,6 +40,7 @@ export default function MeetupSection({
     updateMeetup,
     deleteMeetup,
     changeParticipation,
+    createActivity,
 
     extendProject,
     chooseExceptionStart,
@@ -48,49 +51,11 @@ export default function MeetupSection({
   })
 
   // =========================================================
-  // 2. 마이페이지 → 모임 상세 자동 이동
+  // 2. 모임 목록 → 상세 페이지 이동
   // =========================================================
 
-  const openedMeetupId = useRef(null)
-
-  useEffect(() => {
-    // 모임 ID가 없는 경우: 모임 목록
-    if (targetMeetupId == null) {
-      if (openedMeetupId.current !== null) {
-        openedMeetupId.current = null
-        goBack()
-      }
-
-      return
-    }
-
-    const recruitId = Number(targetMeetupId)
-
-    // 잘못된 모임 ID 검사
-    if (
-      !Number.isSafeInteger(recruitId) ||
-      recruitId <= 0
-    ) {
-      return
-    }
-
-    // 같은 모임 중복 조회 방지
-    if (openedMeetupId.current === recruitId) {
-      return
-    }
-
-    openedMeetupId.current = recruitId
-
-    // 해당 모임의 상세 정보 조회
-    void openMeetup({
-      recruit_id: recruitId,
-    })
-  }, [targetMeetupId])
-
-  // =========================================================
-  // 3. 모임 목록 → 상세 페이지 이동
-  // =========================================================
-
+  // 상세 조회는 useMeetups의 URL Effect 한 곳에서만 처리한다.
+  // 여기서는 URL만 변경해서 동일 상세가 두 번 호출되지 않게 한다.
   const handleOpenMeetup = (meetup) => {
     const recruitId = Number(meetup?.recruit_id)
 
@@ -102,37 +67,26 @@ export default function MeetupSection({
       return
     }
 
-    // 모임 ID가 포함된 주소로 이동
     navigate(`/meetup/${recruitId}`)
   }
 
   // =========================================================
-  // 4. 상세 페이지 → 모임 목록 이동
+  // 3. 상세 페이지 → 모임 목록 이동
   // =========================================================
 
   const handleGoBack = () => {
-    goBack()
-
-    openedMeetupId.current = null
-
+    goBack(false)
     navigate('/meetup')
   }
 
   // =========================================================
-  // 5. 화면 렌더링
+  // 4. 화면 렌더링
   // =========================================================
 
   return (
     <>
-      {/* 오류 메시지 */}
-      {error && (
-        <div
-          className="error-banner"
-          role="alert"
-        >
-          {error}
-        </div>
-      )}
+      <MeetupNotice message={error || actionMessage} error={Boolean(error)} onClose={dismissNotice} />
+      {confirmDelete && <MeetupConfirm busy={busy} onCancel={() => setConfirmDelete(false)} onConfirm={async () => { await deleteMeetup(); setConfirmDelete(false) }} />}
 
       {/* 상세 조회 로딩 */}
       {detailLoading && (
@@ -174,7 +128,14 @@ export default function MeetupSection({
 
             // 모임 수정 및 삭제
             onEdit={openEdit}
-            onDelete={deleteMeetup}
+            currentMemberId={currentMemberId}
+            onDelete={() => setConfirmDelete(true)}
+            onLike={toggleLike}
+            onScrap={toggleScrap}
+            comments={comments}
+            onAddComment={addComment}
+            onEditComment={editComment}
+            onDeleteComment={deleteComment}
 
             // 모임 참여
             onJoin={(payload) =>
@@ -185,6 +146,9 @@ export default function MeetupSection({
             onCancelJoin={() =>
               changeParticipation(false)
             }
+
+            // 활동 인증 / 후기
+            onAddActivity={createActivity}
 
             // 프로젝트 기간 연장
             onExtendProject={extendProject}
@@ -206,6 +170,7 @@ export default function MeetupSection({
 
       {!detailLoading && view === 'editor' && (
         <MeetupEditorPage
+          isAdmin={isAdmin}
           key={selectedMeetup?.recruit_id ?? 'new'}
           meetup={selectedMeetup}
           busy={busy}

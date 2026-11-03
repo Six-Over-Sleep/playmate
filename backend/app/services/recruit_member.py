@@ -1,7 +1,6 @@
 """모임 참여·취소·인원 조회와 모집 정원에 관한 비즈니스 로직."""
 
 from datetime import datetime, timedelta, timezone
-import time
 
 # HTTPException : 참여 불가, 권한 부족 등 API 오류를 전달함.
 from fastapi import HTTPException
@@ -298,11 +297,14 @@ def get_recruit_members(
         recruit_id,
     )
 
+    profiles = recruit_repo.member_profiles(db, [member.member_id for member in members])
+
     # 회원별 실제 회원 ID, 역할, 참여 시간을
     # 기존 응답 형식대로 반환함.
     return [
         {
             "member_id": member.member_id,
+            **profiles.get(member.member_id, {}),
             "role": member.role,
             "joined_at": member.joined_at,
         }
@@ -320,25 +322,11 @@ def get_recruit_count(
 ):
     """모임 참여 인원과 남은 자리를 조회함."""
 
-    # DB 조회 직전 시간을 기록해 성능을 측정함.
-    start = time.perf_counter()
-
     # 모집 정원과 현재 JOINED 참여 인원을
     # 한 번의 조회로 가져옴.
     result = recruit_repo.get_recruit_capacity_and_count(
         db,
         recruit_id,
-    )
-
-    # 조회 소요 시간을 밀리초(ms)로 계산하여
-    # 콘솔에 출력함.
-    elapsed = (
-        time.perf_counter() - start
-    ) * 1000
-
-    print(
-        f"[성능 측정] DB 조회: {elapsed:.2f}ms",
-        flush=True,
     )
 
     # 조회 결과가 없으면

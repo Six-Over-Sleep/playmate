@@ -1,11 +1,24 @@
 import { apiRequest } from './apiClient'
 
 export const meetupApi = {
+  skills: (options = {}) => apiRequest('/recruits/skills', options),
+  like: (id) => apiRequest(`/recruits/${id}/like`, { method: 'PUT' }),
+  unlike: (id) => apiRequest(`/recruits/${id}/like`, { method: 'DELETE' }),
+  scrap: (id) => apiRequest(`/recruits/${id}/scrap`, { method: 'PUT' }),
+  unscrap: (id) => apiRequest(`/recruits/${id}/scrap`, { method: 'DELETE' }),
+  comments: (id, options = {}) => apiRequest(`/recruits/${id}/comments`, options),
+  addComment: (id, body, parent_comment_id = null) => apiRequest(`/recruits/${id}/comments`, {
+    method: 'POST', body: JSON.stringify({ body, parent_comment_id }),
+  }),
+  editComment: (id, commentId, body) => apiRequest(`/recruits/${id}/comments/${commentId}`, {
+    method: 'PATCH', body: JSON.stringify({ body }),
+  }),
+  deleteComment: (id, commentId) => apiRequest(`/recruits/${id}/comments/${commentId}`, { method: 'DELETE' }),
   list: () =>
     apiRequest('/recruits'),
 
-  detail: (id) =>
-    apiRequest(`/recruits/${id}`),
+  detail: (id, options = {}) =>
+    apiRequest(`/recruits/${id}`, options),
 
   create: (payload) =>
     apiRequest('/recruits', {
@@ -45,11 +58,20 @@ export const meetupApi = {
       method: 'DELETE',
     }),
 
-  members: (id) =>
-    apiRequest(`/recruits/${id}/members`),
+  members: (id, options = {}) =>
+    apiRequest(`/recruits/${id}/members`, options),
 
-  count: (id) =>
-    apiRequest(`/recruits/${id}/count`),
+  count: (id, options = {}) =>
+    apiRequest(`/recruits/${id}/count`, options),
+
+  activities: (id, options = {}) =>
+    apiRequest(`/recruits/${id}/activities`, options),
+
+  addActivity: (id, payload) =>
+    apiRequest(`/recruits/${id}/activities`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   // 프로젝트 일정 연장
   extendProject: (id, payload) =>

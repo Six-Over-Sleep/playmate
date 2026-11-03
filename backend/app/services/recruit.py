@@ -218,6 +218,8 @@ def get_recruit(db: Session, recruit_id: int, member_id: int | None = None):
     # 게시글 정보 + 모임 정보 + 카테고리 상세 정보를 한 응답으로 합침.
     return {
         "recruit_id": recruit.recruit_id,
+        "creator_member_id": post.author_member_id,
+        "is_owner": member_id is not None and post.author_member_id == member_id,
         "title": post.title,
         "body": post.body,
         "category": recruit.category,
@@ -339,9 +341,15 @@ def update_recruit(db: Session, recruit_id: int, data: RecruitUpdate):
 
     # 변경 대상이 제목/본문이면 Post에, 그 외에는 Recruit에 반영함.
     # setattr(객체, 필드명, 값) : 지정한 객체 속성을 동적으로 수정함.
+    detail_fields = {"sport_name", "game_name", "study_topic", "study_period", "study_method", "product_name", "purchase_url", "estimated_price_per_person", "pickup_method"}
+    detail_model = DETAIL_MODELS.get(recruit.category)
+    detail = recruit_repo.get_category_detail(db, detail_model, recruit_id) if detail_model else None
     for field_name, value in changes.items():
         if field_name in ("title", "body"):
             setattr(post, field_name, value)
+        elif field_name in detail_fields:
+            if detail is not None and hasattr(detail, field_name):
+                setattr(detail, field_name, value)
         else:
             setattr(recruit, field_name, value)
 
@@ -404,6 +412,14 @@ def _validate_recruit_update(values: dict):
                 status_code=400,
                 detail="모집 마감은 첫 모임 시작 이전이어야 합니다.",
             )
+
+    if values["recruit_mode"] == "short":
+        start, end = values["meeting_start"], values["meeting_end"]
+        if start is not None or end is not None:
+            if start is None or end is None or end <= start:
+                raise HTTPException(400, detail="종료 일시는 시작 일시보다 늦어야 합니다.")
+            if values["deadline_at"] > start:
+                raise HTTPException(400, detail="모집 마감은 첫 모임 시작 이전이어야 합니다.")
 
 
 def delete_recruit(db: Session, recruit_id: int):

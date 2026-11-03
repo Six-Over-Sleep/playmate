@@ -1,3 +1,7 @@
+import { MeetupNotice } from '../../components/meetup/MeetupFeedback'
+import { useEffect, useState } from 'react'
+import { meetupApi } from '../../services/meetupApi'
+import { meetupErrorMessage } from '../../utils/meetupForm'
 import { EDITOR_CATEGORY_OPTIONS, WEEKDAYS } from '../../utils/meetup'
 
 import useMeetupEditor from '../../hooks/meetup/useMeetupEditor'
@@ -18,14 +22,31 @@ function getSkillName(skill) {
 // 모임 생성·수정 입력 화면
 export default function MeetupEditorPage({
   meetup = null,
+  isAdmin = false,
   busy,
   onBack,
   onSubmit,
-  skillOptions = [],
+
 }) {
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10)
+  const [skillOptions, setSkillOptions] = useState([])
+  const [skillStatus, setSkillStatus] = useState('loading')
+  const [skillAttempt, setSkillAttempt] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    setSkillStatus('loading')
+    meetupApi.skills({ signal: controller.signal }).then((data) => {
+      setSkillOptions(data)
+      setSkillStatus(data.length ? '' : '등록된 기술이 없어요. 잠시 후 다시 시도해주세요.')
+    }).catch((error) => {
+      if (error.name !== 'AbortError') setSkillStatus(meetupErrorMessage(error, '기술 목록을 불러오지 못했어요.'))
+    })
+    return () => controller.abort()
+  }, [skillAttempt])
   // 편집 훅의 폼 상태와 이벤트 연결
   const {
     form,
+    formRef, fieldErrors, submitError, dismissSubmitError, isProgram,
     isEdit,
     isGroupBuy,
     isProject,
@@ -54,6 +75,7 @@ export default function MeetupEditorPage({
   } = useMeetupEditor({
     meetup,
     onSubmit,
+    isAdmin,
   })
 
   return (
@@ -73,7 +95,12 @@ export default function MeetupEditorPage({
       <form
         className="meetup-form-card"
         onSubmit={submit}
+        ref={formRef}
+        noValidate
       >
+        {isEdit && isProgram && <p className="meetup-type-help">제목·소개·인원·전체 일정·필수 기술을 수정할 수 있어요. 다른 멤버가 신청한 뒤에는 인원·일정·기술 변경이 제한돼요.</p>}
+        <MeetupNotice message={submitError} error onClose={dismissSubmitError} />
+        <fieldset disabled={busy} className="meetup-form-fields">
         <div className="meetup-form-section">
           <div className="meetup-field-title">
             모임 카테고리 <span>*</span>
@@ -153,11 +180,14 @@ export default function MeetupEditorPage({
 
             <input
               name="title"
+              aria-invalid={Boolean(fieldErrors.title)}
+              aria-describedby={fieldErrors.title ? "error-title" : undefined}
               value={form.title}
               onChange={change}
               placeholder="예) 주말 요가 모임 같이 하실 분"
               required
             />
+            {fieldErrors.title && <small className="meetup-field-error" id="error-title">{fieldErrors.title}</small>}
           </label>
 
           <label className="meetup-field">
@@ -169,6 +199,8 @@ export default function MeetupEditorPage({
               <input
                 type="number"
                 name="capacity"
+              aria-invalid={Boolean(fieldErrors.capacity)}
+              aria-describedby={fieldErrors.capacity ? "error-capacity" : undefined}
                 min={isProject || isStudy ? '2' : '1'}
                 max={isProject || isStudy ? '5' : undefined}
                 value={form.capacity}
@@ -178,6 +210,7 @@ export default function MeetupEditorPage({
 
               <em>명</em>
             </div>
+            {fieldErrors.capacity && <small className="meetup-field-error" id="error-capacity">{fieldErrors.capacity}</small>}
           </label>
         </div>
 
@@ -188,12 +221,15 @@ export default function MeetupEditorPage({
 
           <textarea
             name="body"
+              aria-invalid={Boolean(fieldErrors.body)}
+              aria-describedby={fieldErrors.body ? "error-body" : undefined}
             value={form.body}
             onChange={change}
             rows="4"
             placeholder="모임에 대해 자유롭게 소개해주세요."
             required
           />
+            {fieldErrors.body && <small className="meetup-field-error" id="error-body">{fieldErrors.body}</small>}
         </label>
 
         <div className="meetup-form-grid two">
@@ -204,11 +240,17 @@ export default function MeetupEditorPage({
 
             <input
               type="datetime-local"
+              min={!isEdit ? `${today}T00:00` : undefined}
               name="recruit_end"
+              aria-invalid={Boolean(fieldErrors.recruit_end)}
+              aria-describedby={fieldErrors.recruit_end ? "error-recruit_end" : undefined}
+              title={isProgram ? "마감을 선택하면 시작 일시도 24시간 뒤로 함께 변경돼요." : undefined}
               value={form.recruit_end}
               onChange={change}
               required
             />
+            {isProgram && <small className="meetup-type-help">마감을 선택하면 시작 일시도 24시간 뒤로 함께 변경돼요.</small>}
+            {fieldErrors.recruit_end && <small className="meetup-field-error" id="error-recruit_end">{fieldErrors.recruit_end}</small>}
           </label>
 
           <div className="meetup-field">
@@ -220,6 +262,7 @@ export default function MeetupEditorPage({
               <button
                 type="button"
                 className={!form.is_online ? 'active' : ''}
+                disabled={isEdit && isProgram}
                 onClick={() => setPlaceType(false)}
               >
                 오프라인
@@ -228,6 +271,7 @@ export default function MeetupEditorPage({
               <button
                 type="button"
                 className={form.is_online ? 'active' : ''}
+                disabled={isEdit && isProgram}
                 onClick={() => setPlaceType(true)}
               >
                 온라인
@@ -246,6 +290,10 @@ export default function MeetupEditorPage({
             <div className="meetup-place-search-row">
               <input
                 name="place"
+                aria-label="오프라인 모임 장소"
+              disabled={isEdit && isProgram}
+              aria-invalid={Boolean(fieldErrors.place)}
+              aria-describedby={fieldErrors.place ? "error-place" : undefined}
                 value={form.place}
                 onChange={change}
                 onKeyDown={(event) => {
@@ -257,10 +305,12 @@ export default function MeetupEditorPage({
                 placeholder="예) 강남역, 스터디룸 3호실"
                 required
               />
+            {fieldErrors.place && <small className="meetup-field-error" id="error-place">{fieldErrors.place}</small>}
 
               <button
                 type="button"
                 className="meetup-place-search-button"
+                disabled={isEdit && isProgram}
                 onClick={searchPlace}
               >
                 장소 검색
@@ -316,21 +366,31 @@ export default function MeetupEditorPage({
             </div>
 
             <div className="meetup-regular-inline">
+              <div className="meetup-schedule-field">
               <input
                 className="meetup-regular-date"
                 type="date"
+                min={!isEdit ? today : undefined}
                 name="regular_start_date"
+                aria-label="정기 모임 시작 날짜"
+              aria-invalid={Boolean(fieldErrors.regular_start_date)}
+              aria-describedby={fieldErrors.regular_start_date ? "error-regular_start_date" : undefined}
                 value={form.regular_start_date}
                 onChange={change}
                 required
               />
+            {fieldErrors.regular_start_date && <small className="meetup-field-error" id="error-regular_start_date">{fieldErrors.regular_start_date}</small>}
+              </div>
 
-              <div className="meetup-weekday-buttons">
+              <div className="meetup-schedule-field">
+
+              <div className="meetup-weekday-buttons" data-field="regular_days" aria-invalid={Boolean(fieldErrors.regular_days)} aria-describedby={fieldErrors.regular_days ? "error-regular_days" : undefined}>
                 {WEEKDAYS.map((day) => (
                   <button
                     key={day}
                     type="button"
                     className={form.regular_days.includes(day) ? 'active' : ''}
+                    disabled={isEdit && isProgram}
                     onClick={() => toggleRegularDay(day)}
                   >
                     {day}
@@ -338,14 +398,23 @@ export default function MeetupEditorPage({
                 ))}
               </div>
 
+              {fieldErrors.regular_days && <small id="error-regular_days" className="meetup-field-error">{fieldErrors.regular_days}</small>}
+              </div>
+
+              <div className="meetup-schedule-field">
               <input
                 className="meetup-regular-time"
                 type="time"
                 name="regular_time"
+                aria-label="정기 모임 시간"
+              aria-invalid={Boolean(fieldErrors.regular_time)}
+              aria-describedby={fieldErrors.regular_time ? "error-regular_time" : undefined}
                 value={form.regular_time}
                 onChange={change}
                 required
               />
+            {fieldErrors.regular_time && <small className="meetup-field-error" id="error-regular_time">{fieldErrors.regular_time}</small>}
+              </div>
             </div>
 
             {(isProject || isStudy) && (
@@ -356,11 +425,15 @@ export default function MeetupEditorPage({
 
                 <input
                   type="datetime-local"
+              min={!isEdit ? `${today}T00:00` : undefined}
                   name="ends_at"
+              aria-invalid={Boolean(fieldErrors.ends_at)}
+              aria-describedby={fieldErrors.ends_at ? "error-ends_at" : undefined}
                   value={form.ends_at ?? ''}
                   onChange={change}
                   required
                 />
+            {fieldErrors.ends_at && <small className="meetup-field-error" id="error-ends_at">{fieldErrors.ends_at}</small>}
 
                 <small className="meetup-type-help">
                   프로젝트·스터디는 반복 일정과 별도로 전체 운영 종료 시점을 저장해요.
@@ -380,11 +453,15 @@ export default function MeetupEditorPage({
 
               <input
                 type="datetime-local"
+              min={!isEdit ? `${today}T00:00` : undefined}
                 name="meeting_start"
+              aria-invalid={Boolean(fieldErrors.meeting_start)}
+              aria-describedby={fieldErrors.meeting_start ? "error-meeting_start" : undefined}
                 value={form.meeting_start}
                 onChange={change}
                 required
               />
+            {fieldErrors.meeting_start && <small className="meetup-field-error" id="error-meeting_start">{fieldErrors.meeting_start}</small>}
             </label>
 
             <label className="meetup-field">
@@ -394,11 +471,15 @@ export default function MeetupEditorPage({
 
               <input
                 type="datetime-local"
+              min={!isEdit ? `${today}T00:00` : undefined}
                 name="meeting_end"
+              aria-invalid={Boolean(fieldErrors.meeting_end)}
+              aria-describedby={fieldErrors.meeting_end ? "error-meeting_end" : undefined}
                 value={form.meeting_end}
                 onChange={change}
                 required
               />
+            {fieldErrors.meeting_end && <small className="meetup-field-error" id="error-meeting_end">{fieldErrors.meeting_end}</small>}
             </label>
           </div>
         )}
@@ -418,6 +499,7 @@ export default function MeetupEditorPage({
               {skillOptions.length > 0 ? (
                 <div
                   className="meetup-skill-select-list"
+                  data-field="required_skill_ids" aria-invalid={Boolean(fieldErrors.required_skill_ids)} aria-describedby={fieldErrors.required_skill_ids ? "error-required_skill_ids" : undefined}
                   aria-label="프로젝트 필수 기술 선택"
                 >
                   {skillOptions.map((skill) => {
@@ -446,13 +528,15 @@ export default function MeetupEditorPage({
                 </div>
               ) : (
                 <p className="meetup-type-help">
-                  기술 목록 API가 연결되면 여기에서 프로젝트 필수 기술을 선택합니다.
-                  기술 ID를 화면에 임의로 하드코딩하지 않습니다.
+                  {skillStatus === 'loading' ? '기술 목록을 불러오고 있어요.' : skillStatus}
+                  {skillStatus !== 'loading' && <button type="button" onClick={() => setSkillAttempt((n) => n + 1)}>다시 불러오기</button>}
                 </p>
               )}
             </div>
 
-            {!isEdit && (
+            {fieldErrors.required_skill_ids && <small id="error-required_skill_ids" className="meetup-field-error">{fieldErrors.required_skill_ids}</small>}
+            {isEdit && <p className="meetup-type-help">내가 맡은 기술: {skillOptions.filter((skill) => form.creator_skill_ids.includes(getSkillId(skill))).map(getSkillName).join(' · ') || '담당 정보 없음'}</p>}
+            {!isEdit && !isAdmin && (
               <>
                 <div className="meetup-field">
                   <span>
@@ -462,6 +546,7 @@ export default function MeetupEditorPage({
                   {form.required_skill_ids?.length > 0 ? (
                     <div
                       className="meetup-skill-select-list"
+                      data-field="creator_skill_ids" aria-invalid={Boolean(fieldErrors.creator_skill_ids)} aria-describedby={fieldErrors.creator_skill_ids ? "error-creator_skill_ids" : undefined}
                       aria-label="개설자 담당 기술 선택"
                     >
                       {skillOptions
@@ -502,13 +587,17 @@ export default function MeetupEditorPage({
                   )}
                 </div>
 
+                {fieldErrors.creator_skill_ids && <small id="error-creator_skill_ids" className="meetup-field-error">{fieldErrors.creator_skill_ids}</small>}
                 <label className="meetup-leader-volunteer">
                   <input
                     type="checkbox"
                     name="leader_volunteer"
+              aria-invalid={Boolean(fieldErrors.leader_volunteer)}
+              aria-describedby={fieldErrors.leader_volunteer ? "error-leader_volunteer" : undefined}
                     checked={Boolean(form.leader_volunteer)}
                     onChange={change}
                   />
+            {fieldErrors.leader_volunteer && <small className="meetup-field-error" id="error-leader_volunteer">{fieldErrors.leader_volunteer}</small>}
 
                   <span>
                     프로젝트 팀장을 맡을 수 있어요
@@ -535,11 +624,14 @@ export default function MeetupEditorPage({
 
               <input
                 name="sport_name"
+              aria-invalid={Boolean(fieldErrors.sport_name)}
+              aria-describedby={fieldErrors.sport_name ? "error-sport_name" : undefined}
                 value={form.sport_name}
                 onChange={change}
                 placeholder="예) 요가, 러닝, 배드민턴"
                 required
               />
+            {fieldErrors.sport_name && <small className="meetup-field-error" id="error-sport_name">{fieldErrors.sport_name}</small>}
             </label>
           </div>
         )}
@@ -553,11 +645,14 @@ export default function MeetupEditorPage({
 
               <input
                 name="game_name"
+              aria-invalid={Boolean(fieldErrors.game_name)}
+              aria-describedby={fieldErrors.game_name ? "error-game_name" : undefined}
                 value={form.game_name}
                 onChange={change}
                 placeholder="예) 리그 오브 레전드"
                 required
               />
+            {fieldErrors.game_name && <small className="meetup-field-error" id="error-game_name">{fieldErrors.game_name}</small>}
             </label>
           </div>
         )}
@@ -572,6 +667,9 @@ export default function MeetupEditorPage({
 
                 <select
                   name="study_type"
+              disabled={isEdit && isProgram}
+              aria-invalid={Boolean(fieldErrors.study_type)}
+              aria-describedby={fieldErrors.study_type ? "error-study_type" : undefined}
                   value={form.study_type ?? 'TECHNOLOGY'}
                   onChange={change}
                   required
@@ -579,6 +677,7 @@ export default function MeetupEditorPage({
                   <option value="TECHNOLOGY">기술 공부</option>
                   <option value="CERTIFICATE">자격증</option>
                 </select>
+            {fieldErrors.study_type && <small className="meetup-field-error" id="error-study_type">{fieldErrors.study_type}</small>}
               </label>
 
               {(form.study_type ?? 'TECHNOLOGY') === 'TECHNOLOGY' ? (
@@ -589,6 +688,9 @@ export default function MeetupEditorPage({
 
                   <select
                     name="difficulty"
+              disabled={isEdit && isProgram}
+              aria-invalid={Boolean(fieldErrors.difficulty)}
+              aria-describedby={fieldErrors.difficulty ? "error-difficulty" : undefined}
                     value={form.difficulty ?? 'BEGINNER'}
                     onChange={change}
                     required
@@ -596,6 +698,7 @@ export default function MeetupEditorPage({
                     <option value="BEGINNER">기초</option>
                     <option value="ADVANCED">심화</option>
                   </select>
+            {fieldErrors.difficulty && <small className="meetup-field-error" id="error-difficulty">{fieldErrors.difficulty}</small>}
                 </label>
               ) : (
                 <div className="meetup-field">
@@ -618,6 +721,9 @@ export default function MeetupEditorPage({
 
                 <input
                   name="study_topic"
+              disabled={isEdit && isProgram}
+              aria-invalid={Boolean(fieldErrors.study_topic)}
+              aria-describedby={fieldErrors.study_topic ? "error-study_topic" : undefined}
                   value={form.study_topic ?? ''}
                   onChange={change}
                   placeholder={
@@ -627,6 +733,7 @@ export default function MeetupEditorPage({
                   }
                   required
                 />
+            {fieldErrors.study_topic && <small className="meetup-field-error" id="error-study_topic">{fieldErrors.study_topic}</small>}
               </label>
 
               <label className="meetup-field">
@@ -634,10 +741,14 @@ export default function MeetupEditorPage({
 
                 <input
                   name="study_period"
+              disabled={isEdit && isProgram}
+              aria-invalid={Boolean(fieldErrors.study_period)}
+              aria-describedby={fieldErrors.study_period ? "error-study_period" : undefined}
                   value={form.study_period ?? ''}
                   onChange={change}
                   placeholder="예) 4주"
                 />
+            {fieldErrors.study_period && <small className="meetup-field-error" id="error-study_period">{fieldErrors.study_period}</small>}
               </label>
             </div>
 
@@ -646,10 +757,14 @@ export default function MeetupEditorPage({
 
               <input
                 name="study_method"
+              disabled={isEdit && isProgram}
+              aria-invalid={Boolean(fieldErrors.study_method)}
+              aria-describedby={fieldErrors.study_method ? "error-study_method" : undefined}
                 value={form.study_method ?? ''}
                 onChange={change}
                 placeholder="예) 주 1회 온라인 모임 + 주간 과제"
               />
+            {fieldErrors.study_method && <small className="meetup-field-error" id="error-study_method">{fieldErrors.study_method}</small>}
             </label>
           </div>
         )}
@@ -664,11 +779,14 @@ export default function MeetupEditorPage({
 
                 <input
                   name="product_name"
+              aria-invalid={Boolean(fieldErrors.product_name)}
+              aria-describedby={fieldErrors.product_name ? "error-product_name" : undefined}
                   value={form.product_name}
                   onChange={change}
                   placeholder="예) 파이썬 교재"
                   required
                 />
+            {fieldErrors.product_name && <small className="meetup-field-error" id="error-product_name">{fieldErrors.product_name}</small>}
               </label>
 
               <label className="meetup-field">
@@ -680,6 +798,8 @@ export default function MeetupEditorPage({
                   <input
                     type="text"
                     name="estimated_price_per_person"
+              aria-invalid={Boolean(fieldErrors.estimated_price_per_person)}
+              aria-describedby={fieldErrors.estimated_price_per_person ? "error-estimated_price_per_person" : undefined}
                     value={
                       form.estimated_price_per_person
                         ? Number(
@@ -692,6 +812,7 @@ export default function MeetupEditorPage({
                     inputMode="numeric"
                     required
                   />
+            {fieldErrors.estimated_price_per_person && <small className="meetup-field-error" id="error-estimated_price_per_person">{fieldErrors.estimated_price_per_person}</small>}
                 </div>
               </label>
             </div>
@@ -704,11 +825,14 @@ export default function MeetupEditorPage({
 
                 <input
                   name="pickup_method"
+              aria-invalid={Boolean(fieldErrors.pickup_method)}
+              aria-describedby={fieldErrors.pickup_method ? "error-pickup_method" : undefined}
                   value={form.pickup_method}
                   onChange={change}
                   placeholder="예) 오프라인 전달"
                   required
                 />
+            {fieldErrors.pickup_method && <small className="meetup-field-error" id="error-pickup_method">{fieldErrors.pickup_method}</small>}
               </label>
 
               <label className="meetup-field">
@@ -716,10 +840,13 @@ export default function MeetupEditorPage({
 
                 <input
                   name="purchase_url"
+              aria-invalid={Boolean(fieldErrors.purchase_url)}
+              aria-describedby={fieldErrors.purchase_url ? "error-purchase_url" : undefined}
                   value={form.purchase_url}
                   onChange={change}
                   placeholder="https://..."
                 />
+            {fieldErrors.purchase_url && <small className="meetup-field-error" id="error-purchase_url">{fieldErrors.purchase_url}</small>}
               </label>
             </div>
           </div>
@@ -745,6 +872,7 @@ export default function MeetupEditorPage({
             </button>
           </div>
         </div>
+        </fieldset>
       </form>
     </main>
   )

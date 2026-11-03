@@ -355,6 +355,9 @@ class ProgramRepository:
             post_id=post.post_id,
             category=program.category,
             recruit_mode=data.recruit_mode,
+            regular_days=data.regular_days,
+            regular_time=data.regular_time,
+            regular_start_date=data.regular_start_date,
             capacity=program.capacity,
             state="OPEN",
             created_at=now,
@@ -641,6 +644,7 @@ class ProgramRepository:
                 ApplicationRecord.payload["leader_volunteer"].label("volunteer"),
                 ApplicationRecord.payload["changed_at"].label("changed_at"),
                 Member.nickname,
+                Member.profile_image_url,
                 waiting_count.label("waiting_count"),
                 like_count.label("like_count"),
                 liked.label("liked_by_me"),
@@ -696,6 +700,7 @@ class ProgramRepository:
                             application.changed_at or application.submitted_at
                         ).isoformat(),
                         "display_name": row.nickname,
+                    "profile_image_url": row.profile_image_url,
                         "skill_ids": application.skill_ids,
                     }
                 )
@@ -753,6 +758,7 @@ class ProgramRepository:
                 ApplicationRecord.payload["changed_at"].label("changed_at"),
                 ApplicationRecord.payload["skill_ids"].label("skill_ids"),
                 Member.nickname,
+                Member.profile_image_url,
             )
             .select_from(ProgramRecord)
             .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
@@ -785,6 +791,7 @@ class ProgramRepository:
                     "member_id": row.member_id,
                     "joined_at": changed.isoformat(),
                     "display_name": row.nickname,
+                    "profile_image_url": row.profile_image_url,
                     "skill_ids": row.skill_ids or [],
                 }
             )

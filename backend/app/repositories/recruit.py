@@ -7,7 +7,7 @@ commit/rollback 등 트랜잭션 처리는 Service에서 관리함.
 
 # func : SQL COUNT, COALESCE 등의 함수를 사용하기 위한 도구
 # or_ : 여러 조회 조건을 OR로 연결하는 도구
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 # insert : PostgreSQL의 INSERT ... ON CONFLICT 구문 생성 (좋아요·스크랩 중복 방지)
 from sqlalchemy.dialects.postgresql import insert
 
@@ -292,7 +292,7 @@ def list_post_comments(db: Session, post_id: int):
     Member 모델의 다른 컬럼은 읽지 않고 nickname만 조회함.
     """
     return (
-        db.query(Comment, Member.nickname)
+        db.query(Comment, case((Member.member_status == "WITHDRAWN", "탈퇴한 사용자"), else_=Member.nickname))
         .join(Member, Member.member_id == Comment.author_member_id)
         .filter(Comment.post_id == post_id)
         .order_by(Comment.created_at, Comment.comment_id)
@@ -312,7 +312,7 @@ def get_active_comment(db: Session, comment_id: int):
 def get_member_nickname(db: Session, member_id: int):
     """회원 닉네임만 조회함. 응답의 작성자 이름에 사용함."""
     return (
-        db.query(Member.nickname).filter(Member.member_id == member_id).scalar()
+        db.query(case((Member.member_status == "WITHDRAWN", "탈퇴한 사용자"), else_=Member.nickname)).filter(Member.member_id == member_id).scalar()
     )
 
 
@@ -321,3 +321,14 @@ def add_comment(db: Session, comment: Comment) -> Comment:
     db.add(comment)
     db.flush()
     return comment
+
+
+def member_profiles(db: Session, member_ids):
+    """참여자 공개 닉네임·프로필만 일괄 조회한다."""
+    if not member_ids:
+        return {}
+    return {
+        row.member_id: {"display_name": row.nickname, "profile_image_url": row.profile_image_url}
+        for row in db.query(Member.member_id, Member.nickname, Member.profile_image_url)
+        .filter(Member.member_id.in_(member_ids)).all()
+    }

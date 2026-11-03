@@ -29,6 +29,7 @@ def get_member(discord_id: str) -> dict | None:
                 profile_image_url
             FROM members
             WHERE discord_id = %s
+              AND member_status = 'ACTIVE'
             """,
             (discord_id,),
         )
@@ -181,3 +182,44 @@ def register_member(discord_id: str, signup_data: MemberSignup) -> dict:
         ensure_course_board(cursor, row["course"], row["cohort"])
         announce_course_board(cursor, row["course"], row["cohort"])
     return dict(row)
+
+
+# PLAYMATE_85_AUTO_FIX
+
+def withdraw_member(member_id: int, discord_id: str) -> bool:
+    """회원 식별정보를 비식별화하고 게시글/댓글의 회원 FK를 보존한다.
+
+    동일한 DB 트랜잭션에서 처리되므로 일부 처리만 반영되지 않습니다.
+    """
+    with db_cursor(commit=True) as cursor:
+        cursor.execute(
+            """
+            UPDATE members
+            SET discord_id = 'w' || member_id::text,
+                nickname = substring(md5('withdrawn:' || member_id::text), 1, 20),
+                member_status = 'WITHDRAWN',
+                role_code = 'USER',
+                course = 'withdrawn',
+                cohort = 0,
+                profile_image_url = NULL,
+                external_dm_opt_in = FALSE,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE member_id = %s
+              AND discord_id = %s
+              AND member_status = 'ACTIVE'
+            RETURNING member_id
+            """,
+            (member_id, discord_id),
+        )
+        if cursor.fetchone() is None:
+            return False
+
+        # 개인 프로필 데이터 및 다른 사람에게 남긴 반응/스크랩 제거.
+        cursor.execute("DELETE FROM member_career_specs WHERE member_id = %s", (member_id,))
+        cursor.execute(
+            "DELETE FROM notifications WHERE receiver_member_id = %s OR actor_member_id = %s",
+            (member_id, member_id),
+        )
+        cursor.execute("DELETE FROM post_likes WHERE member_id = %s", (member_id,))
+        cursor.execute("DELETE FROM post_scraps WHERE member_id = %s", (member_id,))
+    return True

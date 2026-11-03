@@ -9,12 +9,10 @@ export default function Header({
   nickname,
   avatarUrl,
   onLogout,
-  onWithdraw,
   isAdmin = false,
 }) {
   const [profileOpen, setProfileOpen] = useState(false)
 
-  // 메뉴 이동
   const go = (section) => {
     setProfileOpen(false)
     onNavigate?.(section)
@@ -22,7 +20,6 @@ export default function Header({
 
   return (
     <header className="app-header">
-      {/* PLAYMATE 로고 */}
       <a
         className="brand"
         href="/"
@@ -40,7 +37,6 @@ export default function Header({
         />
       </a>
 
-      {/* 상단 메뉴 */}
       <nav className="app-nav" aria-label="주 메뉴">
         <button
           type="button"
@@ -50,7 +46,6 @@ export default function Header({
           게시판
         </button>
 
-        {/* 취업 카테고리 추가 */}
         <button
           type="button"
           className={activeSection === 'career' ? 'active' : ''}
@@ -86,7 +81,6 @@ export default function Header({
         )}
       </nav>
 
-      {/* 프로필 영역 */}
       <div className="profile-container">
         <button
           type="button"
@@ -109,7 +103,6 @@ export default function Header({
 
         {profileOpen && (
           <div className="profile-dropdown">
-            {/* 사용자 정보 */}
             <div className="profile-user-info">
               {avatarUrl ? (
                 <img
@@ -130,7 +123,6 @@ export default function Header({
 
             <hr />
 
-            {/* 마이페이지 이동 */}
             <button
               type="button"
               onClick={() => go('mypage')}
@@ -138,7 +130,6 @@ export default function Header({
               마이페이지
             </button>
 
-            {/* 로그아웃 */}
             <button
               type="button"
               onClick={() => {
@@ -147,18 +138,6 @@ export default function Header({
               }}
             >
               로그아웃
-            </button>
-
-            {/* 회원 탈퇴 */}
-            <button
-              type="button"
-              className="withdraw-button"
-              onClick={() => {
-                setProfileOpen(false)
-                onWithdraw?.()
-              }}
-            >
-              회원 탈퇴
             </button>
           </div>
         )}

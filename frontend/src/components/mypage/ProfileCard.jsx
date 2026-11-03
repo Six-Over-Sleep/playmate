@@ -1,10 +1,10 @@
+
 import { useEffect, useState } from 'react'
 import {
   getMyProfile,
   updateMyNickname,
 } from '../../services/mypageApi'
 
-// 회원가입에서 저장하는 과정 코드와 동일한 표시 이름
 const COURSE_NAMES = {
   'family-ai': 'SK네트웍스 Family AI 캠프',
   'multi-agent': '멀티 에이전트 AI 오케스트레이션 캠프',
@@ -12,19 +12,15 @@ const COURSE_NAMES = {
   'data-ml': '데이터 분석 & AI 머신러닝 캠프',
 }
 
-export default function ProfileCard({ avatarUrl }) {
-  // 프로필 정보
+export default function ProfileCard({ avatarUrl, onWithdraw }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // 닉네임 수정
   const [editing, setEditing] = useState(false)
   const [nickname, setNickname] = useState('')
   const [saving, setSaving] = useState(false)
 
-
-  // 프로필 조회
   useEffect(() => {
     getMyProfile()
       .then((data) => {
@@ -35,7 +31,6 @@ export default function ProfileCard({ avatarUrl }) {
       .finally(() => setLoading(false))
   }, [])
 
-  // 닉네임 저장
   const handleSave = async () => {
     const value = nickname.trim()
 
@@ -63,14 +58,12 @@ export default function ProfileCard({ avatarUrl }) {
     }
   }
 
-  // 닉네임 수정 취소
   const handleCancel = () => {
     setNickname(profile.nickname || '')
     setEditing(false)
     setError('')
   }
 
-  // 로딩 및 오류 처리
   if (loading) {
     return <p>프로필 불러오는 중...</p>
   }
@@ -86,8 +79,6 @@ export default function ProfileCard({ avatarUrl }) {
       <h2>내 프로필</h2>
 
       <div className="mypage-profile-info">
-
-        {/* 프로필 이미지 */}
         <div className="mypage-profile-image">
           {imageUrl ? (
             <img
@@ -100,12 +91,9 @@ export default function ProfileCard({ avatarUrl }) {
               {profile.nickname?.charAt(0) || 'U'}
             </div>
           )}
-
         </div>
 
-        {/* 프로필 정보 */}
         <div className="mypage-profile-details">
-
           {editing ? (
             <form
               className="mypage-nickname-form"
@@ -165,6 +153,16 @@ export default function ProfileCard({ avatarUrl }) {
             </p>
           )}
         </div>
+      </div>
+
+      <div className="mypage-profile-account-action">
+        <button
+          type="button"
+          className="mypage-withdraw-link"
+          onClick={() => onWithdraw?.()}
+        >
+          회원 탈퇴
+        </button>
       </div>
     </>
   )

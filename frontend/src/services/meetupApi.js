@@ -4,8 +4,8 @@ export const meetupApi = {
   list: () =>
     apiRequest('/recruits'),
 
-  detail: (id) =>
-    apiRequest(`/recruits/${id}`),
+  detail: (id, options = {}) =>
+    apiRequest(`/recruits/${id}`, options),
 
   create: (payload) =>
     apiRequest('/recruits', {
@@ -45,11 +45,20 @@ export const meetupApi = {
       method: 'DELETE',
     }),
 
-  members: (id) =>
-    apiRequest(`/recruits/${id}/members`),
+  members: (id, options = {}) =>
+    apiRequest(`/recruits/${id}/members`, options),
 
-  count: (id) =>
-    apiRequest(`/recruits/${id}/count`),
+  count: (id, options = {}) =>
+    apiRequest(`/recruits/${id}/count`, options),
+
+  activities: (id, options = {}) =>
+    apiRequest(`/recruits/${id}/activities`, options),
+
+  addActivity: (id, payload) =>
+    apiRequest(`/recruits/${id}/activities`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   // 프로젝트 일정 연장
   extendProject: (id, payload) =>

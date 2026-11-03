@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import MeetupActivityModal from '../../components/meetup/MeetupActivityModal'
 import MeetupApplicationModal from '../../components/meetup/MeetupApplicationModal'
 import MeetupCommentList from '../../components/meetup/MeetupCommentList'
 import MeetupExtensionModal from '../../components/meetup/MeetupExtensionModal'
@@ -115,6 +117,7 @@ export default function MeetupDetailPage({
   onChooseExceptionStart,
   onCancelProject,
   onEndEarly,
+  onAddActivity,
   onLike,
   onScrap,
   comments = [],
@@ -122,6 +125,8 @@ export default function MeetupDetailPage({
   onEditComment,
   onDeleteComment,
 }) {
+  const [activityMode, setActivityMode] = useState(null)
+
   const application = useMeetupApplication({
     submitApplication: async (payload) => {
       if (typeof onJoin !== 'function') {
@@ -158,6 +163,7 @@ export default function MeetupDetailPage({
   // 상세 응답의 participant_count를 우선 사용함.
   // 아직 이전 API를 사용하는 화면을 위해 memberCount와 기존 필드도 보조로 유지함.
   const currentCount =
+    meetup.participation?.current_members ??
     meetup.participant_count ??
     memberCount ??
     meetup.member_count ??
@@ -166,7 +172,10 @@ export default function MeetupDetailPage({
     members.length ??
     0
 
-  const capacity = meetup.capacity ?? '-'
+  const capacity =
+    meetup.participation?.capacity ??
+    meetup.capacity ??
+    '-'
   const status = getMeetupStatus(meetup, currentCount)
   const lifecycleDescription = getLifecycleDescription(meetup)
 
@@ -244,6 +253,12 @@ export default function MeetupDetailPage({
   const canEndEarly =
     permissions.can_end_early === true
 
+  const canWriteActivity =
+    permissions.can_write_activity === true
+
+  const canWriteReview =
+    permissions.can_write_review === true
+
   const requiredSkills = isProject
     ? getRequiredSkills(meetup)
     : []
@@ -252,7 +267,11 @@ export default function MeetupDetailPage({
     meetup.minimum_participants ??
     (isProjectOrStudy ? 2 : null)
 
-  const waitingCount = Number(meetup.waiting_count ?? 0)
+  const waitingCount = Number(
+    meetup.participation?.waiting_count ??
+    meetup.waiting_count ??
+    0,
+  )
 
   const creatorType = String(
     meetup.creator_type ?? '',
@@ -903,6 +922,44 @@ export default function MeetupDetailPage({
           </div>
         )}
 
+
+        {(canWriteActivity || canWriteReview) && (
+          <section className="meetup-extra-section meetup-activity-section">
+            <div className="meetup-activity-section-header">
+              <div>
+                <h2>모임 활동</h2>
+                <p>
+                  서버가 현재 상태와 참여 권한을 확인해 허용한 작업만 표시합니다.
+                </p>
+              </div>
+
+              <div className="meetup-activity-action-buttons">
+                {canWriteActivity && (
+                  <button
+                    type="button"
+                    className="meetup-join-button"
+                    onClick={() => setActivityMode('activity')}
+                    disabled={busy}
+                  >
+                    활동 작성
+                  </button>
+                )}
+
+                {canWriteReview && (
+                  <button
+                    type="button"
+                    className="meetup-join-button"
+                    onClick={() => setActivityMode('review')}
+                    disabled={busy}
+                  >
+                    후기 작성
+                  </button>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* 수정·모임 취소 및 신청·신청 취소 */}
         <footer className="meetup-detail-footer">
           {(canEdit || canDelete) && (
@@ -969,6 +1026,20 @@ export default function MeetupDetailPage({
           onDelete={onDeleteComment}
         />
       </article>
+
+
+      <MeetupActivityModal
+        open={activityMode != null}
+        mode={activityMode || 'activity'}
+        meetup={meetup}
+        busy={busy}
+        onClose={() => {
+          if (!busy) {
+            setActivityMode(null)
+          }
+        }}
+        onSubmit={onAddActivity}
+      />
 
       {isProject && (
         <>

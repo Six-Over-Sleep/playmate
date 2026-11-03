@@ -128,6 +128,7 @@ export default function useMeetups({
 
   // 이전 상세 조회 응답이 새 화면을 덮지 않도록 관리
   const detailRequest = useRef(0)
+  const detailAbortController = useRef(null)
 
 
   // =========================================================
@@ -193,6 +194,8 @@ export default function useMeetups({
   useEffect(() => {
     // 기존 상세 조회 무효화
     detailRequest.current += 1
+    detailAbortController.current?.abort()
+    detailAbortController.current = null
 
     // URL을 다시 처리할 수 있도록 초기화
     handledPath.current = null
@@ -222,21 +225,74 @@ export default function useMeetups({
   // 3. 참여자 / 참여 인원 / 참여 상태 조회
   // =========================================================
 
+  const hasIntegratedParticipation = (detail) => {
+    return (
+      detail &&
+      typeof detail === 'object' &&
+      Array.isArray(detail.members) &&
+      detail.participation &&
+      typeof detail.participation === 'object'
+    )
+  }
+
+
+  const applyParticipation = (
+    detail,
+    memberList,
+    countData = null,
+  ) => {
+    const normalizedMembers = Array.isArray(memberList)
+      ? memberList
+      : []
+
+    setMembers(normalizedMembers)
+
+    const integratedCount =
+      detail?.participation?.current_members ??
+      detail?.participant_count
+
+    setMemberCount(
+      integratedCount != null
+        ? Number(integratedCount)
+        : normalizeMemberCount(countData),
+    )
+
+    setJoined(
+      resolveJoinedState(
+        detail,
+        normalizedMembers,
+        currentMemberId,
+      ),
+    )
+  }
+
+
   const loadParticipation = async (
     recruitId,
-    detail = null,
-    isCurrent = () => true,
+    detail,
+    { signal, isCurrent = () => true } = {},
   ) => {
+    // 신규 프로젝트·스터디는 상세 응답에 참여자/인원 정보가 통합되어 있다.
+    // 이 경우 /members, /count를 추가 호출하지 않는다.
+    if (hasIntegratedParticipation(detail)) {
+      if (!isCurrent()) {
+        return
+      }
 
-    const [
-      memberData,
-      countData,
-    ] = await Promise.all([
-      meetupApi.members(recruitId),
-      meetupApi.count(recruitId),
+      applyParticipation(
+        detail,
+        detail.members,
+        detail.participation,
+      )
+      return
+    }
+
+    // 기존 운동·게임·공동구매·옛 스터디는 기존 API를 유지한다.
+    const [memberData, countData] = await Promise.all([
+      meetupApi.members(recruitId, { signal }),
+      meetupApi.count(recruitId, { signal }),
     ])
 
-    // 다른 모임으로 이동했다면 이전 응답 무시
     if (!isCurrent()) {
       return
     }
@@ -245,29 +301,11 @@ export default function useMeetups({
       ? memberData
       : memberData?.members || []
 
-    setMembers(memberList)
-
-    // 신규 프로젝트는 상세 응답의 참여 인원 우선
-    const detailCount = detail?.participant_count
-
-    setMemberCount(
-      detailCount != null
-        ? Number(detailCount)
-        : normalizeMemberCount(countData),
+    applyParticipation(
+      detail,
+      memberList,
+      countData,
     )
-
-    // 모임 유형에 따른 참여 상태 계산
-    if (detail) {
-      setJoined(
-        resolveJoinedState(
-          detail,
-          memberList,
-          currentMemberId,
-        ),
-      )
-    } else {
-      setJoined(false)
-    }
   }
 
 
@@ -275,29 +313,72 @@ export default function useMeetups({
   // 4. 모임 상세 정보 갱신
   // =========================================================
 
+  const fetchDetailSnapshot = async (
+    recruitId,
+    { showLoading = false } = {},
+  ) => {
+    const requestId = ++detailRequest.current
+
+    // 이전 상세 요청이 진행 중이면 실제 네트워크 요청도 취소한다.
+    detailAbortController.current?.abort()
+
+    const controller = new AbortController()
+    detailAbortController.current = controller
+
+    if (showLoading) {
+      setDetailLoading(true)
+    }
+
+    try {
+      const detail = await meetupApi.detail(
+        recruitId,
+        { signal: controller.signal },
+      )
+
+      if (requestId !== detailRequest.current) {
+        return null
+      }
+
+      await loadParticipation(
+        recruitId,
+        detail,
+        {
+          signal: controller.signal,
+          isCurrent: () => requestId === detailRequest.current,
+        },
+      )
+
+      if (requestId !== detailRequest.current) {
+        return null
+      }
+
+      setSelectedMeetup(detail)
+      return detail
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        return null
+      }
+
+      throw err
+    } finally {
+      if (
+        detailAbortController.current === controller
+      ) {
+        detailAbortController.current = null
+      }
+
+      if (
+        showLoading &&
+        requestId === detailRequest.current
+      ) {
+        setDetailLoading(false)
+      }
+    }
+  }
+
+
   const refreshDetail = async (recruitId) => {
-    const requestId = detailRequest.current
-
-    const detail = await meetupApi.detail(recruitId)
-
-    // 다른 화면으로 이동한 경우 이전 결과 무시
-    if (requestId !== detailRequest.current) {
-      return null
-    }
-
-    await loadParticipation(
-      recruitId,
-      detail,
-      () => requestId === detailRequest.current,
-    )
-
-    if (requestId !== detailRequest.current) {
-      return null
-    }
-
-    setSelectedMeetup(detail)
-
-    return detail
+    return fetchDetailSnapshot(recruitId)
   }
 
 
@@ -322,10 +403,8 @@ export default function useMeetups({
     meetup,
     changeUrl = true,
   ) => {
-
     const recruitId = Number(meetup?.recruit_id)
 
-    // 유효하지 않은 모임 ID 검사
     if (
       !Number.isSafeInteger(recruitId) ||
       recruitId <= 0
@@ -333,65 +412,33 @@ export default function useMeetups({
       return
     }
 
-    // 새로운 상세 조회 요청 번호
-    const requestId = ++detailRequest.current
-
-    setDetailLoading(true)
-
     setError('')
     setActionMessage('')
-
-    // 이전 모임 정보 초기화
     setSelectedMeetup(null)
-
     setMembers([])
     setMemberCount(0)
     setComments([])
-
     setJoined(false)
     setView('list')
 
     try {
-      // 모임 상세 API 호출
-      const detail = await meetupApi.detail(recruitId)
-
-      // 이전 요청 결과는 무시
-      if (requestId !== detailRequest.current) {
-        return
-      }
-
-      // 참여자 및 참여 상태 조회
-      await loadParticipation(
+      const detail = await fetchDetailSnapshot(
         recruitId,
-        detail,
-        () => requestId === detailRequest.current,
+        { showLoading: true },
       )
 
-      // 조회 도중 다른 모임으로 이동했다면 중단
-      if (requestId !== detailRequest.current) {
+      if (!detail) {
         return
       }
 
-      // 상세 정보 저장
-      setSelectedMeetup(detail)
-
-      // 상세 화면 표시
       setView('detail')
 
-      // 게시글 URL 변경
       if (changeUrl) {
         const path = `/meetup/${recruitId}`
-
         handledPath.current = path
-
         navigate(path)
       }
-
     } catch (err) {
-      if (requestId !== detailRequest.current) {
-        return
-      }
-
       console.error(err)
 
       setError(
@@ -400,11 +447,6 @@ export default function useMeetups({
           '모임 정보를 불러오지 못했습니다.',
         ),
       )
-
-    } finally {
-      if (requestId === detailRequest.current) {
-        setDetailLoading(false)
-      }
     }
   }
 
@@ -417,6 +459,8 @@ export default function useMeetups({
 
     // 기존 상세 요청 무효화
     detailRequest.current += 1
+    detailAbortController.current?.abort()
+    detailAbortController.current = null
 
     setDetailLoading(false)
 
@@ -515,6 +559,8 @@ export default function useMeetups({
 
     // 이전 상세 조회 무효화
     detailRequest.current += 1
+    detailAbortController.current?.abort()
+    detailAbortController.current = null
 
     setDetailLoading(false)
 
@@ -599,21 +645,15 @@ export default function useMeetups({
       await loadMeetups()
 
       if (created?.recruit_id) {
-        // 이전 상세 조회 무효화
-        detailRequest.current += 1
-
-        const detail = await meetupApi.detail(
+        const detail = await refreshDetail(
           created.recruit_id,
         )
 
-        // 참여 상태 조회
-        await loadParticipation(
-          created.recruit_id,
-          detail,
-        )
+        if (!detail) {
+          return created
+        }
 
         // 생성한 모임 상세 표시
-        setSelectedMeetup(detail)
         setView('detail')
 
         // 생성한 모임 URL로 이동
@@ -941,7 +981,55 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 16. 프로젝트 연장
+  // 16. 모임 활동 / 후기 작성
+  // =========================================================
+
+  const createActivity = async (payload) => {
+    if (!selectedMeetup?.recruit_id || busy) {
+      return null
+    }
+
+    setBusy(true)
+    setError('')
+    setActionMessage('')
+
+    try {
+      const result = await meetupApi.addActivity(
+        selectedMeetup.recruit_id,
+        payload,
+      )
+
+      // 권한/상태가 변경될 수 있으므로 작성 후 상세을 다시 확인한다.
+      await refreshDetail(selectedMeetup.recruit_id)
+
+      setActionMessage(
+        payload?.activity_type === 'REVIEW'
+          ? '후기가 등록되었습니다.'
+          : '활동 기록이 등록되었습니다.',
+      )
+
+      return result
+    } catch (err) {
+      console.error(err)
+
+      setError(
+        getErrorMessage(
+          err,
+          payload?.activity_type === 'REVIEW'
+            ? '후기를 등록하지 못했습니다.'
+            : '활동 기록을 등록하지 못했습니다.',
+        ),
+      )
+
+      throw err
+    } finally {
+      setBusy(false)
+    }
+  }
+
+
+  // =========================================================
+  // 17. 프로젝트 연장
   // =========================================================
 
   const extendProject = async (payload) => {
@@ -991,7 +1079,7 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 17. 프로젝트 예외 시작
+  // 18. 프로젝트 예외 시작
   // =========================================================
 
   const chooseExceptionStart = async () => {
@@ -1064,7 +1152,7 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 18. 프로젝트 취소
+  // 19. 프로젝트 취소
   // =========================================================
 
   const cancelProject = async () => {
@@ -1144,7 +1232,7 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 19. 프로젝트 중도 종료
+  // 20. 프로젝트 중도 종료
   // =========================================================
 
   const endProjectEarly = async () => {
@@ -1224,7 +1312,7 @@ export default function useMeetups({
 
 
   // =========================================================
-  // 20. 외부 컴포넌트에 제공할 값
+  // 21. 외부 컴포넌트에 제공할 값
   // =========================================================
 
   return {
@@ -1269,6 +1357,9 @@ export default function useMeetups({
 
     // 좋아요
     toggleLike,
+
+    // 활동 / 후기
+    createActivity,
 
     // 프로젝트 관리
     extendProject,

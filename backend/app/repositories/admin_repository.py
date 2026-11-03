@@ -42,7 +42,7 @@ def list_notices(cursor) -> list[dict]:
         """
         SELECT p.post_id AS id, p.board_id, p.title,
                COALESCE(p.body, '') AS body, p.created_at,
-               p.updated_at, COALESCE(NULLIF(m.nickname, ''), '관리자') AS author_name
+               p.updated_at, CASE WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자' ELSE COALESCE(NULLIF(m.nickname, ''), '관리자') END AS author_name
         FROM posts AS p
         JOIN boards AS b ON b.board_id = p.board_id
         JOIN members AS m ON m.member_id = p.author_member_id
@@ -61,7 +61,7 @@ def get_notice(cursor, post_id: int) -> dict | None:
         """
         SELECT p.post_id AS id, p.board_id, p.title, COALESCE(p.body, '') AS body,
                p.created_at, p.updated_at,
-               COALESCE(NULLIF(m.nickname, ''), '관리자') AS author_name
+               CASE WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자' ELSE COALESCE(NULLIF(m.nickname, ''), '관리자') END AS author_name
         FROM posts AS p
         JOIN boards AS b ON b.board_id = p.board_id
         JOIN members AS m ON m.member_id = p.author_member_id
@@ -122,7 +122,7 @@ def list_board_posts(cursor, search: str) -> list[dict]:
         """
         SELECT p.post_id AS id, p.title, p.board_id,
                b.board_name AS board_name,
-               COALESCE(NULLIF(m.nickname, ''), '익명') AS author_name,
+               CASE WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자' ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
                p.created_at, p.post_status,
                (UPPER(COALESCE(p.post_status, 'PUBLISHED')) = 'HIDDEN') AS hidden
         FROM posts AS p

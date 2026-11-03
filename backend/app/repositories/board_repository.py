@@ -169,8 +169,9 @@ def list_posts(
             p.board_id,
             p.title,
             COALESCE(p.body, '') AS body,
-            CASE WHEN p.is_anonymous THEN NULL ELSE p.author_member_id END AS author_id,
+            CASE WHEN p.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL ELSE p.author_member_id END AS author_id,
             CASE WHEN p.is_anonymous THEN '익명'
+                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                  ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
             p.is_anonymous,
             p.created_at,
@@ -201,6 +202,7 @@ def list_posts(
             p.author_member_id,
             p.is_anonymous,
             m.nickname,
+            m.member_status,
             p.created_at,
             p.updated_at
         ORDER BY
@@ -280,8 +282,9 @@ def get_post(
             p.board_id,
             p.title,
             COALESCE(p.body, '') AS body,
-            CASE WHEN p.is_anonymous THEN NULL ELSE p.author_member_id END AS author_id,
+            CASE WHEN p.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL ELSE p.author_member_id END AS author_id,
             CASE WHEN p.is_anonymous THEN '익명'
+                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                  ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
             p.is_anonymous,
             p.created_at,
@@ -501,18 +504,19 @@ def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
             END AS body,
 
             CASE
-                WHEN c.deleted_at IS NOT NULL OR c.is_anonymous THEN NULL
+                WHEN c.deleted_at IS NOT NULL OR c.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL
                 ELSE c.author_member_id
             END AS author_id,
 
             CASE
                 WHEN c.deleted_at IS NOT NULL THEN ''
                 WHEN c.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
 
             CASE
-                WHEN c.deleted_at IS NOT NULL OR c.is_anonymous THEN NULL
+                WHEN c.deleted_at IS NOT NULL OR c.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL
                 ELSE NULLIF(m.profile_image_url, '')
             END AS author_avatar_url,
 
@@ -626,17 +630,18 @@ def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | Non
             c.body,
 
             CASE
-                WHEN c.is_anonymous THEN NULL
+                WHEN c.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL
                 ELSE c.author_member_id
             END AS author_id,
 
             CASE
                 WHEN c.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
 
             CASE
-                WHEN c.is_anonymous THEN NULL
+                WHEN c.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL
                 ELSE NULLIF(m.profile_image_url, '')
             END AS author_avatar_url,
 
@@ -758,8 +763,9 @@ def list_featured_posts(
             p.board_id,
             p.title,
             COALESCE(p.body, '') AS body,
-            CASE WHEN p.is_anonymous THEN NULL ELSE p.author_member_id END AS author_id,
+            CASE WHEN p.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL ELSE p.author_member_id END AS author_id,
             CASE WHEN p.is_anonymous THEN '익명'
+                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                  ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
             p.is_anonymous,
             p.created_at,

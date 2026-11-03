@@ -69,6 +69,7 @@ def get_review(cursor, post_id: int, member_id: int) -> dict | None:
             (p.author_member_id = %s) AS is_owner,
             CASE
                 WHEN cp.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
             cp.category_code,
@@ -204,6 +205,7 @@ def list_reviews(
 
             CASE
                 WHEN cp.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
 
@@ -470,6 +472,7 @@ def get_talk(cursor, post_id: int, member_id: int) -> dict | None:
 
             CASE
                 WHEN cp.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
 
@@ -594,6 +597,7 @@ def list_talks(
 
             CASE
                 WHEN cp.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
 
@@ -1125,6 +1129,7 @@ def get_lounge(
 
             CASE
                 WHEN cp.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(
                     NULLIF(m.nickname, ''),
                     '익명'
@@ -1265,6 +1270,7 @@ def list_lounges(
 
             CASE
                 WHEN cp.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(
                     NULLIF(m.nickname, ''),
                     '익명'
@@ -1611,6 +1617,7 @@ def get_lab(
 
             CASE
                 WHEN cp.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(
                     NULLIF(m.nickname, ''),
                     '익명'
@@ -1830,6 +1837,7 @@ def list_labs(
 
             CASE
                 WHEN cp.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(
                     NULLIF(m.nickname, ''),
                     '익명'

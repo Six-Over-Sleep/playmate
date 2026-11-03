@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { meetupApi } from '../../services/meetupApi'
+import { meetupErrorMessage } from '../../utils/meetupForm'
 import { normalizeMemberCount } from '../../utils/meetup'
 
 
@@ -100,11 +101,7 @@ function getScheduleVersion(meetup) {
 
 // API 오류 메시지 처리
 function getErrorMessage(error, fallback) {
-  return (
-    error?.message ||
-    error?.detail ||
-    fallback
-  )
+  return meetupErrorMessage(error, fallback)
 }
 
 
@@ -137,12 +134,16 @@ export default function useMeetups({
 
   const [meetups, setMeetups] = useState([])
   const [selectedMeetup, setSelectedMeetup] = useState(null)
+  const selectedRef = useRef(null)
+  selectedRef.current = selectedMeetup
 
   const [view, setView] = useState('list')
 
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusyState] = useState(false)
+  const busyRef = useRef(false)
+  const setBusy = (value) => { busyRef.current = value; setBusyState(value) }
 
   const [members, setMembers] = useState([])
   const [memberCount, setMemberCount] = useState(0)
@@ -249,7 +250,7 @@ export default function useMeetups({
 
     const integratedCount =
       detail?.participation?.current_members ??
-      detail?.participant_count
+      (countData == null ? detail?.participant_count : null)
 
     setMemberCount(
       integratedCount != null
@@ -352,6 +353,15 @@ export default function useMeetups({
         return null
       }
 
+      let commentData = []
+      try {
+        commentData = await meetupApi.comments(recruitId, { signal: controller.signal })
+      } catch (error) {
+        if (error.name === 'AbortError') throw error
+        if (requestId === detailRequest.current) setError('댓글을 불러오지 못했어요. 모임 정보는 계속 확인할 수 있어요.')
+      }
+      if (requestId !== detailRequest.current) return null
+      setComments(Array.isArray(commentData) ? commentData : [])
       setSelectedMeetup(detail)
       return detail
     } catch (err) {
@@ -632,15 +642,18 @@ export default function useMeetups({
   // =========================================================
 
   const createMeetup = async (payload) => {
+    if (busyRef.current) return null
 
     setBusy(true)
 
     setError('')
     setActionMessage('')
 
+    let created = null
     try {
-      const created = await meetupApi.create(payload)
+      created = await meetupApi.create(payload)
 
+      setActionMessage('모임이 만들어졌어요.')
       // 생성 후 목록 갱신
       await loadMeetups()
 
@@ -672,14 +685,12 @@ export default function useMeetups({
     } catch (err) {
       console.error(err)
 
-      setError(
-        getErrorMessage(
-          err,
-          '모임을 생성하지 못했습니다.',
-        ),
-      )
-
-      return null
+      if (created?.recruit_id) {
+        setView('list')
+        setError('모임은 저장됐지만 상세 정보를 불러오지 못했어요. 목록에서 다시 열어주세요.')
+        return created
+      }
+      throw err
 
     } finally {
       setBusy(false)
@@ -693,7 +704,7 @@ export default function useMeetups({
 
   const updateMeetup = async (payload) => {
 
-    if (!selectedMeetup) {
+    if (!selectedMeetup || busyRef.current) {
       return null
     }
 
@@ -702,12 +713,14 @@ export default function useMeetups({
     setError('')
     setActionMessage('')
 
+    let saved = false
     try {
       const updated = await meetupApi.update(
         selectedMeetup.recruit_id,
         payload,
       )
 
+      saved = true
       // 수정된 상세 정보 다시 조회
       await refreshDetail(
         selectedMeetup.recruit_id,
@@ -717,20 +730,19 @@ export default function useMeetups({
       await loadMeetups()
 
       setView('detail')
+      setActionMessage('모임을 수정했어요.')
 
       return updated
 
     } catch (err) {
       console.error(err)
 
-      setError(
-        getErrorMessage(
-          err,
-          '모임을 수정하지 못했습니다.',
-        ),
-      )
-
-      return null
+      if (saved) {
+        setView('detail')
+        setError('수정은 저장됐지만 최신 정보를 불러오지 못했어요. 새로고침해주세요.')
+        return true
+      }
+      throw err
 
     } finally {
       setBusy(false)
@@ -745,8 +757,7 @@ export default function useMeetups({
   const deleteMeetup = async () => {
 
     if (
-      !selectedMeetup ||
-      !window.confirm('이 모임 게시글을 삭제할까요?')
+      !selectedMeetup || busyRef.current
     ) {
       return
     }
@@ -785,6 +796,8 @@ export default function useMeetups({
       handledPath.current = path
 
       navigate(path, { replace: true })
+      setActionMessage('모임을 삭제했어요.')
+      return true
 
     } catch (err) {
       console.error(err)
@@ -808,7 +821,7 @@ export default function useMeetups({
 
   const toggleLike = async () => {
 
-    if (!selectedMeetup || busy) {
+    if (!selectedMeetup || busyRef.current) {
       return null
     }
 
@@ -825,12 +838,11 @@ export default function useMeetups({
           )
 
       // 상세 좋아요 상태 갱신
-      setSelectedMeetup((prev) => ({
+      setSelectedMeetup((prev) => prev?.recruit_id === result.recruit_id ? {
         ...prev,
-
         like_count: result.like_count,
         liked_by_me: result.liked_by_me,
-      }))
+      } : prev)
 
       // 목록 좋아요 상태 갱신
       setMeetups((prev) =>
@@ -865,6 +877,40 @@ export default function useMeetups({
   }
 
 
+  // Social writes are serialized, use server results, and retain drafts on failure.
+  const toggleScrap = async () => {
+    if (!selectedMeetup || busyRef.current) return null
+    setBusy(true)
+    setError('')
+    const id = selectedMeetup.recruit_id
+    try {
+      const result = await meetupApi[selectedMeetup.scrapped_by_me ? 'unscrap' : 'scrap'](selectedMeetup.recruit_id)
+      setSelectedMeetup((prev) => prev?.recruit_id === id ? { ...prev, scrapped_by_me: result.scrapped_by_me } : prev)
+      setActionMessage(result.scrapped_by_me ? '스크랩에 저장했어요.' : '스크랩을 해제했어요.')
+      return result
+    } catch (err) {
+      setError(getErrorMessage(err, '스크랩을 변경하지 못했어요.'))
+      return null
+    } finally { setBusy(false) }
+  }
+
+  const changeComment = async (kind, ...args) => {
+    if (!selectedMeetup || busyRef.current) return null
+    const id = selectedMeetup.recruit_id
+    setBusy(true)
+    setError('')
+    try {
+      const result = await meetupApi[kind](id, ...args)
+      const rows = await meetupApi.comments(id)
+      if (selectedRef.current?.recruit_id === id) setComments(rows)
+      setActionMessage(kind === 'deleteComment' ? '댓글을 삭제했어요.' : '댓글을 저장했어요.')
+      return result || true
+    } catch (err) {
+      setError(getErrorMessage(err, '댓글을 처리하지 못했어요. 작성한 내용을 확인하고 다시 시도해주세요.'))
+      return null
+    } finally { setBusy(false) }
+  }
+
   // =========================================================
   // 15. 모임 신청 / 신청 취소 / 중도이탈
   // =========================================================
@@ -874,7 +920,7 @@ export default function useMeetups({
     payload = null,
   ) => {
 
-    if (!selectedMeetup || busy) {
+    if (!selectedMeetup || busyRef.current) {
       return null
     }
 
@@ -985,7 +1031,7 @@ export default function useMeetups({
   // =========================================================
 
   const createActivity = async (payload) => {
-    if (!selectedMeetup?.recruit_id || busy) {
+    if (!selectedMeetup?.recruit_id || busyRef.current) {
       return null
     }
 
@@ -1036,7 +1082,7 @@ export default function useMeetups({
 
     if (
       !selectedMeetup?.recruit_id ||
-      busy
+      busyRef.current
     ) {
       return null
     }
@@ -1086,7 +1132,7 @@ export default function useMeetups({
 
     if (
       !selectedMeetup?.recruit_id ||
-      busy
+      busyRef.current
     ) {
       return null
     }
@@ -1159,7 +1205,7 @@ export default function useMeetups({
 
     if (
       !selectedMeetup?.recruit_id ||
-      busy
+      busyRef.current
     ) {
       return null
     }
@@ -1239,7 +1285,7 @@ export default function useMeetups({
 
     if (
       !selectedMeetup?.recruit_id ||
-      busy
+      busyRef.current
     ) {
       return null
     }
@@ -1355,8 +1401,13 @@ export default function useMeetups({
     // 참여
     changeParticipation,
 
-    // 좋아요
+    // 좋아요 / 스크랩 / 댓글
     toggleLike,
+    toggleScrap,
+    addComment: (...args) => changeComment('addComment', ...args),
+    editComment: (...args) => changeComment('editComment', ...args),
+    deleteComment: (...args) => changeComment('deleteComment', ...args),
+    dismissNotice: () => { setError(''); setActionMessage('') },
 
     // 활동 / 후기
     createActivity,

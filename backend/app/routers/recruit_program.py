@@ -26,12 +26,14 @@ features_router = APIRouter(prefix="/api/recruits", tags=["recruit-programs"])
 
 
 def build_program_service(db=Depends(get_db)):
-    """실제 DB 세션으로 서비스를 구성한다. 기술 사전 어댑터는 별도 연결 지점이다."""
-    return ProgramService(ProgramRepository(db))
+    """실제 DB 세션과 공용 모임 기술 사전으로 서비스를 구성한다."""
+    from backend.app.services.recruit_skill_catalog import DatabaseSkillCatalog
+
+    return ProgramService(ProgramRepository(db), catalog=DatabaseSkillCatalog(db))
 
 
 def get_service(service: ProgramService = Depends(build_program_service)):
-    """실제 공통 기술 사전 어댑터 연결 전 프로젝트 생성은 명시적 503을 반환한다."""
+    """신규 모임 기능 설정과 마이그레이션 준비 상태를 확인한다."""
     if not programs_enabled():
         raise HTTPException(
             503, "신규 모임 API를 활성화하지 않았습니다. 배포 설정을 확인해주세요."

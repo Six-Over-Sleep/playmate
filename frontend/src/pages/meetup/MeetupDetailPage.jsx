@@ -60,7 +60,7 @@ function getDifficultyLabel(value) {
 function getLifecycleDescription(meetup) {
   switch (getLifecycleStatus(meetup)) {
     case 'RECRUITING':
-      return '모집 중입니다. 시작 조건 충족 여부는 서버의 최신 참여 구성으로 판단합니다.'
+      return '함께할 멤버를 모집하고 있어요.'
     case 'READY':
       return '시작 조건을 충족했지만 아직 예정 시작 시각 전입니다.'
     case 'IN_PROGRESS':
@@ -96,13 +96,14 @@ function getJoinRestrictionMessage(meetup, canJoin, hasActiveApplication) {
     meetup?.join_restriction_reason ??
     meetup?.application_restriction_reason ??
     meetup?.restriction_reason ??
-    '현재 서버 기준으로 이 모임에 새로 신청할 수 없습니다.'
+    '지금은 이 모임에 새로 신청할 수 없어요.'
   )
 }
 
 // 모임 상세 정보와 참여·관리·좋아요·스크랩 버튼, 댓글 표시
 export default function MeetupDetailPage({
   meetup,
+  currentMemberId,
   members = [],
   memberCount,
   joined = false,
@@ -211,11 +212,12 @@ export default function MeetupDetailPage({
   const supportsWaiting = isProjectOrStudy
 
   const legacyCanJoin =
+    currentMemberId != null &&
     !myApplication &&
     !joined &&
     (
       status.className === 'open' ||
-      (supportsWaiting && ['full', 'ready'].includes(status.className))
+      (supportsWaiting && ['full', 'ready'].includes(status.className) && meetup.permissions != null)
     )
 
   const canJoin = hasPermissionContract
@@ -234,11 +236,11 @@ export default function MeetupDetailPage({
 
   const canEdit = hasPermissionContract
     ? permissions.can_edit === true
-    : Boolean(onEdit)
+    : meetup.is_owner === true
 
   // 기존 onDelete는 게시글 논리 삭제용이다.
   // 프로젝트 운영 취소는 permissions.can_cancel_project + 전용 POST /cancel을 사용한다.
-  const canDelete = Boolean(onDelete)
+  const canDelete = Boolean(onDelete) && currentMemberId != null && String(ownerId) === String(currentMemberId)
 
   // 팀장 전용 작업은 서버 permissions가 true인 경우에만 표시한다.
   const canExtendProject =
@@ -357,6 +359,7 @@ export default function MeetupDetailPage({
       <button
         type="button"
         className="meetup-back-button"
+        disabled={busy}
         onClick={onBack}
       >
         ← 목록으로
@@ -428,7 +431,8 @@ export default function MeetupDetailPage({
             }
             aria-pressed={Boolean(meetup.liked_by_me)}
             onClick={onLike}
-            disabled={busy}
+            disabled={busy || currentMemberId == null}
+            title={currentMemberId == null ? "로그인 후 이용해주세요." : undefined}
           >
             {meetup.liked_by_me ? '♥' : '♡'} 좋아요{' '}
             {meetup.like_count ?? 0}
@@ -443,7 +447,8 @@ export default function MeetupDetailPage({
             }
             aria-pressed={Boolean(meetup.scrapped_by_me)}
             onClick={onScrap}
-            disabled={busy}
+            disabled={busy || currentMemberId == null}
+            title={currentMemberId == null ? "로그인 후 이용해주세요." : undefined}
           >
             {meetup.scrapped_by_me ? '스크랩됨' : '스크랩'}
           </button>
@@ -916,11 +921,7 @@ export default function MeetupDetailPage({
           requiredSkills={requiredSkills}
         />
 
-        {actionMessage && (
-          <div className="meetup-action-message">
-            {actionMessage}
-          </div>
-        )}
+
 
 
         {(canWriteActivity || canWriteReview) && (
@@ -967,6 +968,7 @@ export default function MeetupDetailPage({
               {canEdit && onEdit && (
                 <button
                   type="button"
+                  disabled={busy}
                   onClick={onEdit}
                 >
                   수정
@@ -977,6 +979,7 @@ export default function MeetupDetailPage({
                 <button
                   type="button"
                   className="delete"
+                  disabled={busy}
                   onClick={onDelete}
                 >
                   삭제
@@ -1020,7 +1023,7 @@ export default function MeetupDetailPage({
         {/* 댓글·대댓글 목록과 입력창 */}
         <MeetupCommentList
           comments={comments}
-          busy={busy}
+          busy={busy || currentMemberId == null}
           onAdd={onAddComment}
           onEdit={onEditComment}
           onDelete={onDeleteComment}

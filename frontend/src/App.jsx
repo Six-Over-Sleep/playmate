@@ -60,6 +60,7 @@ function AppContent() {
 
   const [nickname, setNickname] = useState('')
   const [roleCode, setRoleCode] = useState('')
+  const [currentMemberId, setCurrentMemberId] = useState(null)
 
   // 과정 게시판 분류에는 관리자 작성 권한이 아닌
   // 실제 소속 정보를 사용합니다.
@@ -136,6 +137,7 @@ function AppContent() {
       if (data.signup_required) {
         setNickname('')
         setRoleCode('')
+        setCurrentMemberId(null)
         setMemberCourse(null)
         setMemberCohort(null)
         setAvatarUrl(null)
@@ -145,6 +147,7 @@ function AppContent() {
         return
       }
 
+      setCurrentMemberId(data.member?.member_id ?? data.member_id ?? null)
       // 로그인 회원 정보 저장
       setNickname(
         data.member?.nickname || '',
@@ -178,6 +181,7 @@ function AppContent() {
 
       setNickname('')
       setRoleCode('')
+      setCurrentMemberId(null)
       setMemberCourse(null)
       setMemberCohort(null)
       setAvatarUrl(null)
@@ -224,6 +228,7 @@ function AppContent() {
     // 개발용 관리자 상태
     setDevAdminMode(true)
 
+    setCurrentMemberId(null)
     setRoleCode('ADMIN')
     setNickname('관리자')
 
@@ -604,6 +609,8 @@ function AppContent() {
 
         {section === 'meetup' && (
           <MeetupSection
+            isAdmin={roleCode === 'ADMIN'}
+            currentMemberId={currentMemberId}
             targetMeetupId={
               targetMeetupId
             }

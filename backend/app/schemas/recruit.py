@@ -2,6 +2,7 @@
 
 # 날짜, 날짜와 시간, 시간만을 각각 표현하는 자료형
 from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
 # Literal : 지정된 값만 입력받도록 제한하는 타입
 from typing import Literal
 
@@ -89,6 +90,20 @@ class RecruitCreate(BaseModel):
     pickup_method: str | None = None
     regular_start_date: date | None = None
 
+    @field_validator("deadline_at", "meeting_start", "meeting_end", mode="after")
+    @classmethod
+    def seoul_wall_time(cls, value):
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
+        return value
+
+    @field_validator("title", "body")
+    @classmethod
+    def nonempty_text(cls, value):
+        if not value.strip():
+            raise ValueError("제목과 소개를 입력해주세요.")
+        return value.strip()
+
     # @model_validator(mode="after") : 개별 필드 검증이 끝난 뒤 전체 요청 데이터의 관계를 검사함
     @model_validator(mode="after")
     def check_schedule(self):
@@ -97,6 +112,10 @@ class RecruitCreate(BaseModel):
         조건이 맞지 않으면 ValueError를 발생시키고,
         정상이라면 검증된 객체(self)를 반환함.
         """
+        # 공동구매는 수령 안내를 사용하며 모임 시작/종료 일정을 받지 않는다.
+        if self.category == "group_buy":
+            return self
+
         # 정기 모임은 요일, 시간, 시작 날짜가 모두 필요함
         if self.recruit_mode == "regular":
             if not self.regular_days or self.regular_time is None:
@@ -168,6 +187,31 @@ class RecruitUpdate(BaseModel):
     deadline_at: datetime | None = None
     place: str | None = None
     regular_start_date: date | None = None
+
+    is_online: bool | None = None
+    sport_name: str | None = None
+    game_name: str | None = None
+    study_topic: str | None = None
+    study_period: str | None = None
+    study_method: str | None = None
+    product_name: str | None = None
+    purchase_url: str | None = None
+    estimated_price_per_person: float | None = Field(default=None, ge=0)
+    pickup_method: str | None = None
+
+    @field_validator("deadline_at", "meeting_start", "meeting_end")
+    @classmethod
+    def seoul_wall_time(cls, value):
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
+        return value
+
+    @field_validator("title", "body")
+    @classmethod
+    def nonempty_text(cls, value):
+        if value is None or not value.strip():
+            raise ValueError("제목과 소개를 입력해주세요.")
+        return value.strip()
 
     # 수정 요청에서 regular_days가 전달되면 생성 요청과 동일한 검증을 적용함
     @field_validator("regular_days")

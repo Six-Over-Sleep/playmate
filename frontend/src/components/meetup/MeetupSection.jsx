@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { MeetupNotice, MeetupConfirm } from './MeetupFeedback'
 import { useNavigate } from 'react-router-dom'
 
 import MeetupPage from '../../pages/meetup/MeetupPage'
@@ -7,8 +9,10 @@ import useMeetups from '../../hooks/meetup/useMeetups'
 
 export default function MeetupSection({
   currentMemberId = null,
+  isAdmin = false,
 } = {}) {
   const navigate = useNavigate()
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // =========================================================
   // 1. 모임 상태 및 함수
@@ -26,6 +30,7 @@ export default function MeetupSection({
     joined,
     error,
     actionMessage,
+    comments, toggleLike, toggleScrap, addComment, editComment, deleteComment, dismissNotice,
 
     goBack,
     backToDetail,
@@ -80,15 +85,8 @@ export default function MeetupSection({
 
   return (
     <>
-      {/* 오류 메시지 */}
-      {error && (
-        <div
-          className="error-banner"
-          role="alert"
-        >
-          {error}
-        </div>
-      )}
+      <MeetupNotice message={error || actionMessage} error={Boolean(error)} onClose={dismissNotice} />
+      {confirmDelete && <MeetupConfirm busy={busy} onCancel={() => setConfirmDelete(false)} onConfirm={async () => { await deleteMeetup(); setConfirmDelete(false) }} />}
 
       {/* 상세 조회 로딩 */}
       {detailLoading && (
@@ -130,7 +128,14 @@ export default function MeetupSection({
 
             // 모임 수정 및 삭제
             onEdit={openEdit}
-            onDelete={deleteMeetup}
+            currentMemberId={currentMemberId}
+            onDelete={() => setConfirmDelete(true)}
+            onLike={toggleLike}
+            onScrap={toggleScrap}
+            comments={comments}
+            onAddComment={addComment}
+            onEditComment={editComment}
+            onDeleteComment={deleteComment}
 
             // 모임 참여
             onJoin={(payload) =>
@@ -165,6 +170,7 @@ export default function MeetupSection({
 
       {!detailLoading && view === 'editor' && (
         <MeetupEditorPage
+          isAdmin={isAdmin}
           key={selectedMeetup?.recruit_id ?? 'new'}
           meetup={selectedMeetup}
           busy={busy}

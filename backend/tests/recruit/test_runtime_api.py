@@ -3,14 +3,17 @@
 import asyncio
 from base64 import b64encode
 from collections import Counter
+import importlib.util
 import json
+from pathlib import Path
 
 import httpx
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from itsdangerous import TimestampSigner
 import pytest
 
 from app.main import app
+import app.main as main_module
 from backend.app.core.database import Base
 from backend.app.models.recruit import (
     RecruitSportsDetail,
@@ -200,16 +203,52 @@ def test_feature_off_cannot_bypass_rules_through_legacy(runtime, payload, monkey
     )
 
 
-def test_main_registers_each_recruit_method_once():
-    keys = [
-        (method, route.path)
-        for route in app.routes
-        if route.path.startswith("/api/recruits")
-        for method in getattr(route, "methods", [])
-    ]
-    assert all(count == 1 for count in Counter(keys).values())
+MAIN_PATH = Path(main_module.__file__)
+
+
+def _main_route_keys(monkeypatch):
+    """main.py를 다시 실행하며 include_router 호출을 기록해 실제 등록 (메서드, 경로) 목록을 만든다.
+
+    FastAPI 버전별 app.routes 내부 구조(_IncludedRouter 등)에 의존하지 않고,
+    공개 API인 include_router 인자와 APIRouter.routes의 path·methods만 사용한다.
+    같은 라우터를 두 번 포함하거나 라우터 안·사이에서 같은 경로를 중복 정의해도 목록에 그대로 드러난다.
+    """
+    included = []
+    original = FastAPI.include_router
+
+    def record(self, router, *args, **kwargs):
+        included.append((router, kwargs.get("prefix", "")))
+        return original(self, router, *args, **kwargs)
+
+    monkeypatch.setattr(FastAPI, "include_router", record)
+    spec = importlib.util.spec_from_file_location("main_route_audit", MAIN_PATH)
+    spec.loader.exec_module(importlib.util.module_from_spec(spec))
+
+    keys = []
+    for router, prefix in included:
+        for route in router.routes:
+            # 모임 라우터가 하위 라우터를 포함하게 되면 이 검사도 함께 보완해야 한다.
+            assert hasattr(route, "path"), f"경로 정보를 확인할 수 없는 라우트: {route!r}"
+            keys += [(method, prefix + route.path) for method in getattr(route, "methods", None) or []]
+    return keys
+
+
+def test_main_registers_each_recruit_method_once(monkeypatch):
+    """main 앱에 모임 API의 (메서드, 경로)가 각각 한 번만 등록되고, 필요한 경로만 노출되는지 확인한다."""
+    keys = [key for key in _main_route_keys(monkeypatch) if key[1].startswith("/api/recruits")]
+
+    duplicated = {key: count for key, count in Counter(keys).items() if count > 1}
+    assert not duplicated, f"중복 등록된 모임 라우트: {duplicated}"
     assert ("POST", "/api/recruits/{recruit_id}/extension") in keys
     assert ("GET", "/__test__/guide") not in keys
+    # 공용 앱의 OpenAPI에도 같은 모임 작업들이 노출되는지 함께 확인한다(존재 확인용, 중복 판정은 위 목록 기준).
+    documented = {
+        (method.upper(), path)
+        for path, operations in app.openapi()["paths"].items()
+        if path.startswith("/api/recruits")
+        for method in operations
+    }
+    assert documented == set(keys)
 
 
 @pytest.mark.parametrize(

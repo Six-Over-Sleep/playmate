@@ -129,6 +129,55 @@
     color: #80729f;
 }
 
+.career-category-card.disabled,
+.career-category-card:disabled {
+    background: #f5f5f7;
+    border-color: #e6e5e9;
+    color: #aaa7b5;
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.career-category-card.disabled:hover,
+.career-category-card:disabled:hover {
+    border-color: #e6e5e9;
+    transform: none;
+}
+
+.career-category-card.disabled .career-category-icon,
+.career-category-card:disabled .career-category-icon {
+    background: #ececf0;
+    color: #aaa7b5;
+}
+
+.career-category-card.disabled .career-category-text small,
+.career-category-card:disabled .career-category-text small {
+    color: #aaa7b5;
+}
+
+.career-category-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.career-category-badge {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    height: 20px;
+    padding: 0 7px;
+    border: 1px solid #d9d7df;
+    border-radius: 999px;
+    background: #fff;
+    color: #9693a2;
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: -.1px;
+}
+
 
 /* =========================================================
    2. 게시판 헤더

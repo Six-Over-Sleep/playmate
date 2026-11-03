@@ -10,7 +10,6 @@ import CareerLoungeDetailPage from './CareerLoungeDetailPage'
 import CareerLabForm from '../../components/career/CareerLabForm'
 import CareerLabDetailPage from './CareerLabDetailPage'
 import CareerBriefing from '../../components/career/CareerBriefing'
-import CareerInsights from '../../components/career/CareerInsights'
 import CareerReactions from '../../components/career/CareerReactions'
 import {
     createCareerReview,
@@ -41,7 +40,7 @@ import {
 const CATEGORIES = [
     {
         id: 'insights', name: '채용 인사이트', icon: 'chart',
-        description: '채용 통계와 트렌드', menus: [],
+        description: '데이터 연동 준비 중', menus: [], disabled: true,
     },
     {
         id: 'reviews', name: '취준 도감', icon: 'book',
@@ -416,9 +415,12 @@ function CategoryIcon({ type }) {
 // URL에서 현재 카테고리와 게시글 ID를 읽습니다.
 function parseCareerPath(pathname) {
     const parts = pathname.split('/').filter(Boolean)
-    const category = CATEGORIES.some((item) => item.id === parts[1])
+    const requestedCategory = CATEGORIES.some((item) => item.id === parts[1])
         ? parts[1]
-        : 'insights'
+        : 'reviews'
+    // 채용 인사이트는 외부 채용 데이터 API 연동 전까지 비활성화합니다.
+    // /career, /career/insights로 직접 접근해도 취준 도감으로 진입합니다.
+    const category = requestedCategory === 'insights' ? 'reviews' : requestedCategory
     const isPostCategory = ['reviews', 'talk', 'lounge', 'lab'].includes(category)
     const postId = isPostCategory && /^\d+$/.test(parts[2] || '')
         ? Number(parts[2])
@@ -736,6 +738,8 @@ export default function CareerPage() {
     }, [activeId, activeMenu, keyword, sort, serverReviews, serverTalks, serverLounges, serverLabs])
 
     function selectCategory(id, updateUrl = true) {
+        const targetCategory = CATEGORIES.find((item) => item.id === id)
+        if (!targetCategory || targetCategory.disabled) return
         if (reviewMutationLock.current || talkMutationLock.current || loungeMutationLock.current || labMutationLock.current) return
         reviewDetailRequest.current += 1
         talkDetailRequest.current += 1
@@ -767,7 +771,7 @@ export default function CareerPage() {
         setSelectedLabPost(null)
         setEditingLabPost(false)
         setNotice('')
-        if (updateUrl) navigate(id === 'insights' ? '/career' : `/career/${id}`)
+        if (updateUrl) navigate(`/career/${id}`)
     }
 
     // 좋아요·스크랩 응답 값을 해당 카테고리의 상세 state에 반영한다.
@@ -1278,15 +1282,21 @@ export default function CareerPage() {
                         <button
                             key={item.id}
                             type="button"
-                            className={`career-category-card ${activeId === item.id ? 'active' : ''}`}
+                            className={`career-category-card ${activeId === item.id ? 'active' : ''} ${item.disabled ? 'disabled' : ''}`}
                             onClick={() => selectCategory(item.id)}
                             aria-current={activeId === item.id ? 'page' : undefined}
+                            aria-disabled={item.disabled || undefined}
+                            disabled={item.disabled}
+                            title={item.disabled ? '채용 데이터 API 연동 후 제공 예정입니다.' : undefined}
                         >
                             <span className="career-category-icon">
                                 <CategoryIcon type={item.icon} />
                             </span>
                             <span className="career-category-text">
-                                <strong>{item.name}</strong>
+                                <span className="career-category-title-row">
+                                    <strong>{item.name}</strong>
+                                    {item.disabled && <span className="career-category-badge">준비 중</span>}
+                                </span>
                                 <small>{item.description}</small>
                             </span>
                         </button>
@@ -1296,7 +1306,7 @@ export default function CareerPage() {
                 <section className="career-board" aria-label={`${active.name} 콘텐츠`}>
                     <div className="career-section-head">
                         <div>
-                            <span className="career-eyebrow">{activeId === 'briefing' ? 'CAREER NEWS' : activeId === 'insights' ? 'CAREER DATA' : 'CAREER COMMUNITY'}</span>
+                            <span className="career-eyebrow">{activeId === 'briefing' ? 'CAREER NEWS' : 'CAREER COMMUNITY'}</span>
                             <h2>{active.name}</h2>
                         </div>
 
@@ -1505,8 +1515,6 @@ export default function CareerPage() {
                         </CareerLabDetailPage>
                     ) : activeId === 'briefing' ? (
                         <CareerBriefing menus={active.menus} />
-                    ) : activeId === 'insights' ? (
-                        <CareerInsights />
                     ) : (
                         <>
                             <div className="career-subnav" aria-label={`${active.name} 하위 게시판`}>

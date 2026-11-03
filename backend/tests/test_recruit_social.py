@@ -140,7 +140,7 @@ def detail_repo(repo, monkeypatch):
         regular_start_date=None, meeting_end=NOW, place=None, is_online=True,
         contact_method=None,
     )
-    post = SimpleNamespace(post_id=20, title="스터디", body="본문")
+    post = SimpleNamespace(post_id=20, author_member_id=3, title="스터디", body="본문")
     monkeypatch.setattr(recruit_repo, "find_recruit_with_post", lambda db, rid: (post, recruit))
     monkeypatch.setattr(recruit_repo, "get_category_detail", lambda db, model, rid: None)
     return repo
@@ -151,12 +151,14 @@ def test_get_recruit_includes_like_and_scrap_for_login_member(detail_repo):
     result = recruit_service.get_recruit(Mock(), 7, 3)
     assert (result["like_count"], result["liked_by_me"], result["scrapped_by_me"]) == (4, True, True)
     assert result["title"] == "스터디" and result["detail"] == {}
+    assert result["creator_member_id"] == 3 and result["is_owner"] is True
 
 
 def test_get_recruit_without_login_is_false_and_keeps_existing_fields(detail_repo):
     detail_repo.state.update(liked=True, scrapped=True, likes=4)
     result = recruit_service.get_recruit(Mock(), 7)
     assert (result["like_count"], result["liked_by_me"], result["scrapped_by_me"]) == (4, False, False)
+    assert result["is_owner"] is False
     assert {"recruit_id", "title", "body", "category", "capacity", "state", "detail"} <= set(result)
 
 

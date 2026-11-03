@@ -321,6 +321,12 @@ export function getMeetupStatus(meetup, currentCount = null) {
     }
   }
 
+  const deadline = meetup?.deadline_at
+  const deadlineMs = deadline ? Date.parse(/[zZ]$|[+-]\d{2}:\d{2}$/.test(deadline) ? deadline : `${deadline}+09:00`) : NaN
+  if (Number.isFinite(deadlineMs) && deadlineMs <= Date.now()) {
+    return { className: 'deadline', label: '모집 마감' }
+  }
+
   if (['EXPIRED', 'DEADLINE'].includes(raw)) {
     return {
       className: 'deadline',
@@ -344,8 +350,8 @@ export function getMeetupStatus(meetup, currentCount = null) {
     }
 
     return {
-      className: 'closed',
-      label: '정원마감',
+      className: 'full',
+      label: '정원 충족',
     }
   }
 
@@ -465,7 +471,11 @@ export function normalizeRegularDays(value) {
 export function toDateTimeLocal(value) {
   if (!value) return ''
 
-  return String(value).slice(0, 16)
+  const text = String(value)
+  if (!/[zZ]$|[+-]\d{2}:\d{2}$/.test(text)) return text.slice(0, 16)
+  const date = new Date(text)
+  if (!Number.isFinite(date.getTime())) return ''
+  return new Date(date.getTime() + 9 * 3600000).toISOString().slice(0, 16)
 }
 
 // 시간 입력 필드 형식 변환

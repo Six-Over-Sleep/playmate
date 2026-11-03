@@ -84,6 +84,7 @@ class RecruitDispatchService:
         unknown = set(changes) - set(RecruitUpdate.model_fields)
         if unknown:
             raise PolicyError("기존 모임이 지원하지 않는 수정 필드입니다.", 422)
+        self.require_legacy_owner(recruit_id)
         return legacy.update_recruit(
             self.db, recruit_id, RecruitUpdate.model_validate(changes)
         )
@@ -92,7 +93,15 @@ class RecruitDispatchService:
         if self.is_program(recruit_id):
             self.require_enabled()
             return self.programs.archive(recruit_id, self.current_member())
+        self.require_legacy_owner(recruit_id)
         return legacy.delete_recruit(self.db, recruit_id)
+
+    def require_legacy_owner(self, recruit_id):
+        member_id = self.current_member()
+        self.repository.actor(member_id)
+        post = legacy.get_recruit_post(self.db, recruit_id)
+        if post.author_member_id != member_id:
+            raise PolicyError("모임 작성자만 수정하거나 삭제할 수 있습니다.", 403)
 
     def apply(self, recruit_id, data):
         if self.is_program(recruit_id):

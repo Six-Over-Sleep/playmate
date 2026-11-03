@@ -321,3 +321,14 @@ def add_comment(db: Session, comment: Comment) -> Comment:
     db.add(comment)
     db.flush()
     return comment
+
+
+def member_profiles(db: Session, member_ids):
+    """참여자 공개 닉네임·프로필만 일괄 조회한다."""
+    if not member_ids:
+        return {}
+    return {
+        row.member_id: {"display_name": row.nickname, "profile_image_url": row.profile_image_url}
+        for row in db.query(Member.member_id, Member.nickname, Member.profile_image_url)
+        .filter(Member.member_id.in_(member_ids)).all()
+    }

@@ -346,3 +346,51 @@ def test_main_api_program_flow_on_postgres(postgres, service, payload, monkeypat
             asyncio.run(verify())
         finally:
             app.dependency_overrides.pop(build_program_service, None)
+
+
+def test_issue88_catalog_migration_and_project_roundtrip(postgres, service):
+    from backend.app.services.recruit_skill_catalog import DatabaseSkillCatalog
+    migration = (Path(__file__).resolve().parents[3] / "database/sql/021_recruit_skills.sql").read_text(encoding="utf-8")
+    schema = postgres.get_execution_options()["schema_translate_map"][None]
+    with postgres.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.exec_driver_sql(f'SET search_path TO "{schema}", pg_catalog')
+        connection.exec_driver_sql(migration)
+        connection.exec_driver_sql(migration)  # safe to apply twice; stable IDs
+    with Session(postgres) as session:
+        catalog = DatabaseSkillCatalog(session)
+        options = catalog.options()
+        assert len(options) == 5 and len({row['skill_id'] for row in options}) == 5
+        skill = options[0]['skill_id']
+        now = service.clock()
+        start = now + timedelta(days=7)
+        api = ProgramService(ProgramRepository(session), catalog=catalog, clock=lambda: now)
+        created = api.create(1, ProgramCreate(title='실제 DB 프로젝트', body='기술 배정', category='project',
+            capacity=3, starts_at=start, ends_at=start+timedelta(days=30), required_skill_ids=[skill],
+            creator_application=ProgramApplication(skill_ids=[skill])))
+        session.expire_all()
+        detail = api.detail(created['recruit_id'], 1)
+        assert detail['required_skills'][0]['name'] == options[0]['name']
+        assert detail['my_application']['skill_ids'] == [skill]
+
+
+def test_issue88_regular_study_postgres_roundtrip(postgres, service, payload):
+    from zoneinfo import ZoneInfo
+    from backend.app.schemas.recruit_program import ProgramEdit
+    start = service.clock() + timedelta(days=7)
+    local = start.astimezone(ZoneInfo('Asia/Seoul'))
+    data = {**payload, 'recruit_mode': 'regular', 'starts_at': start, 'ends_at': start+timedelta(days=28),
+            'deadline_at': start-timedelta(hours=24), 'meeting_start': None, 'meeting_end': None,
+            'regular_days': [['월','화','수','목','금','토','일'][local.weekday()]],
+            'regular_time': local.time().replace(tzinfo=None), 'regular_start_date': local.date()}
+    with Session(postgres) as session:
+        api = ProgramService(ProgramRepository(session), clock=service.clock)
+        created = api.create(1, ProgramCreate(**data))
+        rid = created['recruit_id']
+        api.edit(rid, 1, ProgramEdit(title='수정된 정기 스터디', starts_at=start+timedelta(days=7), ends_at=start+timedelta(days=35)))
+    with Session(postgres) as session:
+        api = ProgramService(ProgramRepository(session), clock=service.clock)
+        detail = api.detail(rid, 1)
+        assert detail['title'] == '수정된 정기 스터디'
+        assert detail['regular_start_date'] == (local+timedelta(days=7)).date().isoformat()
+        assert detail['regular_days'] == data['regular_days']
+        assert detail['participant_count'] == 1

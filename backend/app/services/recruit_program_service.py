@@ -405,6 +405,17 @@ class ProgramService:
                         program.required_skill_ids
                     )
                     self.repository.set_metadata(recruit_id, metadata)
+                if "starts_at" in core:
+                    metadata = dict(self.repository.metadata(recruit_id))
+                    basic = self.repository.basic_detail(recruit_id)
+                    if basic["recruit_mode"] == "regular":
+                        local = program.starts_at.astimezone(ZoneInfo("Asia/Seoul"))
+                        metadata["regular_start_date"] = local.date().isoformat()
+                        metadata["regular_time"] = local.time().replace(tzinfo=None).isoformat()
+                        day = ["월", "화", "수", "목", "금", "토", "일"][local.weekday()]
+                        if day not in (metadata.get("regular_days") or []):
+                            raise PolicyError("시작 날짜의 요일이 모임 요일에 포함되어야 합니다.", 422)
+                        self.repository.set_metadata(recruit_id, metadata)
                 program.schedule_version += 1
                 program.refresh_readiness()
                 self.repository.save(program)

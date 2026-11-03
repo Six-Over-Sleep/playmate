@@ -129,6 +129,14 @@ def get_dispatch_service(
 # GET /api/recruits/{recruit_id}
 # =========================================================
 
+@router.get("/skills")
+def list_recruit_skills(db: Session = Depends(get_db)):
+    """개인 정보가 없는 공용 기술 사전. 동적 ID 경로보다 먼저 등록한다."""
+    from backend.app.services.recruit_skill_catalog import DatabaseSkillCatalog
+
+    return invoke(DatabaseSkillCatalog(db).options)
+
+
 @router.get("/{recruit_id}")
 def get_recruit(
     recruit_id: int,

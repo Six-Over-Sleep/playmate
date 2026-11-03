@@ -1,3 +1,4 @@
+import { scheduleFromDeadline, validateMeetupForm, serverFieldErrors, meetupErrorMessage, pickPayload, programCreateFields, programEditFields, legacyEditFields, legacyCreateFields } from '../../utils/meetupForm'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -75,7 +76,7 @@ function makeRegularStartsAt(date, time) {
 function makeInitialForm(meetup) {
   const categoryDetail = meetup?.detail || {}
   const category = meetup?.category || 'study'
-  const creatorApplication = meetup?.creator_application || null
+  const creatorApplication = meetup?.creator_application || meetup?.my_application || null
 
   return {
     title: meetup?.title || '',
@@ -276,9 +277,13 @@ function buildCreatorApplication(form) {
 }
 
 // 모임 작성·수정 폼과 장소 검색을 관리함.
-export default function useMeetupEditor({ meetup, onSubmit }) {
+export default function useMeetupEditor({ meetup, onSubmit, isAdmin = false }) {
   const isEdit = Boolean(meetup)
 
+  const [fieldErrors, setFieldErrors] = useState({})
+  const [submitError, setSubmitError] = useState('')
+  const formRef = useRef(null)
+  const submitting = useRef(false)
   const [form, setForm] = useState(() => makeInitialForm(meetup))
 
   const [placeResults, setPlaceResults] = useState([])
@@ -293,6 +298,36 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
   const isProject = form.category === 'project'
   const isStudy = form.category === 'study'
   const isProjectOrStudy = isProject || isStudy
+  const isProgram = isProjectOrStudy && (!isEdit || meetup?.permissions != null)
+
+  useEffect(() => {
+    setFieldErrors((previous) => {
+      const current = validateMeetupForm(form, { isEdit, program: isProgram, isAdmin })
+      return Object.fromEntries(Object.entries(previous).filter(([key]) => current[key]))
+    })
+  }, [form, isEdit, isProgram])
+
+  useEffect(() => {
+    if (!isProgram) return
+    const start = form.recruit_mode === 'regular'
+      ? makeRegularStartsAt(form.regular_start_date, form.regular_time)
+      : toSeoulIso(form.meeting_start)
+    if (!start || !Number.isFinite(Date.parse(start))) return
+    const value = toDateTimeLocal(new Date(Date.parse(start) - 86400000).toISOString())
+    setForm((prev) => prev.recruit_end === value ? prev : { ...prev, recruit_end: value })
+  }, [isProgram, isEdit, form.recruit_mode, form.regular_start_date, form.regular_time, form.meeting_start])
+
+  const showErrors = (errors) => {
+    setFieldErrors(errors)
+    requestAnimationFrame(() => {
+      const nodes = formRef.current?.querySelectorAll('[name], [data-field]') || []
+      let target = Array.from(nodes).find((node) => errors[node.name || node.dataset.field] && !node.disabled)
+      if (target?.readOnly) target = formRef.current?.querySelector('[name="' + (form.recruit_mode === 'regular' ? 'regular_start_date' : 'meeting_start') + '"]')
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const focusTarget = target?.matches('input, textarea, select, button') ? target : target?.querySelector('button, input')
+      focusTarget?.focus({ preventScroll: true })
+    })
+  }
 
   // 편집 대상이 바뀌면 폼과 장소 검색 상태를 초기화함.
   useEffect(() => {
@@ -355,6 +390,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
       const next = {
         ...prev,
         [name]: nextValue,
+        ...(name === 'recruit_end' && isProgram ? scheduleFromDeadline(prev, value, { preserveWeekdays: isEdit }) : {}),
       }
 
       // 자격증 스터디에는 기술 난이도를 강제하지 않음.
@@ -501,7 +537,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
     const keyword = form.place.trim()
 
     if (!keyword) {
-      alert('검색할 장소를 입력해주세요.')
+      setPlaceSearchStatus('검색할 장소를 입력해주세요.')
       return
     }
 
@@ -558,174 +594,25 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
 
   // 일정·장소·프로젝트·스터디 입력값을 화면 단계에서 먼저 검증함.
   // 신청 확정/대기, 권한, 팀장 선정 등 서버 업무 규칙은 프론트에서 계산하지 않음.
-  const validate = () => {
-    if (
-      !isGroupBuy &&
-      form.recruit_mode === 'regular' &&
-      form.regular_days.length === 0
-    ) {
-      alert('정기 모임 요일을 하나 이상 선택해주세요.')
-      return false
-    }
-
-    if (
-      !isGroupBuy &&
-      form.recruit_mode === 'regular' &&
-      !form.regular_start_date
-    ) {
-      alert('정기 모임 시작 날짜를 선택해주세요.')
-      return false
-    }
-
-    if (
-      !isGroupBuy &&
-      form.recruit_mode === 'regular' &&
-      !form.regular_time
-    ) {
-      alert('정기 모임 시간을 선택해주세요.')
-      return false
-    }
-
-    if (
-      !isGroupBuy &&
-      form.recruit_mode === 'short' &&
-      !form.meeting_start
-    ) {
-      alert('모임 시작 일시를 선택해주세요.')
-      return false
-    }
-
-    if (
-      !isGroupBuy &&
-      form.recruit_mode === 'short' &&
-      !form.meeting_end
-    ) {
-      alert('모임 종료 일시를 선택해주세요.')
-      return false
-    }
-
-    if (isProjectOrStudy) {
-      const capacity = Number(form.capacity)
-
-      if (
-        !Number.isInteger(capacity) ||
-        capacity < 2 ||
-        capacity > 5
-      ) {
-        alert(
-          '프로젝트·스터디 모집 인원은 2명 이상 5명 이하로 입력해주세요.',
-        )
-        return false
-      }
-
-      if (
-        form.recruit_mode === 'regular' &&
-        !form.ends_at
-      ) {
-        alert('전체 모임 종료 일시를 선택해주세요.')
-        return false
-      }
-
-      const startsAt =
-        form.recruit_mode === 'regular'
-          ? makeRegularStartsAt(
-              form.regular_start_date,
-              form.regular_time,
-            )
-          : toSeoulIso(form.meeting_start)
-
-      const endsAt =
-        form.recruit_mode === 'regular'
-          ? toSeoulIso(form.ends_at)
-          : toSeoulIso(form.meeting_end)
-
-      if (
-        startsAt &&
-        endsAt &&
-        new Date(endsAt).getTime() <=
-          new Date(startsAt).getTime()
-      ) {
-        alert('모임 종료 일시는 시작 일시보다 늦어야 해요.')
-        return false
-      }
-    }
-
-    if (isStudy) {
-      if (!form.study_topic.trim()) {
-        alert('스터디 주제를 입력해주세요.')
-        return false
-      }
-
-      if (
-        !['TECHNOLOGY', 'CERTIFICATE'].includes(
-          form.study_type,
-        )
-      ) {
-        alert('스터디 종류를 선택해주세요.')
-        return false
-      }
-
-      if (
-        form.study_type === 'TECHNOLOGY' &&
-        !['BEGINNER', 'ADVANCED'].includes(
-          form.difficulty,
-        )
-      ) {
-        alert('기술 스터디 난이도를 선택해주세요.')
-        return false
-      }
-    }
-
-    if (isProject) {
-      if (form.required_skill_ids.length === 0) {
-        alert('프로젝트 필수 기술을 하나 이상 선택해주세요.')
-        return false
-      }
-
-      if (!isEdit && form.creator_skill_ids.length === 0) {
-        alert('개설자가 맡을 담당 기술을 하나 이상 선택해주세요.')
-        return false
-      }
-
-      const hasInvalidCreatorSkill =
-        form.creator_skill_ids.some(
-          (id) => !form.required_skill_ids.includes(id),
-        )
-
-      if (hasInvalidCreatorSkill) {
-        alert(
-          '개설자 담당 기술은 프로젝트 필수 기술 중에서 선택해주세요.',
-        )
-        return false
-      }
-    }
-
-    if (!form.is_online && !form.place.trim()) {
-      alert('오프라인 모임 장소를 입력해주세요.')
-      return false
-    }
-
-    return true
-  }
-
   // 입력값을 API 요청 형태로 변환해 부모의 저장 함수에 전달함.
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault()
 
-    if (!validate()) {
-      return
-    }
+    if (submitting.current) return
+    const errors = validateMeetupForm(form, { isEdit, program: isProgram, isAdmin })
+    if (Object.keys(errors).length) { showErrors(errors); return }
+    setSubmitError('')
 
     const schedulePayload = buildSchedulePayload(
       form,
       isGroupBuy,
-      isProjectOrStudy,
+      isProgram,
     )
 
     const lifecycleSchedulePayload =
       buildLifecycleSchedulePayload(
         form,
-        isProjectOrStudy,
+        isProgram,
       )
 
     const categoryPayload = buildCategoryPayload(form)
@@ -747,7 +634,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
         ? null
         : getCoordinate(form.place_longitude),
 
-      deadline_at: isProjectOrStudy
+      deadline_at: isProgram
         ? toSeoulIso(form.recruit_end)
         : form.recruit_end || null,
 
@@ -762,35 +649,33 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
         : {}),
     }
 
-    if (isEdit) {
-      // 프로젝트의 연장·예외 시작은 일반 PATCH가 아닌 전용 흐름이므로
-      // 여기서는 기존 수정 폼에서 허용된 정보만 서버가 최종 검증함.
-      onSubmit(commonPayload)
-      return
-    }
-
-    onSubmit({
-      ...commonPayload,
-
-      recruit_mode: form.recruit_mode,
-
+    const payload = isEdit ? commonPayload : {
+      ...commonPayload, recruit_mode: isGroupBuy ? 'short' : form.recruit_mode,
       category: form.category,
-
-      meeting_datetime: null,
-
-      contact_method: null,
-
-      ...(isProject
-        ? {
-            creator_application:
-              buildCreatorApplication(form),
-          }
-        : {}),
-    })
+      ...(isProject && !isAdmin ? { creator_application: buildCreatorApplication(form) } : {}),
+    }
+    let request = isProgram
+      ? pickPayload(payload, isEdit ? programEditFields : programCreateFields)
+      : pickPayload(payload, isEdit ? legacyEditFields : legacyCreateFields)
+    if (isProgram && isEdit) {
+      request = Object.fromEntries(Object.entries(request).filter(([key, value]) => {
+        if (key === 'starts_at' || key === 'ends_at') return Date.parse(value) !== Date.parse(meetup[key])
+        if (key === 'required_skill_ids') return JSON.stringify([...value].sort()) !== JSON.stringify(normalizeSkillIds(meetup.required_skill_ids).sort())
+        return value !== meetup[key]
+      }))
+    }
+    submitting.current = true
+    try { await onSubmit(request) }
+    catch (error) {
+      const errors = serverFieldErrors(error, form)
+      if (Object.keys(errors).length) showErrors(errors)
+      else setSubmitError(meetupErrorMessage(error))
+    } finally { submitting.current = false }
   }
 
   return {
     form,
+    formRef, fieldErrors, submitError, isProgram,
     isEdit,
     isGroupBuy,
     isProject,
@@ -816,6 +701,7 @@ export default function useMeetupEditor({ meetup, onSubmit }) {
     searchPlace,
     selectPlace,
 
+    dismissSubmitError: () => setSubmitError(''),
     submit,
   }
 }

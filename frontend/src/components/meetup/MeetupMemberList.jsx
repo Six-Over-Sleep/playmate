@@ -34,8 +34,12 @@ export default function MeetupMemberList({
             return (
             <li key={rowKey}>
               <div className="meetup-member-info">
+                {member.profile_image_url && <img className="meetup-member-avatar" src={member.profile_image_url}
+                  alt="" loading="lazy" referrerPolicy="no-referrer"
+                  onError={(event) => { event.currentTarget.hidden = true }} />}
+
                 <span
-                  className="meetup-member-avatar"
+                  className="meetup-member-avatar meetup-member-fallback"
                   aria-hidden="true"
                 />
                 <span>{getMemberName(member, index)}</span>

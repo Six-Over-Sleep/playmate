@@ -14,11 +14,12 @@ PlayMate FastAPI 메인 서버
 8. 서버 및 DB 상태 확인
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -93,9 +94,19 @@ from backend.app.routers.career_news import router as career_news_router  # noqa
 # 4. FastAPI 애플리케이션 생성
 # =========================================================
 
+logger = logging.getLogger(__name__)
+
+# core/auth.py와 같은 기준: development·test만 개발 환경, 미설정·그 외 값은 운영
+APP_ENV = os.getenv("APP_ENV", "production").lower()
+IS_DEV_ENV = APP_ENV in {"development", "test"}
+
+# 운영에서는 /docs, /redoc, /openapi.json을 공개하지 않는다.
 app = FastAPI(
     title="PlayMate API",
     version="0.1.0",
+    docs_url="/docs" if IS_DEV_ENV else None,
+    redoc_url="/redoc" if IS_DEV_ENV else None,
+    openapi_url="/openapi.json" if IS_DEV_ENV else None,
 )
 
 
@@ -103,12 +114,14 @@ app = FastAPI(
 # 5. 로그인 세션 설정
 # =========================================================
 
+# 운영은 HTTPS에서만 세션 쿠키를 보내도록 Secure를 켠다. 로컬 HTTP 개발은 기존 동작 유지.
+# HttpOnly는 SessionMiddleware 기본값으로 항상 설정된다.
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET_KEY,
     session_cookie="playmate_session",
     same_site="lax",
-    https_only=False,  # 로컬 개발 환경
+    https_only=not IS_DEV_ENV,
 )
 
 
@@ -180,11 +193,20 @@ UPLOAD_DIR.mkdir(
     exist_ok=True,
 )
 
+class NoSniffStaticFiles(StaticFiles):
+    """업로드 파일 응답에 nosniff를 붙여 브라우저가 내용을 다른 형식으로 추측해 실행하지 않게 함."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
 # 이미지 정적 파일 제공
 # 예: /uploads/profiles/example.png
 app.mount(
     "/uploads",
-    StaticFiles(directory=UPLOAD_DIR),
+    NoSniffStaticFiles(directory=UPLOAD_DIR),
     name="uploads",
 )
 
@@ -194,12 +216,24 @@ app.mount(
 # =========================================================
 
 # DB 연결 등 RuntimeError 발생 시 HTTP 503 반환
+# 내부 메시지는 서버 로그에만 남기고 클라이언트에는 고정 문구만 보낸다.
+# 로그에는 쿼리 문자열(OAuth code 등)을 남기지 않도록 경로만 기록한다.
+RUNTIME_ERROR_DETAIL = "일시적인 서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+
+
 @app.exception_handler(RuntimeError)
-def database_runtime_error(_, exc: RuntimeError):
+def database_runtime_error(request: Request, exc: RuntimeError):
+    logger.error(
+        "RuntimeError on %s %s (%s): %s",
+        request.method,
+        request.url.path,
+        type(exc).__name__,
+        exc,
+    )
     return JSONResponse(
         status_code=503,
         content={
-            "detail": str(exc),
+            "detail": RUNTIME_ERROR_DETAIL,
         },
     )
 
@@ -230,21 +264,14 @@ def health():
 # 12. PostgreSQL 연결 확인
 # =========================================================
 
+# 연결 성공 여부만 반환한다. DB 이름 등 내부 정보는 응답에 포함하지 않는다.
 @app.get("/health/db", tags=["health"])
 def database_health():
 
     with db_cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT
-                current_database() AS database_name,
-                1 AS connected
-            """
-        )
-
-        row = cursor.fetchone()
+        cursor.execute("SELECT 1 AS connected")
+        cursor.fetchone()
 
     return {
         "status": "ok",
-        "database": row["database_name"],
     }

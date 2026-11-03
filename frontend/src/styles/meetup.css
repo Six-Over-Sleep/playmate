@@ -1302,9 +1302,9 @@ button {
 
 .meetup-regular-inline {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 180px;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr) minmax(120px, 180px);
   gap: 16px;
-  align-items: center;
+  align-items: start;
   width: 100%;
   min-width: 0;
 }
@@ -1334,7 +1334,7 @@ button {
 
 .meetup-weekday-buttons {
   display: grid;
-  grid-template-columns: repeat(7, minmax(44px, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 10px;
   min-width: 0;
 }
@@ -3168,3 +3168,8 @@ img.meetup-member-avatar:not([hidden]) + .meetup-member-fallback { display: none
 }
 
 .meetup-form-card [data-field][aria-invalid="true"] { outline: 2px solid #c24a76; border-radius: 10px; padding: 4px; }
+
+/* Keep validation messages inside their own schedule column. */
+.meetup-schedule-field { display: flex; flex-direction: column; min-width: 0; gap: 6px; }
+.meetup-schedule-field .meetup-field-error { margin: 0; }
+.meetup-schedule-field .meetup-weekday-buttons button { padding-inline: 0; }

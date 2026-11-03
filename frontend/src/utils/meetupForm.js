@@ -87,3 +87,19 @@ export const programEditFields = ['title','body','contact_method','capacity','st
 export const legacyEditFields = ['title','body','capacity','regular_days','regular_time','regular_start_date','meeting_start','meeting_end','deadline_at','place','is_online','sport_name','game_name','study_topic','study_period','study_method','product_name','purchase_url','estimated_price_per_person','pickup_method']
 
 export const legacyCreateFields = [...legacyEditFields, 'category', 'recruit_mode', 'contact_method']
+
+// Keep the server's fixed 24-hour deadline contract when editing from either side.
+export function scheduleFromDeadline(form, deadline, { preserveWeekdays = false } = {}) {
+  const instant = Date.parse(`${deadline}:00+09:00`)
+  if (!Number.isFinite(instant)) return { recruit_end: deadline }
+  const start = new Date(instant + 86400000)
+  const wallTime = new Date(start.getTime() + 9 * 3600000).toISOString().slice(0, 16)
+  if (form.recruit_mode !== 'regular') return { recruit_end: deadline, meeting_start: wallTime }
+  const day = ['일', '월', '화', '수', '목', '금', '토'][new Date(`${wallTime.slice(0, 10)}T12:00:00Z`).getUTCDay()]
+  return {
+    recruit_end: deadline,
+    regular_start_date: wallTime.slice(0, 10),
+    regular_time: wallTime.slice(11, 16),
+    regular_days: preserveWeekdays ? form.regular_days : [...new Set([...form.regular_days, day])],
+  }
+}

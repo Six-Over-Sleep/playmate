@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { getMeetupStatus, toDateTimeLocal, normalizeMemberCount } from './meetup.js'
-import { validateMeetupForm, serverFieldErrors, meetupErrorMessage, pickPayload, programCreateFields, programEditFields, legacyCreateFields } from './meetupForm.js'
+import { scheduleFromDeadline, validateMeetupForm, serverFieldErrors, meetupErrorMessage, pickPayload, programCreateFields, programEditFields, legacyCreateFields } from './meetupForm.js'
 const form = {
   title: '함께 공부', body: '소개', category: 'study', capacity: 3, is_online: true,
   recruit_mode: 'regular', regular_start_date: '2030-01-07', regular_time: '19:00',
@@ -59,4 +59,18 @@ test('legacy category requests never carry new-program discriminator fields', ()
   assert.equal('study_type' in payload, false)
   assert.equal('difficulty' in payload, false)
   assert.equal(payload.game_name, '체스')
+})
+
+test('choosing a deadline adjusts short start by 24 hours in Seoul across year boundary', () => {
+  const result = scheduleFromDeadline({ recruit_mode: 'short' }, '2030-12-31T23:30')
+  assert.deepEqual(result, { recruit_end: '2030-12-31T23:30', meeting_start: '2031-01-01T23:30' })
+})
+test('regular deadline updates date, time and selected weekday without duplicates', () => {
+  const result = scheduleFromDeadline(form, '2030-01-07T19:00')
+  assert.equal(result.regular_start_date, '2030-01-08')
+  assert.equal(result.regular_time, '19:00')
+  assert.deepEqual(result.regular_days, ['월', '화'])
+  assert.deepEqual(scheduleFromDeadline({ ...form, regular_days: ['월', '화'] }, '2030-01-07T19:00').regular_days, ['월', '화'])
+  assert.deepEqual(scheduleFromDeadline(form, '2030-01-07T19:00', { preserveWeekdays: true }).regular_days, ['월'])
+  assert.deepEqual(scheduleFromDeadline(form, ''), { recruit_end: '' })
 })

@@ -1,4 +1,4 @@
-import { validateMeetupForm, serverFieldErrors, meetupErrorMessage, pickPayload, programCreateFields, programEditFields, legacyEditFields, legacyCreateFields } from '../../utils/meetupForm'
+import { scheduleFromDeadline, validateMeetupForm, serverFieldErrors, meetupErrorMessage, pickPayload, programCreateFields, programEditFields, legacyEditFields, legacyCreateFields } from '../../utils/meetupForm'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -390,6 +390,7 @@ export default function useMeetupEditor({ meetup, onSubmit, isAdmin = false }) {
       const next = {
         ...prev,
         [name]: nextValue,
+        ...(name === 'recruit_end' && isProgram ? scheduleFromDeadline(prev, value, { preserveWeekdays: isEdit }) : {}),
       }
 
       // 자격증 스터디에는 기술 난이도를 강제하지 않음.

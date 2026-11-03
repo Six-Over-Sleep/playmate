@@ -241,16 +241,15 @@ export default function MeetupEditorPage({
             <input
               type="datetime-local"
               min={!isEdit ? `${today}T00:00` : undefined}
-              readOnly={isProgram}
               name="recruit_end"
               aria-invalid={Boolean(fieldErrors.recruit_end)}
               aria-describedby={fieldErrors.recruit_end ? "error-recruit_end" : undefined}
-              title={isProgram ? "시작 일시의 24시간 전으로 자동 설정돼요." : undefined}
+              title={isProgram ? "마감을 선택하면 시작 일시도 24시간 뒤로 함께 변경돼요." : undefined}
               value={form.recruit_end}
               onChange={change}
               required
             />
-            {isProgram && <small className="meetup-type-help">시작 일시를 선택하면 24시간 전으로 자동 설정돼요.</small>}
+            {isProgram && <small className="meetup-type-help">마감을 선택하면 시작 일시도 24시간 뒤로 함께 변경돼요.</small>}
             {fieldErrors.recruit_end && <small className="meetup-field-error" id="error-recruit_end">{fieldErrors.recruit_end}</small>}
           </label>
 
@@ -367,6 +366,7 @@ export default function MeetupEditorPage({
             </div>
 
             <div className="meetup-regular-inline">
+              <div className="meetup-schedule-field">
               <input
                 className="meetup-regular-date"
                 type="date"
@@ -380,6 +380,9 @@ export default function MeetupEditorPage({
                 required
               />
             {fieldErrors.regular_start_date && <small className="meetup-field-error" id="error-regular_start_date">{fieldErrors.regular_start_date}</small>}
+              </div>
+
+              <div className="meetup-schedule-field">
 
               <div className="meetup-weekday-buttons" data-field="regular_days" aria-invalid={Boolean(fieldErrors.regular_days)} aria-describedby={fieldErrors.regular_days ? "error-regular_days" : undefined}>
                 {WEEKDAYS.map((day) => (
@@ -396,6 +399,9 @@ export default function MeetupEditorPage({
               </div>
 
               {fieldErrors.regular_days && <small id="error-regular_days" className="meetup-field-error">{fieldErrors.regular_days}</small>}
+              </div>
+
+              <div className="meetup-schedule-field">
               <input
                 className="meetup-regular-time"
                 type="time"
@@ -408,6 +414,7 @@ export default function MeetupEditorPage({
                 required
               />
             {fieldErrors.regular_time && <small className="meetup-field-error" id="error-regular_time">{fieldErrors.regular_time}</small>}
+              </div>
             </div>
 
             {(isProject || isStudy) && (

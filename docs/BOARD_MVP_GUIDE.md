@@ -99,8 +99,8 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 - `http://localhost:8000/health`: FastAPI 프로세스 확인
-- `http://localhost:8000/health/db`: 실제 PostgreSQL 연결과 DB명 확인
-- `http://localhost:8000/docs`: API 문서
+- `http://localhost:8000/health/db`: 실제 PostgreSQL 연결 확인(응답은 `{"status": "ok"}`만 반환)
+- `http://localhost:8000/docs`: API 문서(`APP_ENV=development`·`test`에서만 제공)
 
 터미널 2:
 

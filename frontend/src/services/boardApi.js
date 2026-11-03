@@ -8,7 +8,8 @@ import { resolveMediaUrl } from '../config/api'
 function request(path, options = {}) {
   const headers = new Headers(options.headers)
   const devMemberId = import.meta.env.VITE_DEV_MEMBER_ID
-  if (devMemberId) headers.set('X-Dev-Member-ID', devMemberId)
+  // 운영 빌드에서는 개발용 회원 헤더를 보내지 않는다.
+  if (import.meta.env.DEV && devMemberId) headers.set('X-Dev-Member-ID', devMemberId)
   return apiRequest(path, { ...options, headers })
 }
 

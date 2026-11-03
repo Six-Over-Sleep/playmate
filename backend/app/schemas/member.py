@@ -3,6 +3,40 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 
+# 닉네임 공통 정책 (회원가입·마이페이지 변경에 동일하게 적용)
+NICKNAME_MIN_LENGTH = 2
+NICKNAME_MAX_LENGTH = 20
+
+# 운영자·시스템 표시 문구로 오인될 수 있는 닉네임 (공백 제거·소문자 기준으로 비교)
+RESERVED_NICKNAMES = {
+    "관리자",
+    "운영자",
+    "운영진",
+    "익명",
+    "탈퇴한사용자",
+    "admin",
+    "administrator",
+    "playmate",
+}
+
+
+def normalize_nickname(value: str) -> str:
+    """앞뒤 공백을 제거하고 길이·예약어 정책을 검사한 닉네임을 반환함.
+
+    중복 여부는 DB 고유 제약(uq_members_nickname_normalized)이 판단함.
+    """
+    value = value.strip()
+    if not value:
+        raise ValueError("닉네임을 입력해주세요.")
+    if not NICKNAME_MIN_LENGTH <= len(value) <= NICKNAME_MAX_LENGTH:
+        raise ValueError(
+            f"닉네임은 {NICKNAME_MIN_LENGTH}자 이상 {NICKNAME_MAX_LENGTH}자 이하로 입력해주세요."
+        )
+    if "".join(value.split()).lower() in RESERVED_NICKNAMES:
+        raise ValueError("사용할 수 없는 닉네임입니다.")
+    return value
+
+
 # Discord 인증 후 추가 회원가입에 필요한 정보를 검증하는 모델
 class MemberSignup(BaseModel):
 
@@ -36,12 +70,5 @@ class MemberSignup(BaseModel):
     @field_validator("nickname")
     @classmethod
     def validate_text(cls, value: str) -> str:
-        # strip() : 닉네임 앞뒤의 공백을 제거함
-        value = value.strip()
-
-        # 공백 제거 후 값이 비어 있으면 오류 발생
-        if not value:
-            raise ValueError("빈 문자열은 입력할 수 없습니다.")
-
-        # 검증 및 공백 제거가 완료된 닉네임을 반환함
-        return value
+        # 공백 제거 후 길이·예약어 공통 정책을 적용하고 정리된 닉네임을 반환함
+        return normalize_nickname(value)

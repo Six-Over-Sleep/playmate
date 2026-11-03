@@ -39,6 +39,19 @@
       `VITE_` 값은 모두 공개 JS 번들에 포함되므로 토큰·비밀번호를 넣지 않는다.
       (코드상 운영 빌드는 개발용 헤더를 보내지 않지만, 값 자체를 두지 않는 것이 안전하다.)
 - [ ] 공용 DB는 신뢰 IP(허용 목록)에서만 접속되도록 설정한다.
+- [ ] 운영 Discord OAuth 클라이언트 ID·시크릿이 운영 값이며 저장소·프론트 번들에 포함되지 않았다.
+- [ ] 백엔드 의존성은 `uv.lock` 기준(`uv sync`)으로 설치한다. `backend/requirements.txt`는 FastAPI 등 버전이
+      다르고 `httpx`가 빠져 있어 운영 설치에 사용하지 않는다(정리는 별도 이슈).
+
+## 3-1. 프록시·실행 설정 (앱 코드에 없음, 배포 환경에서 설정)
+
+- [ ] 리버스 프록시에서 요청 본문 크기를 제한한다(예: 일반 API 1MB, 게시글 이미지 업로드 16MB 내외).
+      앱은 이미지 개수(3개)·크기(5MB)를 검사하지만 그 전에 본문 전체를 받으므로 프록시 제한이 필요하다.
+- [ ] 로그인·댓글·좋아요·신고 등 API에 IP·계정 기준 요청 속도 제한을 둔다(앱에는 속도 제한이 없다).
+- [ ] DB 연결 수를 맞춘다. 프로세스(worker)마다 psycopg2 풀 최대 `DB_POOL_MAX_CONNECTIONS`(1~4, 기본 2)와
+      SQLAlchemy 풀 1개를 쓴다. `worker 수 × (DB_POOL_MAX_CONNECTIONS + 1)`이 DB 최대 연결 수와
+      다른 서비스(디스코드 봇·수집기) 연결을 합쳐 한도를 넘지 않게 한다.
+      모임 API도 요청마다 인증 조회로 psycopg2 풀을 잠깐 사용한다.
 
 ## 4. 운영 DB 마이그레이션 (배포 전 필수 확인)
 
@@ -68,9 +81,34 @@ curl -s -o /dev/null -w "%{http_code}\n" -X PATCH -H "Content-Type: application/
 curl -s -o /dev/null -w "%{http_code}\n" -X DELETE https://<운영 API>/api/recruits/<테스트 모임 ID>
 ```
 
+```bash
+# 활성 회원 전용 정책: 비로그인 모임 조회 → 401
+curl -s -o /dev/null -w "%{http_code}\n" https://<운영 API>/api/recruits
+# 업로드 이미지 응답에 nosniff 포함
+curl -s -D - -o /dev/null https://<운영 API>/uploads/<기존 이미지 경로> | grep -i x-content-type-options
+```
+
 - [ ] 테스트 계정 2개로 확인: 다른 회원이 만든 기존 모임 수정·삭제 → 403, 작성자 본인 → 성공
+- [ ] 실제 Discord 로그인 → 회원가입 → `/auth/me` → 로그아웃 흐름을 테스트 계정으로 확인
+- [ ] 테스트 계정 탈퇴 후, 탈퇴 전에 복사해 둔 다른 브라우저 세션으로 모임 조회·댓글 → 401
+- [ ] 실제 PostgreSQL 통합 테스트를 **일회용 로컬 DB**에서 실행했다
+      (`PLAYMATE_BOARD_TEST_DB_URL`, `PLAYMATE_LOCAL_TEST_DB_URL`, `RECRUIT_TEST_DATABASE_URL` 등. 공용 DB 금지)
 
 ## 6. 해결된 항목 (운영 환경 검증은 별도 필요)
+
+아래는 코드와 격리 자동 테스트로 확인했으며, **실제 운영 환경에서는 아직 검증하지 않았다.**
+
+- **모임 API 인증(F1)**: 세션의 member_id만 믿던 모임 생성·좋아요·스크랩·댓글 경로가 공통 인증
+  (회원 존재·Discord ID 일치·`member_status = 'ACTIVE'`)을 사용한다. 탈퇴 회원의 남은 세션은 401.
+- **모임 조회 인증(F2)**: 폐쇄형 서비스 정책에 따라 모임 목록·상세·참여자·인원·댓글·기술 사전 조회도
+  가입을 마친 활성 회원만 가능하다(비로그인·가입 미완료·탈퇴 401).
+  자동 테스트: `backend/tests/recruit/test_meetup_auth_security.py`(실제 라우트·실제 인증 함수·격리 SQLite).
+- **닉네임 정책(F3)**: 회원가입·마이페이지 변경 모두 2~20자, 예약어(관리자·운영자·익명·탈퇴한 사용자·admin 등) 거부.
+  중복은 DB 고유 제약으로 409.
+- **외부 링크(F6)**: 모임 `purchase_url`은 생성·수정 모두 http·https 주소만 허용(javascript·data·file 등 422).
+- **업로드 응답**: `/uploads` 응답에 `X-Content-Type-Options: nosniff`.
+- **OAuth 테스트 안전성**: `test_auth_flow.py`가 실제 앱 모듈을 대역으로 바꾸고 실제 네트워크 전송을 막는다.
+- **테스트 DB 안전성**: PostgreSQL 테스트는 로컬·이름에 test가 포함된 전용 DB 주소가 있을 때만 접속한다.
 
 - **Legacy 모임 PATCH/DELETE 작성자 권한 검사 누락(Critical)** → PR #90에서 수정됨.
   `RecruitDispatchService.require_legacy_owner`가 로그인(401)·회원 존재(403)·작성자 일치(403)를 확인한다.
@@ -82,9 +120,11 @@ curl -s -o /dev/null -w "%{http_code}\n" -X DELETE https://<운영 API>/api/recr
 ## 7. 아직 남은 위험 (별도 이슈)
 
 - CSRF는 `SameSite=Lax`에만 의존(Origin 검사 미들웨어 미도입)
-- 세션 14일 유지·로그아웃 시 서버 측 무효화 없음
+- 세션 14일 유지·로그아웃 시 서버 측 무효화 없음(서명 쿠키 방식. 탈퇴·비활성 회원은 요청마다 DB로 차단됨)
 - `/health/db`는 인증 없이 DB 연결을 사용(요청 제한은 프록시에서 검토)
-- 업로드 요청 크기 제한·이미지 메타데이터 제거·`nosniff` 헤더 미적용
-- `backend/tests/test_auth_flow.py`는 patch 경로(`app.routers.auth`)가 실제 앱 모듈(`backend.app.routers.auth`)과 달라
-  실행 시 Discord 토큰 API로 실제 요청을 보낼 수 있다. 수정 전까지 실행하지 않으며,
-  그동안 로그인 콜백→`/auth/me` 흐름은 자동 테스트로 검증되지 않는다(실제 계정 수동 확인 필요).
+- 업로드: 요청 크기 제한은 프록시에 의존, 이미지 메타데이터(EXIF) 미제거, 삭제·숨김 글의 이미지가 주소로 계속 접근 가능
+- 회원 과정·기수는 가입 시 본인 입력값(검증 없음, 기수 상한 없음)이라 과정 게시판 쓰기 권한이 자기 신고에 의존
+- 일반 게시판·모임 목록 일부는 개수 제한(페이지네이션) 없이 전체를 반환
+- 관리자도 다른 회원의 기존 모임을 수정·삭제할 수 없음(정책 결정 필요)
+- 백엔드 의존성 파일 이원화(`uv.lock` vs `backend/requirements.txt`)
+- 실제 PostgreSQL 통합 테스트·실제 Discord 로그인은 이 브랜치에서 실행하지 않았다(위 5번 수동 확인 필요)

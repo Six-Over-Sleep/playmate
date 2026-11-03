@@ -5,6 +5,7 @@ from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 # Literal : 지정된 값만 입력받도록 제한하는 타입
 from typing import Literal
+from urllib.parse import urlsplit
 
 # BaseModel : 요청/응답 데이터 구조 정의
 # Field : 필드별 입력 조건 설정
@@ -35,6 +36,32 @@ def validate_regular_days(days: list[str] | None) -> list[str] | None:
 
 
 # 모임 생성 요청 데이터를 검증하는 모델
+EXTERNAL_URL_MAX_LENGTH = 2048
+
+
+def validate_external_url(value: str | None) -> str | None:
+    """사용자가 저장하는 외부 링크는 http·https 주소만 허용함.
+
+    javascript:, data:, file: 등 다른 스킴과 호스트가 없는 주소는 거부하고,
+    빈 문자열은 링크 없음(None)으로 저장함.
+    """
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if len(value) > EXTERNAL_URL_MAX_LENGTH:
+        raise ValueError("링크 주소가 너무 깁니다.")
+    parts = urlsplit(value)
+    if (
+        parts.scheme.lower() not in {"http", "https"}
+        or not parts.netloc
+        or any(char.isspace() or ord(char) < 32 for char in value)
+    ):
+        raise ValueError("링크는 http:// 또는 https://로 시작하는 주소만 입력할 수 있습니다.")
+    return value
+
+
 class RecruitCreate(BaseModel):
     """모임 생성 요청 데이터와 일정 검증 규칙."""
 
@@ -103,6 +130,11 @@ class RecruitCreate(BaseModel):
         if not value.strip():
             raise ValueError("제목과 소개를 입력해주세요.")
         return value.strip()
+
+    @field_validator("purchase_url")
+    @classmethod
+    def safe_purchase_url(cls, value):
+        return validate_external_url(value)
 
     # @model_validator(mode="after") : 개별 필드 검증이 끝난 뒤 전체 요청 데이터의 관계를 검사함
     @model_validator(mode="after")
@@ -212,6 +244,11 @@ class RecruitUpdate(BaseModel):
         if value is None or not value.strip():
             raise ValueError("제목과 소개를 입력해주세요.")
         return value.strip()
+
+    @field_validator("purchase_url")
+    @classmethod
+    def safe_purchase_url(cls, value):
+        return validate_external_url(value)
 
     # 수정 요청에서 regular_days가 전달되면 생성 요청과 동일한 검증을 적용함
     @field_validator("regular_days")

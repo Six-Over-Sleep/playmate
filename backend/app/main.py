@@ -193,11 +193,20 @@ UPLOAD_DIR.mkdir(
     exist_ok=True,
 )
 
+class NoSniffStaticFiles(StaticFiles):
+    """업로드 파일 응답에 nosniff를 붙여 브라우저가 내용을 다른 형식으로 추측해 실행하지 않게 함."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
 # 이미지 정적 파일 제공
 # 예: /uploads/profiles/example.png
 app.mount(
     "/uploads",
-    StaticFiles(directory=UPLOAD_DIR),
+    NoSniffStaticFiles(directory=UPLOAD_DIR),
     name="uploads",
 )
 

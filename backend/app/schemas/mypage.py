@@ -3,6 +3,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
+from .member import normalize_nickname
+
 
 # =========================================================
 # 1. 마이페이지 프로필
@@ -23,10 +25,8 @@ class MyProfileUpdate(BaseModel):
     @field_validator('nickname')
     @classmethod
     def validate_nickname(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError('닉네임을 입력해주세요.')
-        return value
+        # 회원가입과 같은 길이(2~20자)·예약어 정책을 적용함
+        return normalize_nickname(value)
 
 
 # =========================================================

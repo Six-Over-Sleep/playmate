@@ -25,14 +25,13 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 DSN = os.environ.get("PLAYMATE_TEST_PG_DSN")
-if not DSN:
-    print("SKIP: PLAYMATE_TEST_PG_DSN is not set")
-    sys.exit(0)
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 os.environ["DISCORD_BOT_TOKEN"] = "verification-only"
 os.environ["DISCORD_GUILD_ID"] = "1"
 
 import discord
 import psycopg
+from psycopg.conninfo import conninfo_to_dict
 
 import services.db_sync as db_sync_module
 from config import KST
@@ -91,7 +90,24 @@ def check(condition, label):
     checks += 1
 
 
+def require_local_dsn():
+    """DB 연결·스키마 삭제 전에 일회용 로컬 DB(127.0.0.1/localhost/::1)인지 확인한다.
+
+    DSN이 없으면 건너뛰고, 로컬이 아니거나 해석할 수 없으면 접속하지 않고 중단한다.
+    """
+    if not DSN:
+        print("SKIP: PLAYMATE_TEST_PG_DSN is not set")
+        sys.exit(0)
+    try:
+        host = conninfo_to_dict(DSN).get("host")
+    except psycopg.ProgrammingError:
+        host = None
+    if host not in LOCAL_HOSTS:
+        sys.exit("일회용 로컬 DB(127.0.0.1/localhost/::1)에서만 실행합니다. 접속하지 않고 중단합니다.")
+
+
 def connect():
+    require_local_dsn()
     return psycopg.connect(DSN, autocommit=True, options=DB_OPTIONS)
 
 
@@ -1239,4 +1255,7 @@ async def main():
     print(f"PASS: {checks} DB integration assertions passed.")
 
 
-asyncio.run(main())
+# import(예: pytest 수집)만으로는 DB에 접속하거나 스키마를 바꾸지 않는다.
+if __name__ == "__main__":
+    require_local_dsn()
+    asyncio.run(main())

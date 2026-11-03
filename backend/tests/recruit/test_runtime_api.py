@@ -116,7 +116,8 @@ def test_legacy_creation_and_public_detail_preserved(runtime, payload, category,
     result = runtime.request("POST", "/api/recruits", json=body, legacy_login=True)
     assert result.status_code == 201, result.text
     recruit = result.json()["recruit_id"]
-    detail = runtime.request("GET", f"/api/recruits/{recruit}")
+    # 활성 회원 전용 정책: 조회도 로그인한 회원(4)으로 수행한다.
+    detail = runtime.request("GET", f"/api/recruits/{recruit}", member=4)
     assert detail.status_code == 200 and detail.json()["category"] == category
     assert "lifecycle_status" not in detail.json()
 
@@ -129,9 +130,12 @@ def test_new_study_real_main_routes_public_read_and_authenticated_join(
     )
     assert created.status_code == 201, created.text
     recruit = created.json()["recruit_id"]
-    public = runtime.request("GET", f"/api/recruits/{recruit}").json()
-    assert public["my_application"] is None and public["my_eligibility"] is None
-    assert not any(public["permissions"].values())
+    # 비로그인 조회는 401, 신청하지 않은 다른 회원(4)에게는 개인 상태가 비어 있다.
+    assert runtime.request("GET", f"/api/recruits/{recruit}").status_code == 401
+    public = runtime.request("GET", f"/api/recruits/{recruit}", member=4).json()
+    assert public["my_application"] is None
+    # 신청 전 회원에게는 참여 신청 권한만 열려 있고 수정·운영 권한은 없다.
+    assert {key for key, allowed in public["permissions"].items() if allowed} == {"can_join"}
     assert public["is_leader"] is False and public["liked_by_me"] is False
     assert runtime.request("POST", f"/api/recruits/{recruit}/join").status_code == 401
     assert (
@@ -162,7 +166,7 @@ def test_new_study_real_main_routes_public_read_and_authenticated_join(
         ]["application_status"]
         == "ACCEPTED"
     )
-    assert runtime.request("GET", "/api/recruits").json()[0]["recruit_id"] == recruit
+    assert runtime.request("GET", "/api/recruits", member=4).json()[0]["recruit_id"] == recruit
 
 
 def test_new_project_does_not_fall_back_when_validation_fails(runtime, payload):
@@ -179,7 +183,7 @@ def test_new_project_does_not_fall_back_when_validation_fails(runtime, payload):
     assert (
         runtime.request("POST", "/api/recruits", json=body, member=1).status_code == 422
     )
-    assert len(runtime.request("GET", "/api/recruits").json()) == 1
+    assert len(runtime.request("GET", "/api/recruits", member=4).json()) == 1
 
 
 def test_feature_off_cannot_bypass_rules_through_legacy(runtime, payload, monkeypatch):
@@ -188,7 +192,7 @@ def test_feature_off_cannot_bypass_rules_through_legacy(runtime, payload, monkey
     )
     recruit = result.json()["recruit_id"]
     monkeypatch.setenv("ENABLE_RECRUIT_PROGRAMS", "false")
-    assert runtime.request("GET", "/api/recruits").json() == []
+    assert runtime.request("GET", "/api/recruits", member=4).json() == []
     assert (
         runtime.request(
             "PATCH", f"/api/recruits/{recruit}", json={"capacity": 5}, member=2
@@ -282,7 +286,7 @@ def test_legacy_join_and_cancel_use_authenticated_member(
     def participants():
         return sorted(
             item["member_id"]
-            for item in runtime.request("GET", path + "/members").json()
+            for item in runtime.request("GET", path + "/members", member=4).json()
         )
 
     assert participants() == [1]
@@ -307,10 +311,13 @@ def test_legacy_join_and_cancel_use_authenticated_member(
 
 def test_main_category_filter_and_no_legacy_fallback_for_new_fields(runtime, payload):
     runtime.request("POST", "/api/recruits", json=json_payload(payload), member=1)
-    assert len(runtime.request("GET", "/api/recruits?category=study").json()) == 1
-    assert runtime.request("GET", "/api/recruits?category=project").json() == []
-    assert runtime.request("GET", "/api/recruits?category=invalid").status_code == 422
-    recruit = runtime.request("GET", "/api/recruits").json()[0]["recruit_id"]
+    assert len(runtime.request("GET", "/api/recruits?category=study", member=4).json()) == 1
+    assert runtime.request("GET", "/api/recruits?category=project", member=4).json() == []
+    assert (
+        runtime.request("GET", "/api/recruits?category=invalid", member=4).status_code
+        == 422
+    )
+    recruit = runtime.request("GET", "/api/recruits", member=4).json()[0]["recruit_id"]
     assert (
         runtime.request(
             "PATCH", f"/api/recruits/{recruit}", json={"unknown_field": 1}, member=1
@@ -338,4 +345,4 @@ def test_new_draft_delete_checks_owner_and_preserves_participation(runtime, payl
     assert (
         runtime.request("DELETE", f"/api/recruits/{empty}", member=1).status_code == 200
     )
-    assert runtime.request("GET", f"/api/recruits/{empty}").status_code == 404
+    assert runtime.request("GET", f"/api/recruits/{empty}", member=4).status_code == 404

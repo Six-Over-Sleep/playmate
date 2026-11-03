@@ -132,16 +132,18 @@ def test_production_rejects_dev_header_without_db_lookup(monkeypatch, app_env, p
 
 
 def test_production_recruit_dispatch_rejects_dev_header(monkeypatch):
-    """모임 신규 기능의 현재 회원 확인도 운영에서는 개발 헤더를 받지 않는다."""
+    """모임 API의 회원 확인도 운영에서는 개발 헤더를 받지 않는다.
+
+    활성 회원 전용 정책으로 의존성 생성 시점에 바로 인증하므로 그 단계에서 401이 난다.
+    """
     from backend.app.routers.recruit import get_dispatch_service
 
     monkeypatch.setenv("APP_ENV", "production")
     used = forbid_auth_db(monkeypatch)
     request = Request({"type": "http", "headers": [], "session": {}})
-    dispatch = get_dispatch_service(request, MagicMock(), x_dev_member_id=1)
 
     with pytest.raises(HTTPException) as error:
-        dispatch.current_member()
+        get_dispatch_service(request, MagicMock(), x_dev_member_id=1)
 
     assert error.value.status_code == 401
     used.assert_not_called()

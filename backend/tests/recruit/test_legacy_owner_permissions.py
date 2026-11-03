@@ -8,6 +8,9 @@ import pytest
 
 from backend.tests.recruit.test_runtime_api import json_payload, runtime  # noqa: F401
 
+# 활성 회원 전용 정책에 따라 조회는 작성자가 아닌 로그인 회원(4)으로 수행한다.
+VIEWER = 4
+
 LEGACY_CATEGORIES = [
     ("sports", {"sport_name": "러닝"}),
     ("game", {"game_name": "보드게임"}),
@@ -33,13 +36,14 @@ def create_legacy(runtime, payload, category="sports", extra=None):
     assert created.status_code == 201, created.text
     recruit_id = created.json()["recruit_id"]
     # 신규 프로그램이 아닌 기존 모임 경로인지 확인한다.
-    assert "lifecycle_status" not in runtime.request("GET", f"/api/recruits/{recruit_id}").json()
+    detail = runtime.request("GET", f"/api/recruits/{recruit_id}", member=VIEWER)
+    assert detail.status_code == 200 and "lifecycle_status" not in detail.json()
     return recruit_id
 
 
 def snapshot(runtime, recruit_id):
-    """상세 조회 상태와 주요 필드를 비교용으로 반환한다."""
-    response = runtime.request("GET", f"/api/recruits/{recruit_id}")
+    """상세 조회 상태와 주요 필드를 비교용으로 반환한다(조회는 로그인한 제3 회원으로 수행)."""
+    response = runtime.request("GET", f"/api/recruits/{recruit_id}", member=VIEWER)
     if response.status_code != 200:
         return response.status_code, None
     data = response.json()
@@ -77,7 +81,7 @@ def test_legacy_owner_can_edit_then_delete(runtime, payload, category, extra):
 
     delete = runtime.request("DELETE", f"/api/recruits/{recruit_id}", member=1)
     assert delete.status_code == 200, delete.text
-    assert runtime.request("GET", f"/api/recruits/{recruit_id}").status_code == 404
+    assert runtime.request("GET", f"/api/recruits/{recruit_id}", member=VIEWER).status_code == 404
 
 
 def test_legacy_owner_with_session_cookie_can_edit(runtime, payload):

@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useState } from 'react'
 import {
   BrowserRouter,
@@ -148,7 +149,7 @@ function AppContent() {
       }
 
       setCurrentMemberId(data.member?.member_id ?? data.member_id ?? null)
-      // 로그인 회원 정보 저장
+
       setNickname(
         data.member?.nickname || '',
       )
@@ -225,7 +226,6 @@ function AppContent() {
       return
     }
 
-    // 개발용 관리자 상태
     setDevAdminMode(true)
 
     setCurrentMemberId(null)
@@ -257,13 +257,13 @@ function AppContent() {
     if (!window.confirm('정말 로그아웃 하시겠습니까?')) return
 
     try {
-      // 일반 로그인과 개발용 관리자 모드 모두 백엔드 세션을 종료한다.
       await apiRequest('/logout', {
         urlBuilder: getAuthUrl,
         method: 'POST',
         credentials: 'include',
         cache: 'no-store',
       })
+
       sessionStorage.removeItem(SECTION_STORAGE_KEY)
       window.location.replace('/')
     } catch (error) {
@@ -272,11 +272,16 @@ function AppContent() {
     }
   }
 
+  // =========================================================
+  // 회원 탈퇴
+  // =========================================================
+
   const handleWithdraw = async () => {
     if (devAdminMode) {
       alert('개발용 관리자 모드에서는 회원 탈퇴를 할 수 없습니다.')
       return
     }
+
     if (!window.confirm('정말 회원 탈퇴하시겠습니까?')) return
 
     try {
@@ -286,7 +291,9 @@ function AppContent() {
         credentials: 'include',
         cache: 'no-store',
       })
+
       sessionStorage.removeItem(SECTION_STORAGE_KEY)
+
       alert('회원 탈퇴가 완료되었습니다.')
       window.location.replace('/')
     } catch (error) {
@@ -389,7 +396,6 @@ function AppContent() {
         .trim()
         .toUpperCase()
 
-    // 모임 게시글
     if (
       Number.isSafeInteger(
         recruitId,
@@ -397,7 +403,6 @@ function AppContent() {
       recruitId > 0
     ) {
       handleOpenMeetup(recruitId)
-
       return
     }
 
@@ -450,7 +455,6 @@ function AppContent() {
     let url
     let nextSection
 
-    // 취업 게시글
     if (isCareer) {
       if (
         !careerCategories.includes(
@@ -469,7 +473,6 @@ function AppContent() {
       url =
         `/career/${category}/${postId}`
 
-    // 일반 게시판
     } else if (
       Number.isSafeInteger(
         boardId,
@@ -539,7 +542,6 @@ function AppContent() {
   if (
     authView === 'board'
   ) {
-    // 관리자 페이지 접근 방어
     if (
       section === 'admin' &&
       roleCode !== 'ADMIN'
@@ -579,7 +581,6 @@ function AppContent() {
             roleCode === 'ADMIN'
           }
           onLogout={handleLogout}
-          onWithdraw={handleWithdraw}
         />
 
         <ActivityTracker />
@@ -626,6 +627,7 @@ function AppContent() {
               handleOpenActivityPost
             }
             avatarUrl={avatarUrl}
+            onWithdraw={handleWithdraw}
           />
         )}
       </>

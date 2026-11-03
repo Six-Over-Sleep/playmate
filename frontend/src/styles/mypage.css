@@ -64,8 +64,6 @@
   }
 }
 
-
-
 /* 마이페이지 프로필 */
 .mypage-profile-info {
   display: flex;
@@ -103,7 +101,6 @@
   color: #8490a2;
   font-size: 13px;
 }
-
 
 /* 닉네임 수정 */
 .mypage-profile-details {
@@ -159,7 +156,6 @@
   margin-top: 8px !important;
 }
 
-
 /* 프로필 이미지 변경 */
 .mypage-image-actions button {
   border: 1px solid #ded9ef;
@@ -181,8 +177,6 @@
   cursor: not-allowed;
 }
 
-
-/* 프로필 이미지와 사진 변경 버튼 정렬 */
 .mypage-profile-image {
   display: flex;
   flex-direction: column;
@@ -190,7 +184,6 @@
   gap: 10px;
   flex-shrink: 0;
 }
-
 
 /* 종합 레벨 */
 .mypage-overall {
@@ -254,7 +247,6 @@
   font-size: 12px;
   color: #8490a2;
 }
-
 
 /* 스킬 레벨 */
 .mypage-skills {
@@ -338,8 +330,7 @@
   }
 }
 
-
-/* 내 활동 영역은 전체 너비 사용 */
+/* 내 활동 */
 .mypage-activity-section {
   grid-column: 1 / -1;
 }
@@ -350,7 +341,6 @@
   gap: 22px;
 }
 
-/* 활동 탭 */
 .mypage-activity-tabs {
   display: flex;
   gap: 10px;
@@ -379,7 +369,6 @@
   background: #eeebf7;
 }
 
-/* 활동 목록 */
 .mypage-activity-list {
   list-style: none;
   margin: 0;
@@ -424,8 +413,7 @@
   font-size: 13px;
 }
 
-
-/* 내 모임 카드 그리드 */
+/* 내 모임 카드 */
 .mypage-meetup-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -448,18 +436,15 @@
   box-shadow: 0 6px 20px rgba(80, 55, 135, 0.07);
 }
 
-/* 마이페이지 내 모임 클릭 */
 .mypage-meetup-card {
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* 마우스를 올렸을 때 */
 .mypage-meetup-card:hover {
   transform: translateY(-3px);
 }
 
-/* 키보드로 선택했을 때 */
 .mypage-meetup-card:focus-visible {
   outline: 2px solid #7c6ee8;
   outline-offset: 3px;
@@ -522,61 +507,46 @@
   }
 }
 
-
-/* ==========================================
-   마이페이지 레이아웃 개선
-   프로필 + 종합 레벨: 상단 2열
-   스킬 레벨 + 내 활동: 전체 너비
-========================================== */
-
-/* 프로필: 전체 너비에서 왼쪽 카드로 변경 */
+/* 마이페이지 레이아웃 */
 .mypage > section:first-of-type {
   grid-column: auto;
   min-height: 200px;
 }
 
-/* 종합 레벨: 프로필 오른쪽 */
 .mypage > section:nth-of-type(2) {
   min-height: 200px;
 }
 
-/* 스킬 레벨: 아래쪽 전체 너비 */
 .mypage > section:nth-of-type(3) {
   grid-column: 1 / -1;
   min-height: auto;
 }
 
-/* 스킬 5개를 가로로 나열 */
 .mypage-skills-grid {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
-/* 스킬 카드 내부 간격 */
 .mypage-skill-card {
   padding: 16px 12px;
 }
 
-/* 내 활동: 전체 너비 */
 .mypage-activity-section {
   grid-column: 1 / -1;
 }
 
-/* 태블릿 */
 @media (max-width: 1100px) {
   .mypage-skills-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-/* 작은 태블릿 */
 @media (max-width: 900px) {
   .mypage-skills-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-/* 모바일 */
 @media (max-width: 768px) {
   .mypage > section:first-of-type,
   .mypage > section:nth-of-type(2),
@@ -590,7 +560,6 @@
     grid-template-columns: 1fr;
   }
 }
-
 
 /* 내 활동 페이지네이션 */
 .mypage-pagination {
@@ -629,11 +598,7 @@
   cursor: not-allowed;
 }
 
-/* ==========================================
-   마이페이지 - 게시글 / 댓글 / 스크랩 목록
-========================================== */
-
-/* 목록 전체 */
+/* 게시글 / 댓글 / 스크랩 목록 */
 .mypage-activity-list {
   display: flex;
   flex-direction: column;
@@ -643,7 +608,6 @@
   padding: 0;
 }
 
-/* 목록 항목 */
 .mypage-activity-item {
   width: 100%;
   padding: 4px 0;
@@ -655,83 +619,66 @@
   border-bottom: none;
 }
 
-/* 클릭 가능한 게시글 버튼 */
 .mypage-activity-item button,
 .mypage-activity-item .mypage-activity-link {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-
   width: 100%;
   padding: 16px 18px;
-
   background: transparent;
   border: 1px solid transparent;
   border-radius: 12px;
-
   color: #253047;
   font-family: inherit;
   text-align: left;
   text-decoration: none;
-
   cursor: pointer;
   box-sizing: border-box;
-
   transition:
     background 0.2s ease,
     border-color 0.2s ease;
 }
 
-/* 마우스 올렸을 때 */
 .mypage-activity-item button:hover,
 .mypage-activity-item .mypage-activity-link:hover {
   background: #f7f5fc;
   border-color: #e8e0f8;
 }
 
-/* 키보드 접근성 */
 .mypage-activity-item button:focus-visible,
 .mypage-activity-item .mypage-activity-link:focus-visible {
   outline: 2px solid #7958ce;
   outline-offset: 2px;
 }
 
-/* 게시글 제목 */
 .mypage-activity-item strong {
   display: block;
   width: 100%;
-
   font-size: 15px;
   font-weight: 700;
   line-height: 1.5;
   color: #253047;
-
   overflow-wrap: anywhere;
 }
 
-/* 댓글 내용 */
 .mypage-activity-description {
   margin: 0;
-
   font-size: 13px;
   line-height: 1.6;
   color: #667085;
-
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-/* 게시판 이름, 날짜 등 */
 .mypage-activity-meta {
   display: block;
-
   font-size: 12px;
   font-weight: 400;
   color: #98a2b3;
 }
 
-/* 모바일 */
 @media (max-width: 768px) {
   .mypage-activity-item button,
   .mypage-activity-item .mypage-activity-link {
@@ -739,11 +686,7 @@
   }
 }
 
-/* ==========================================
-   마이페이지 활동 목록 - 최종 스타일
-========================================== */
-
-/* 목록 */
+/* 내 활동 목록 최종 스타일 */
 .mypage .mypage-activity-list {
   display: flex;
   flex-direction: column;
@@ -753,51 +696,40 @@
   list-style: none;
 }
 
-/* 모든 항목을 동일한 카드로 표시 */
 .mypage .mypage-activity-item {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-
   width: 100%;
   padding: 18px 20px;
-
   background: #f8f6fd;
   border: 1px solid #e5def5;
   border-radius: 14px;
-
   box-sizing: border-box;
   transition: 0.2s ease;
 }
 
-/* 카드 hover */
 .mypage .mypage-activity-item:hover {
   background: #f2edff;
   border-color: #c9b8f1;
 }
 
-/* 핵심 수정: 내부 버튼 기본 스타일 완전히 제거 */
 .mypage .mypage-activity-item button,
 .mypage .mypage-activity-item .mypage-activity-link {
   all: unset;
-
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: flex-start;
   gap: 8px;
-
   width: 100%;
   box-sizing: border-box;
-
   color: #253047;
   font-family: inherit;
   text-align: left;
-
   cursor: pointer;
 }
 
-/* 내부 버튼 hover 시 보라색 배경 방지 */
 .mypage .mypage-activity-item button:hover,
 .mypage .mypage-activity-item .mypage-activity-link:hover {
   background: transparent;
@@ -805,52 +737,65 @@
   box-shadow: none;
 }
 
-/* 키보드 접근성 */
 .mypage .mypage-activity-item button:focus-visible,
 .mypage .mypage-activity-item .mypage-activity-link:focus-visible {
   outline: 2px solid #7958ce;
   outline-offset: 4px;
 }
 
-/* 제목 */
 .mypage .mypage-activity-item strong {
   display: block;
   width: 100%;
-
   font-size: 14px;
   font-weight: 700;
   line-height: 1.5;
   color: #253047;
-
   text-align: left;
 }
 
-/* 댓글 내용 */
 .mypage .mypage-activity-description {
   margin: 0;
-
   font-size: 13px;
   line-height: 1.6;
   color: #667085;
-
   text-align: left;
   white-space: pre-wrap;
 }
 
-/* 날짜 및 카테고리 */
 .mypage .mypage-activity-meta {
   display: block;
   margin: 0;
-
   font-size: 12px;
   color: #98a2b3;
-
   text-align: left;
 }
 
-/* 모바일 */
 @media (max-width: 768px) {
   .mypage .mypage-activity-item {
     padding: 16px;
   }
+}
+
+/* 회원 탈퇴 링크 */
+.mypage-profile-account-action {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.mypage-withdraw-link {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: #8891a2;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.mypage-withdraw-link:hover,
+.mypage-withdraw-link:focus-visible {
+  color: #b33b36;
 }

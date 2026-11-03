@@ -1,3 +1,4 @@
+
 import { useState } from 'react'
 import ProfileCard from '../../components/mypage/ProfileCard'
 import OverallLevel from '../../components/mypage/OverallLevel'
@@ -24,7 +25,7 @@ const LEVEL_TABS = [
   { id: 'history', label: 'XP 획득·회수 내역' },
 ]
 
-export default function MyPage({ onOpenMeetup, onOpenPost, avatarUrl }) {
+export default function MyPage({ onOpenMeetup, onOpenPost, avatarUrl, onWithdraw }) {
   const [selectedMenu, setSelectedMenu] = useState('level')
   const [selectedLevelTab, setSelectedLevelTab] = useState('overall')
   const menu = MENU.find((item) => item.id === selectedMenu)
@@ -36,11 +37,11 @@ export default function MyPage({ onOpenMeetup, onOpenPost, avatarUrl }) {
         <p>프로필, 활동 기록, 나의 성장을 한곳에서 관리하세요.</p>
       </header>
 
-      {/* 71번: 프로필과 종합 레벨은 모든 메뉴에서 상단에 유지 */}
       <div className="mypage-dashboard-hero">
         <section className="mypage-profile-shell" aria-label="내 프로필">
-          <ProfileCard avatarUrl={avatarUrl} />
+          <ProfileCard avatarUrl={avatarUrl} onWithdraw={onWithdraw} />
         </section>
+
         <section className="mypage-level-preview-shell" aria-label="현재 종합 레벨">
           <MyPageLevelPreview />
         </section>
@@ -87,6 +88,7 @@ export default function MyPage({ onOpenMeetup, onOpenPost, avatarUrl }) {
                   </button>
                 ))}
               </div>
+
               <div className="mypage-level-panel" role="tabpanel">
                 {selectedLevelTab === 'overall' && <OverallLevel />}
                 {selectedLevelTab === 'skills' && <SkillLevels />}
@@ -98,9 +100,12 @@ export default function MyPage({ onOpenMeetup, onOpenPost, avatarUrl }) {
           {selectedMenu === 'activity' && (
             <>
               <MyPageActivityOverview />
+
               <div className="mypage-dashboard-activity">
-                {/* 58번: 게시글 상세 이동 / 71번: 모임 상세 이동 */}
-                <MyActivity onOpenMeetup={onOpenMeetup} onOpenPost={onOpenPost} />
+                <MyActivity
+                  onOpenMeetup={onOpenMeetup}
+                  onOpenPost={onOpenPost}
+                />
               </div>
             </>
           )}

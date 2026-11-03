@@ -2955,3 +2955,184 @@ button {
     flex: 1;
   }
 }
+
+/* =========================================================
+   모임 활동 / 후기 작성
+   ========================================================= */
+
+.meetup-activity-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.meetup-activity-section-header h2 {
+  margin: 0;
+}
+
+.meetup-activity-section-header p {
+  margin: 6px 0 0;
+  color: #8f8797;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.meetup-activity-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.meetup-modal-backdrop {
+  position: fixed;
+  z-index: 1300;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(27, 24, 32, 0.42);
+}
+
+.meetup-activity-modal {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(35, 29, 45, 0.18);
+}
+
+.meetup-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 24px 28px 18px;
+  border-bottom: 1px solid #efedf3;
+}
+
+.meetup-modal-header h2 {
+  margin: 0;
+  color: #30283f;
+  font-size: 20px;
+}
+
+.meetup-modal-header p {
+  margin: 7px 0 0;
+  color: #8f8797;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.meetup-modal-close {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border: 0;
+  border-radius: 50%;
+  background: #f2f0f4;
+  color: #625a69;
+  font-size: 21px;
+  line-height: 1;
+}
+
+.meetup-activity-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 28px 28px;
+}
+
+.meetup-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.meetup-form-field > span {
+  color: #574f60;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.meetup-form-field input,
+.meetup-form-field select,
+.meetup-form-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #e7e3eb;
+  border-radius: 13px;
+  padding: 12px 14px;
+  background: #faf9fb;
+  color: #3f3748;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.meetup-form-field textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.meetup-form-field input:focus,
+.meetup-form-field select:focus,
+.meetup-form-field textarea:focus {
+  border-color: #8c7aaa;
+  background: #ffffff;
+}
+
+.meetup-form-error {
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: #fff0f0;
+  color: #9a1d1d;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.meetup-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .meetup-activity-section-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .meetup-activity-action-buttons {
+    justify-content: stretch;
+  }
+
+  .meetup-activity-action-buttons button {
+    flex: 1;
+  }
+
+  .meetup-modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .meetup-activity-modal {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 24px 24px 0 0;
+  }
+
+  .meetup-modal-header,
+  .meetup-activity-form {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .meetup-modal-actions button {
+    flex: 1;
+  }
+}

@@ -3,14 +3,17 @@
 import asyncio
 from base64 import b64encode
 from collections import Counter
+import importlib.util
 import json
+from pathlib import Path
 
 import httpx
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from itsdangerous import TimestampSigner
 import pytest
 
 from app.main import app
+import app.main as main_module
 from backend.app.core.database import Base
 from backend.app.models.recruit import (
     RecruitSportsDetail,
@@ -113,7 +116,8 @@ def test_legacy_creation_and_public_detail_preserved(runtime, payload, category,
     result = runtime.request("POST", "/api/recruits", json=body, legacy_login=True)
     assert result.status_code == 201, result.text
     recruit = result.json()["recruit_id"]
-    detail = runtime.request("GET", f"/api/recruits/{recruit}")
+    # 활성 회원 전용 정책: 조회도 로그인한 회원(4)으로 수행한다.
+    detail = runtime.request("GET", f"/api/recruits/{recruit}", member=4)
     assert detail.status_code == 200 and detail.json()["category"] == category
     assert "lifecycle_status" not in detail.json()
 
@@ -126,9 +130,12 @@ def test_new_study_real_main_routes_public_read_and_authenticated_join(
     )
     assert created.status_code == 201, created.text
     recruit = created.json()["recruit_id"]
-    public = runtime.request("GET", f"/api/recruits/{recruit}").json()
-    assert public["my_application"] is None and public["my_eligibility"] is None
-    assert not any(public["permissions"].values())
+    # 비로그인 조회는 401, 신청하지 않은 다른 회원(4)에게는 개인 상태가 비어 있다.
+    assert runtime.request("GET", f"/api/recruits/{recruit}").status_code == 401
+    public = runtime.request("GET", f"/api/recruits/{recruit}", member=4).json()
+    assert public["my_application"] is None
+    # 신청 전 회원에게는 참여 신청 권한만 열려 있고 수정·운영 권한은 없다.
+    assert {key for key, allowed in public["permissions"].items() if allowed} == {"can_join"}
     assert public["is_leader"] is False and public["liked_by_me"] is False
     assert runtime.request("POST", f"/api/recruits/{recruit}/join").status_code == 401
     assert (
@@ -159,7 +166,7 @@ def test_new_study_real_main_routes_public_read_and_authenticated_join(
         ]["application_status"]
         == "ACCEPTED"
     )
-    assert runtime.request("GET", "/api/recruits").json()[0]["recruit_id"] == recruit
+    assert runtime.request("GET", "/api/recruits", member=4).json()[0]["recruit_id"] == recruit
 
 
 def test_new_project_does_not_fall_back_when_validation_fails(runtime, payload):
@@ -176,7 +183,7 @@ def test_new_project_does_not_fall_back_when_validation_fails(runtime, payload):
     assert (
         runtime.request("POST", "/api/recruits", json=body, member=1).status_code == 422
     )
-    assert len(runtime.request("GET", "/api/recruits").json()) == 1
+    assert len(runtime.request("GET", "/api/recruits", member=4).json()) == 1
 
 
 def test_feature_off_cannot_bypass_rules_through_legacy(runtime, payload, monkeypatch):
@@ -185,7 +192,7 @@ def test_feature_off_cannot_bypass_rules_through_legacy(runtime, payload, monkey
     )
     recruit = result.json()["recruit_id"]
     monkeypatch.setenv("ENABLE_RECRUIT_PROGRAMS", "false")
-    assert runtime.request("GET", "/api/recruits").json() == []
+    assert runtime.request("GET", "/api/recruits", member=4).json() == []
     assert (
         runtime.request(
             "PATCH", f"/api/recruits/{recruit}", json={"capacity": 5}, member=2
@@ -200,16 +207,52 @@ def test_feature_off_cannot_bypass_rules_through_legacy(runtime, payload, monkey
     )
 
 
-def test_main_registers_each_recruit_method_once():
-    keys = [
-        (method, route.path)
-        for route in app.routes
-        if route.path.startswith("/api/recruits")
-        for method in getattr(route, "methods", [])
-    ]
-    assert all(count == 1 for count in Counter(keys).values())
+MAIN_PATH = Path(main_module.__file__)
+
+
+def _main_route_keys(monkeypatch):
+    """main.py를 다시 실행하며 include_router 호출을 기록해 실제 등록 (메서드, 경로) 목록을 만든다.
+
+    FastAPI 버전별 app.routes 내부 구조(_IncludedRouter 등)에 의존하지 않고,
+    공개 API인 include_router 인자와 APIRouter.routes의 path·methods만 사용한다.
+    같은 라우터를 두 번 포함하거나 라우터 안·사이에서 같은 경로를 중복 정의해도 목록에 그대로 드러난다.
+    """
+    included = []
+    original = FastAPI.include_router
+
+    def record(self, router, *args, **kwargs):
+        included.append((router, kwargs.get("prefix", "")))
+        return original(self, router, *args, **kwargs)
+
+    monkeypatch.setattr(FastAPI, "include_router", record)
+    spec = importlib.util.spec_from_file_location("main_route_audit", MAIN_PATH)
+    spec.loader.exec_module(importlib.util.module_from_spec(spec))
+
+    keys = []
+    for router, prefix in included:
+        for route in router.routes:
+            # 모임 라우터가 하위 라우터를 포함하게 되면 이 검사도 함께 보완해야 한다.
+            assert hasattr(route, "path"), f"경로 정보를 확인할 수 없는 라우트: {route!r}"
+            keys += [(method, prefix + route.path) for method in getattr(route, "methods", None) or []]
+    return keys
+
+
+def test_main_registers_each_recruit_method_once(monkeypatch):
+    """main 앱에 모임 API의 (메서드, 경로)가 각각 한 번만 등록되고, 필요한 경로만 노출되는지 확인한다."""
+    keys = [key for key in _main_route_keys(monkeypatch) if key[1].startswith("/api/recruits")]
+
+    duplicated = {key: count for key, count in Counter(keys).items() if count > 1}
+    assert not duplicated, f"중복 등록된 모임 라우트: {duplicated}"
     assert ("POST", "/api/recruits/{recruit_id}/extension") in keys
     assert ("GET", "/__test__/guide") not in keys
+    # 공용 앱의 OpenAPI에도 같은 모임 작업들이 노출되는지 함께 확인한다(존재 확인용, 중복 판정은 위 목록 기준).
+    documented = {
+        (method.upper(), path)
+        for path, operations in app.openapi()["paths"].items()
+        if path.startswith("/api/recruits")
+        for method in operations
+    }
+    assert documented == set(keys)
 
 
 @pytest.mark.parametrize(
@@ -243,7 +286,7 @@ def test_legacy_join_and_cancel_use_authenticated_member(
     def participants():
         return sorted(
             item["member_id"]
-            for item in runtime.request("GET", path + "/members").json()
+            for item in runtime.request("GET", path + "/members", member=4).json()
         )
 
     assert participants() == [1]
@@ -268,10 +311,13 @@ def test_legacy_join_and_cancel_use_authenticated_member(
 
 def test_main_category_filter_and_no_legacy_fallback_for_new_fields(runtime, payload):
     runtime.request("POST", "/api/recruits", json=json_payload(payload), member=1)
-    assert len(runtime.request("GET", "/api/recruits?category=study").json()) == 1
-    assert runtime.request("GET", "/api/recruits?category=project").json() == []
-    assert runtime.request("GET", "/api/recruits?category=invalid").status_code == 422
-    recruit = runtime.request("GET", "/api/recruits").json()[0]["recruit_id"]
+    assert len(runtime.request("GET", "/api/recruits?category=study", member=4).json()) == 1
+    assert runtime.request("GET", "/api/recruits?category=project", member=4).json() == []
+    assert (
+        runtime.request("GET", "/api/recruits?category=invalid", member=4).status_code
+        == 422
+    )
+    recruit = runtime.request("GET", "/api/recruits", member=4).json()[0]["recruit_id"]
     assert (
         runtime.request(
             "PATCH", f"/api/recruits/{recruit}", json={"unknown_field": 1}, member=1
@@ -299,4 +345,4 @@ def test_new_draft_delete_checks_owner_and_preserves_participation(runtime, payl
     assert (
         runtime.request("DELETE", f"/api/recruits/{empty}", member=1).status_code == 200
     )
-    assert runtime.request("GET", f"/api/recruits/{empty}").status_code == 404
+    assert runtime.request("GET", f"/api/recruits/{empty}", member=4).status_code == 404

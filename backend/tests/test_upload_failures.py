@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException, UploadFile
 from starlette.datastructures import Headers
+from starlette.routing import Mount
 
 from app.core import uploads
 from app.services import board_service
@@ -100,7 +101,12 @@ def test_uploaded_image_static_url(client, upload_root, monkeypatch):
     from app.main import app
 
     saved = asyncio.run(uploads.save_images([image()]))
-    static = next(route.app for route in app.routes if route.path == "/uploads")
+    # FastAPI 버전별 포함 라우터 객체 구조와 무관하게 공개 Mount 타입으로 /uploads를 찾는다.
+    static = next(
+        route.app
+        for route in app.routes
+        if isinstance(route, Mount) and route.path == "/uploads"
+    )
     directory = upload_root / "uploads"
     monkeypatch.setattr(static, "directory", str(directory))
     monkeypatch.setattr(static, "all_directories", [str(directory)])

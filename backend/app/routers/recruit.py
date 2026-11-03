@@ -41,40 +41,36 @@ router = APIRouter(
 # 로그인 회원 ID
 # =========================================================
 
+def _dev_member_header(request: Request) -> int | None:
+    """
+    X-Dev-Member-ID 헤더를 공통 인증과 같은 정수 규칙으로 읽음.
+    헤더 사용 허용 여부(개발·테스트 환경)는 get_current_member_id가 판단함.
+    """
+
+    value = request.headers.get("x-dev-member-id")
+
+    if value is None:
+        return None
+
+    try:
+        return int(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail="X-Dev-Member-ID는 정수여야 합니다.",
+        ) from None
+
+
 def _login_member_id(request: Request) -> int:
     """
-    로그인 세션의 회원 ID를 반환함.
-    로그인하지 않은 경우 401.
+    공통 인증(get_current_member_id)으로 로그인 회원 ID를 확인함.
+
+    세션에 member_id가 있다는 것만으로 허용하지 않고,
+    DB에서 회원·Discord ID·활성 상태(ACTIVE)를 다시 확인함.
+    비로그인, 유효하지 않은 세션, 탈퇴·비활성 회원은 401.
     """
 
-    member_id = request.session.get("member_id")
-
-    if member_id is None:
-        raise HTTPException(
-            status_code=401,
-            detail="로그인이 필요합니다.",
-        )
-
-    return int(member_id)
-
-
-def _optional_member_id(
-    request: Request,
-) -> int | None:
-    """
-    로그인한 경우 회원 ID를 반환하고,
-    비로그인 사용자는 None을 반환함.
-
-    로그인 없이도 사용할 수 있는 조회 API에서 사용함.
-    """
-
-    member_id = request.session.get("member_id")
-
-    return (
-        None
-        if member_id is None
-        else int(member_id)
-    )
+    return get_current_member_id(request, _dev_member_header(request))
 
 
 # =========================================================
@@ -94,33 +90,26 @@ def get_dispatch_service(
     기존 모임과 신규 프로젝트·스터디를 구분해 처리하는
     RecruitDispatchService 의존성을 구성함.
 
-    신규 요청은 공통 인증을 사용하고,
-    기존 모임도 실제 로그인 회원 ID를 전달함.
+    PlayMate는 가입을 마친 활성 회원 전용 서비스이므로,
+    조회를 포함한 모든 모임 API에서 공통 인증으로 회원을 먼저 확인함.
+    비로그인·가입 미완료·탈퇴·비활성 회원은 401.
     """
 
+    member_id = get_current_member_id(
+        request,
+        x_dev_member_id,
+    )
+
     def verified():
-        return get_current_member_id(
-            request,
-            x_dev_member_id,
-        )
-
-    def optional_verified():
-
-        if (
-            request.session.get("member_id") is None
-            and x_dev_member_id is None
-        ):
-            return None
-
-        return verified()
+        return member_id
 
     return RecruitDispatchService(
         program_service,
         programs_enabled(),
         verified,
-        optional_verified,
-        lambda: _login_member_id(request),
-        lambda: _optional_member_id(request),
+        verified,
+        verified,
+        verified,
     )
 
 
@@ -130,10 +119,14 @@ def get_dispatch_service(
 # =========================================================
 
 @router.get("/skills")
-def list_recruit_skills(db: Session = Depends(get_db)):
-    """개인 정보가 없는 공용 기술 사전. 동적 ID 경로보다 먼저 등록한다."""
+def list_recruit_skills(request: Request, db: Session = Depends(get_db)):
+    """개인 정보가 없는 공용 기술 사전. 동적 ID 경로보다 먼저 등록한다.
+
+    활성 회원 전용 서비스 정책에 따라 로그인한 활성 회원만 조회할 수 있다.
+    """
     from backend.app.services.recruit_skill_catalog import DatabaseSkillCatalog
 
+    _login_member_id(request)
     return invoke(DatabaseSkillCatalog(db).options)
 
 
@@ -432,7 +425,7 @@ def get_comments(
     db: Session = Depends(get_db),
 ):
     """
-    모임 댓글 목록 조회.
+    모임 댓글 목록 조회. 로그인한 활성 회원만 조회할 수 있음.
 
     부모 댓글 → 대댓글 순서로 반환함.
     """
@@ -440,7 +433,7 @@ def get_comments(
     return comment_service.get_comments(
         db,
         recruit_id,
-        _optional_member_id(request),
+        _login_member_id(request),
     )
 
 

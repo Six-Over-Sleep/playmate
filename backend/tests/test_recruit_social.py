@@ -5,8 +5,10 @@ Repository 함수를 가짜로 바꾸고 Mock 세션으로 commit/rollback 호�
 """
 
 from base64 import b64encode
+from contextlib import contextmanager
 from datetime import datetime
 import json
+import sys
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -308,16 +310,46 @@ def test_comment_schemas():
 # =========================================================
 # HTTP 인증 (기존 add_recruit와 같은 세션 방식)
 # =========================================================
-def session_cookie(member_id=3):
+def session_cookie(member_id=3, discord_id="discord-user"):
     data = b64encode(
-        json.dumps(dict(member_id=member_id, user=dict(discord_id="discord-user"))).encode()
+        json.dumps(dict(member_id=member_id, user=dict(discord_id=discord_id))).encode()
     )
     return TimestampSigner("isolated-test-secret").sign(data).decode()
+
+
+# 공통 인증이 DB에서 확인하는 활성 회원 (member_id, discord_id) 대역.
+# 회원 4("withdrawn-user")는 탈퇴 등으로 ACTIVE가 아니어서 조회되지 않는다.
+ACTIVE_MEMBERS = {(3, "discord-user")}
+
+
+@contextmanager
+def fake_auth_cursor(*args, **kwargs):
+    """get_current_member_id의 회원 확인 SQL에 ACTIVE 회원만 응답하는 대역 커서."""
+
+    class Cursor:
+        row = None
+
+        def execute(self, sql, params):
+            assert "member_status = 'ACTIVE'" in sql
+            if len(params) == 2:  # 세션: (member_id, discord_id)
+                found = tuple(params) in ACTIVE_MEMBERS
+            else:  # 개발용 헤더: (member_id,)
+                found = params[0] in {member for member, _ in ACTIVE_MEMBERS}
+            self.row = {"exists": 1} if found else None
+
+        def fetchone(self):
+            return self.row
+
+    yield Cursor()
 
 
 @pytest.fixture
 def http(monkeypatch):
     app.dependency_overrides[get_db] = lambda: Mock()
+    # 실제 공통 인증 함수를 그대로 쓰고, 그 DB 조회만 대역으로 바꾼다.
+    for name in ("app.core.auth", "backend.app.core.auth"):
+        if name in sys.modules:
+            monkeypatch.setattr(sys.modules[name], "db_cursor", fake_auth_cursor)
     seen = {}
 
     def fake(name):
@@ -367,10 +399,78 @@ def test_write_requests_use_session_member(http, method, url, payload):
     assert 3 in args
 
 
-def test_comment_list_is_public_and_uses_optional_member(http):
+@pytest.mark.parametrize(
+    "member_id,discord_id",
+    [(4, "withdrawn-user"), (3, "other-discord-user")],
+    ids=["withdrawn_member", "discord_id_mismatch"],
+)
+@pytest.mark.parametrize("method,url,payload", WRITE_REQUESTS)
+def test_write_requests_reject_inactive_or_invalid_session(
+    http, method, url, payload, member_id, discord_id
+):
+    """탈퇴·비활성 회원의 남은 세션이나 회원 정보와 맞지 않는 세션은 쓰기 요청을 할 수 없다."""
     client, seen = http
-    assert client.get("/api/recruits/7/comments").status_code == 200
-    assert seen["get_comments"] == (None,)
+    client.cookies.set("playmate_session", session_cookie(member_id, discord_id))
+    response = client.request(method, url, **({"json": payload} if payload else {}))
+    assert response.status_code == 401
+    assert seen == {}
+
+
+@pytest.mark.parametrize("method,url,payload", WRITE_REQUESTS)
+def test_write_requests_ignore_dev_header_in_production(
+    http, monkeypatch, method, url, payload
+):
+    """운영 환경에서는 개발용 회원 헤더만으로 모임 반응·댓글을 쓸 수 없다."""
+    client, seen = http
+    monkeypatch.setenv("APP_ENV", "production")
+    response = client.request(
+        method, url, headers={"X-Dev-Member-ID": "3"}, **({"json": payload} if payload else {})
+    )
+    assert response.status_code == 401
+    assert seen == {}
+
+
+def test_comment_list_requires_active_member(http):
+    """댓글 목록은 활성 회원만 조회하며, 서비스에는 확인된 회원 ID가 전달된다."""
+    client, seen = http
+    assert client.get("/api/recruits/7/comments").status_code == 401
+    assert seen == {}
     client.cookies.set("playmate_session", session_cookie(3))
-    client.get("/api/recruits/7/comments")
+    assert client.get("/api/recruits/7/comments").status_code == 200
     assert seen["get_comments"] == (3,)
+
+
+def signup_pending_cookie():
+    """Discord 인증만 마치고 회원가입을 완료하지 않은 세션(member_id 없음)."""
+    data = b64encode(json.dumps(dict(user=dict(discord_id="discord-user"))).encode())
+    return TimestampSigner("isolated-test-secret").sign(data).decode()
+
+
+READ_REQUESTS = [
+    "/api/recruits",
+    "/api/recruits/7",
+    "/api/recruits/7/members",
+    "/api/recruits/7/count",
+    "/api/recruits/7/comments",
+    "/api/recruits/skills",
+]
+
+
+@pytest.mark.parametrize(
+    "case", ["anonymous", "withdrawn_member", "signup_pending", "production_dev_header"]
+)
+@pytest.mark.parametrize("url", READ_REQUESTS)
+def test_read_requests_require_active_member(http, monkeypatch, url, case):
+    """폐쇄형 서비스 정책: 모임 조회 API는 가입을 마친 활성 회원만 사용할 수 있다."""
+    client, seen = http
+    headers = {}
+    if case == "withdrawn_member":
+        client.cookies.set("playmate_session", session_cookie(4, "withdrawn-user"))
+    elif case == "signup_pending":
+        client.cookies.set("playmate_session", signup_pending_cookie())
+    elif case == "production_dev_header":
+        monkeypatch.setenv("APP_ENV", "production")
+        headers["X-Dev-Member-ID"] = "3"
+    response = client.get(url, headers=headers)
+    assert response.status_code == 401
+    assert seen == {}

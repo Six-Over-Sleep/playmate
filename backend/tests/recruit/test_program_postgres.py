@@ -20,6 +20,7 @@ from backend.app.models.recruit import Recruit, RecruitMember, RecruitStudyDetai
 from backend.app.repositories.recruit_program_repository import ProgramRepository
 from backend.app.schemas.recruit_program import ProgramApplication, ProgramCreate
 from backend.app.services.recruit_program_service import ProgramService
+from backend.tests.local_test_db import require_local_test_db_url
 
 
 @pytest.fixture
@@ -27,6 +28,8 @@ def postgres(service):
     url = os.getenv("RECRUIT_TEST_DATABASE_URL")
     if os.getenv("RUN_RECRUIT_POSTGRES_TESTS") != "1" or not url:
         pytest.skip("명시적 전용 PostgreSQL 테스트 URL이 없어 실제 잠금 검증 보류")
+    # 연결 전에 로컬(localhost·127.0.0.1·::1)이고 이름에 test가 들어간 일회용 DB인지 확인한다.
+    url = require_local_test_db_url("RECRUIT_TEST_DATABASE_URL")
     base = create_engine(url, hide_parameters=True)
     schema = "recruit_test_" + uuid4().hex
     with base.begin() as connection:

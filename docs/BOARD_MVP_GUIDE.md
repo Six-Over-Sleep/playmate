@@ -99,8 +99,8 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 - `http://localhost:8000/health`: FastAPI 프로세스 확인
-- `http://localhost:8000/health/db`: 실제 PostgreSQL 연결과 DB명 확인
-- `http://localhost:8000/docs`: API 문서
+- `http://localhost:8000/health/db`: 실제 PostgreSQL 연결 확인(응답은 `{"status": "ok"}`만 반환)
+- `http://localhost:8000/docs`: API 문서(`APP_ENV=development`·`test`에서만 제공)
 
 터미널 2:
 
@@ -148,9 +148,10 @@ npm run build
 격리된 PostgreSQL 테스트 DB에서만 통합 테스트를 켠다.
 
 ```powershell
-$env:RUN_POSTGRES_INTEGRATION='1'
-pytest backend\tests\integration -q
-Remove-Item Env:RUN_POSTGRES_INTEGRATION
+# 로컬(localhost·127.0.0.1)이고 DB 이름에 test가 들어간 일회용 DB만 허용된다.
+$env:PLAYMATE_BOARD_TEST_DB_URL='postgresql://<사용자>:<비밀번호>@127.0.0.1:5432/<이름>_test'
+pytest backend\tests\integration\test_postgres_board.py -q
+Remove-Item Env:PLAYMATE_BOARD_TEST_DB_URL
 ```
 
 운영 또는 팀 공용 DB에서는 통합 테스트를 실행하지 않는다.

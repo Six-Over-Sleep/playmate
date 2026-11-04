@@ -142,6 +142,12 @@ class ProgramEdit(BaseModel):
     starts_at: datetime | None = None
     ends_at: datetime | None = None
     required_skill_ids: list[int] | None = None
+    recruit_mode: Literal["short", "regular"] | None = None
+    regular_days: list[str] | None = None
+    regular_time: time | None = None
+    regular_start_date: date | None = None
+    meeting_start: datetime | None = None
+    meeting_end: datetime | None = None
 
 
 class ExtensionRequest(BaseModel):

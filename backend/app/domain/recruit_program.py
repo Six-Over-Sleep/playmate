@@ -450,6 +450,10 @@ class Program:
             and self.lifecycle_status in {"RECRUITING", "READY"},
             "can_edit": self.creator_id == member_id
             and self.lifecycle_status in {"RECRUITING", "READY"},
+            "can_edit_configuration": self.creator_id == member_id
+            and self.is_recruiting(now)
+            and self.extension_count == 0
+            and not any(a.member_id != self.creator_id for a in self.applications),
             "can_extend": leader_window and missing and self.extension_count < 2,
             "can_choose_exception_start": leader_window
             and self.extension_count == 2

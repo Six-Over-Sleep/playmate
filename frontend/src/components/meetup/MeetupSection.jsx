@@ -13,6 +13,7 @@ export default function MeetupSection({
 } = {}) {
   const navigate = useNavigate()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [creationCategory, setCreationCategory] = useState('study')
 
   // =========================================================
   // 1. 모임 상태 및 함수
@@ -31,6 +32,7 @@ export default function MeetupSection({
     error,
     actionMessage,
     comments, toggleLike, toggleScrap, addComment, editComment, deleteComment, dismissNotice,
+    commentsLoading,
 
     goBack,
     backToDetail,
@@ -104,7 +106,11 @@ export default function MeetupSection({
           meetups={meetups}
           loading={loading}
           onMeetup={handleOpenMeetup}
-          onWrite={openWrite}
+          onWrite={(category) => {
+            // 목록에서 고른 종류를 새 모임에도 유지한다. 전체 탭은 스터디가 기본이다.
+            setCreationCategory(category === 'all' ? 'study' : category)
+            openWrite()
+          }}
         />
       )}
 
@@ -133,6 +139,7 @@ export default function MeetupSection({
             onLike={toggleLike}
             onScrap={toggleScrap}
             comments={comments}
+            commentsLoading={commentsLoading}
             onAddComment={addComment}
             onEditComment={editComment}
             onDeleteComment={deleteComment}
@@ -171,6 +178,7 @@ export default function MeetupSection({
       {!detailLoading && view === 'editor' && (
         <MeetupEditorPage
           isAdmin={isAdmin}
+          initialCategory={creationCategory}
           key={selectedMeetup?.recruit_id ?? 'new'}
           meetup={selectedMeetup}
           busy={busy}

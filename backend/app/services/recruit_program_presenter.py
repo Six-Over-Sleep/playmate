@@ -27,6 +27,8 @@ def program_view(
     restricted = eligibility["is_restricted"]
     names = details.get("required_skill_names", {})
     permissions = program.permissions(member_id, now, restricted)
+    if counts and counts.get("other_application_history"):
+        permissions["can_edit_configuration"] = False
     permissions["can_edit_curriculum"] = permissions["can_edit_curriculum"] and (
         curriculum_policy is None or curriculum_policy(program, now)
     )

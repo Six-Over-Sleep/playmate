@@ -122,6 +122,7 @@ export default function MeetupDetailPage({
   onLike,
   onScrap,
   comments = [],
+  commentsLoading = false,
   onAddComment,
   onEditComment,
   onDeleteComment,
@@ -1021,13 +1022,18 @@ export default function MeetupDetailPage({
         </footer>
 
         {/* 댓글·대댓글 목록과 입력창 */}
-        <MeetupCommentList
+        {commentsLoading ? (
+          <section className="meetup-comment-section" aria-busy="true">
+            <h2>댓글</h2>
+            <p>댓글을 불러오는 중이에요.</p>
+          </section>
+        ) : <MeetupCommentList
           comments={comments}
           busy={busy || currentMemberId == null}
           onAdd={onAddComment}
           onEdit={onEditComment}
           onDelete={onDeleteComment}
-        />
+        />}
       </article>
 
 

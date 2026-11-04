@@ -2,13 +2,13 @@
 
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import logging
 from zoneinfo import ZoneInfo
 from typing import Protocol
 
 from backend.app.domain.recruit_program import PolicyError, Program
-from backend.app.services import recruit as legacy_recruits
+from backend.app.schemas.recruit_program import ProgramCreate
 from backend.app.services.recruit_program_presenter import program_view
 
 
@@ -42,7 +42,7 @@ class ProgramService:
             self.repository.session.rollback()
             raise
 
-    def create(self, member_id, data):
+    def create(self, member_id, data, *, existing_recruit_id=None):
         """서버 권한으로 생성 주체를 판단하고 일정·개설자 신청·메타데이터를 원자 저장한다."""
         with self.transaction():
             admin = self.repository.actor(member_id, lock=True)
@@ -83,7 +83,9 @@ class ProgramService:
                 )
             elif data.creator_application is not None:
                 raise PolicyError("관리자 생성은 자동 참여하지 않습니다.", 422)
-            result = self.repository.create(program, data, now)
+            if existing_recruit_id is not None:
+                self.repository.reset_configuration(existing_recruit_id)
+            result = self.repository.create(program, data, now, existing_recruit_id)
             # 종류·난이도는 DB 전용 모델을 추가 복제하지 않고 프로그램 메타데이터로 보존한다.
             self.repository.set_metadata(
                 program.recruit_id,
@@ -125,7 +127,10 @@ class ProgramService:
             bundle["eligibility"],
             self.clock(),
             self.curriculum_policy,
-            {"waiting_count": bundle["counts"]["waiting"]},
+            {
+                "waiting_count": bundle["counts"]["waiting"],
+                "other_application_history": bundle["other_application_history"],
+            },
         )
         result["members"] = self.member_views(
             program.creator_type,
@@ -185,16 +190,25 @@ class ProgramService:
 
     def list(self, member_id, category=None, base_rows=None):
         """기존 목록/집계를 재사용하고 민감한 신청 내용 없이 요약 응답을 만든다."""
-        if member_id is not None:
-            self.repository.actor(member_id)
         if category not in {None, "project", "study"}:
             raise PolicyError("신규 모임 목록은 프로젝트·스터디만 지원합니다.", 422)
-        if base_rows is None:
-            base_rows = legacy_recruits.get_recruits(self.repository.session, category)
-        records = self.repository.list_programs(base_rows, member_id)
+        records = (
+            self.repository.list_programs(base_rows, member_id)
+            if base_rows is not None else self.repository.list_bundle(member_id, category)
+        )
+        return self.list_views(records, member_id, include_legacy=False)
+
+    def mixed_list(self, member_id, category=None):
+        """단일 목록 조회의 기존 모임과 신규 프로그램을 같은 배열로 반환한다."""
+        return self.list_views(
+            self.repository.list_bundle(member_id, category), member_id,
+            include_legacy=True,
+        )
+
+    def list_views(self, records, member_id, *, include_legacy):
+        """이미 읽은 데이터만 표시 형식으로 변환하며 DB를 다시 조회하지 않는다."""
         if not records:
             return []
-        eligibility = self.repository.eligibility_info(member_id)
         now = self.clock()
         return [
             program_view(
@@ -202,12 +216,13 @@ class ProgramService:
                 member_id,
                 basic,
                 details,
-                eligibility,
+                counts["eligibility"],
                 now,
                 self.curriculum_policy,
                 counts,
-            )
+            ) if program is not None else basic
             for program, basic, details, counts in records
+            if program is not None or include_legacy
         ]
 
     def view(self, program, member_id):
@@ -348,6 +363,12 @@ class ProgramService:
             if not program.permissions(member_id, self.clock())["can_edit"]:
                 raise PolicyError("모집 중인 모임 개설자만 수정할 수 있습니다.", 403)
             changes = data.model_dump(exclude_unset=True)
+            schedule_fields = {
+                "recruit_mode", "regular_days", "regular_time",
+                "regular_start_date", "meeting_start", "meeting_end",
+            }
+            if schedule_fields.intersection(changes):
+                return self.edit_configuration(program, member_id, changes)
             core = {
                 key: changes.pop(key)
                 for key in list(changes)
@@ -421,6 +442,62 @@ class ProgramService:
                 self.repository.save(program)
             self.repository.edit(program, changes, self.clock())
             return self.view(program, member_id)
+
+    def edit_configuration(self, program, member_id, changes):
+        """종류별 필수 일정을 생성 계약으로 재검증하고 같은 모임에 반영한다."""
+        if not program.is_recruiting(self.clock()) or any(
+            item.member_id != program.creator_id for item in program.applications
+        ):
+            raise PolicyError("다른 회원 신청 이력이 없고 모집 마감 전일 때만 변경할 수 있습니다.")
+        if program.extension_count:
+            raise PolicyError("연장 이후 일정은 정식 연장 절차를 사용해주세요.")
+        basic = self.repository.basic_detail(program.recruit_id)
+        metadata = dict(self.repository.metadata(program.recruit_id))
+        values = {
+            key: value for key, value in {**basic, **metadata}.items()
+            if key in ProgramCreate.model_fields
+        }
+        values.update(
+            category=program.category, capacity=program.capacity,
+            starts_at=program.starts_at, ends_at=program.ends_at,
+            required_skill_ids=program.required_skill_ids,
+        )
+        values.update(changes)
+        if values["recruit_mode"] == "regular":
+            values.update(meeting_start=None, meeting_end=None)
+        else:
+            values.update(regular_days=None, regular_time=None, regular_start_date=None)
+        checked = ProgramCreate.model_validate(values)
+        if self.clock() >= checked.starts_at - timedelta(hours=24):
+            raise PolicyError("새 모집 마감은 미래여야 합니다.", 422)
+        if checked.category == "project":
+            self.catalog.validate(checked.required_skill_ids)
+            covered = {skill for item in program.accepted() for skill in item.skill_ids}
+            if not covered.issubset(checked.required_skill_ids):
+                raise PolicyError("개설자의 담당 기술을 제거할 수 없습니다.", 422)
+        if checked.recruit_mode == "regular":
+            local = checked.starts_at.astimezone(ZoneInfo("Asia/Seoul"))
+            day = ["월", "화", "수", "목", "금", "토", "일"][local.weekday()]
+            if day not in checked.regular_days:
+                raise PolicyError("시작 날짜의 요일이 모임 요일에 포함되어야 합니다.", 422)
+        program.starts_at, program.ends_at = checked.starts_at, checked.ends_at
+        program.capacity = checked.capacity
+        program.required_skill_ids = checked.required_skill_ids
+        program.schedule_version += 1
+        program.refresh_readiness()
+        self.repository.configure_schedule(program.recruit_id, checked)
+        if checked.category == "project":
+            metadata = dict(self.repository.metadata(program.recruit_id))
+            metadata["required_skill_names"] = self.catalog.names(checked.required_skill_ids)
+            self.repository.set_metadata(program.recruit_id, metadata)
+        self.repository.save(program)
+        self.repository.edit(
+            program,
+            {key: value for key, value in changes.items()
+             if key in {"title", "body", "contact_method"}},
+            self.clock(),
+        )
+        return self.view(program, member_id)
 
     def archive(self, recruit_id, member_id):
         """다른 회원 신청 전의 초안만 개설자가 논리 삭제한다. 단체 취소와 혼용하지 않는다."""

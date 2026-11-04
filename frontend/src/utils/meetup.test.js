@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { getMeetupStatus, toDateTimeLocal, normalizeMemberCount } from './meetup.js'
 import { scheduleFromDeadline, validateMeetupForm, serverFieldErrors, meetupErrorMessage, pickPayload, programCreateFields, programEditFields, legacyCreateFields } from './meetupForm.js'
+import { getChangedProgramFields } from './meetupForm.js'
 const form = {
   title: '함께 공부', body: '소개', category: 'study', capacity: 3, is_online: true,
   recruit_mode: 'regular', regular_start_date: '2030-01-07', regular_time: '19:00',
@@ -9,6 +10,24 @@ const form = {
   study_topic: 'SQL', required_skill_ids: [], creator_skill_ids: [],
 }
 const now = Date.parse('2030-01-01T00:00:00+09:00')
+
+test('title-only regular edit does not resend equivalent time or schedule', () => {
+  const original = {
+    title: '기존 제목', regular_time: '19:00:00', regular_days: ['월'],
+    starts_at: '2030-01-07T10:00:00Z',
+    required_skill_ids: [2, 1], permissions: { can_edit_configuration: true },
+  }
+  assert.deepEqual(getChangedProgramFields({
+    title: '새 제목', regular_time: '19:00', regular_days: ['월'],
+    starts_at: '2030-01-07T19:00:00+09:00', required_skill_ids: [1, 2],
+  }, original), { title: '새 제목' })
+  assert.deepEqual(getChangedProgramFields({ regular_time: '20:00' }, original), {
+    regular_time: '20:00',
+  })
+  assert.deepEqual(getChangedProgramFields({ regular_time: '20:00' }, {
+    ...original, permissions: { can_edit_configuration: false },
+  }), {})
+})
 test('regular study accepts matching Seoul date, weekday and deadline', () => {
   assert.deepEqual(validateMeetupForm(form, { now }), {})
 })
@@ -34,7 +53,10 @@ test('program payload excludes legacy-only and unrelated fields', () => {
   assert.equal('game_name' in payload, false)
   assert.equal('place_latitude' in payload, false)
   assert.equal('meeting_datetime' in payload, false)
-  assert.deepEqual(pickPayload({ title: '수정', is_online: false, regular_days: ['월'] }, programEditFields), { title: '수정' })
+  assert.deepEqual(
+    pickPayload({ title: '수정', is_online: false, regular_days: ['월'] }, programEditFields),
+    { title: '수정', regular_days: ['월'] },
+  )
 })
 test('API validation locations map to form and internal failures stay private', () => {
   const errors = serverFieldErrors({ data: { detail: [{ loc: ['body','deadline_at'], type: 'missing', msg: 'Field required' }] } }, form)

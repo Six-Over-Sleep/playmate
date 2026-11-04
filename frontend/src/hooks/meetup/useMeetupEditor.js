@@ -1,4 +1,4 @@
-import { scheduleFromDeadline, validateMeetupForm, serverFieldErrors, meetupErrorMessage, pickPayload, programCreateFields, programEditFields, legacyEditFields, legacyCreateFields } from '../../utils/meetupForm'
+import { getChangedProgramFields, scheduleFromDeadline, validateMeetupForm, serverFieldErrors, meetupErrorMessage, pickPayload, programCreateFields, programEditFields, legacyEditFields, legacyCreateFields } from '../../utils/meetupForm'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -73,9 +73,10 @@ function makeRegularStartsAt(date, time) {
 }
 
 // 기존 모임 정보를 폼 초기값으로 변환함.
-function makeInitialForm(meetup) {
+function makeInitialForm(meetup, initialCategory) {
   const categoryDetail = meetup?.detail || {}
-  const category = meetup?.category || 'study'
+  // 수정은 저장된 분류를, 생성은 목록에서 선택한 분류를 사용한다.
+  const category = meetup?.category || initialCategory
   const creatorApplication = meetup?.creator_application || meetup?.my_application || null
 
   return {
@@ -277,14 +278,19 @@ function buildCreatorApplication(form) {
 }
 
 // 모임 작성·수정 폼과 장소 검색을 관리함.
-export default function useMeetupEditor({ meetup, onSubmit, isAdmin = false }) {
+export default function useMeetupEditor({
+  meetup,
+  initialCategory = 'study',
+  onSubmit,
+  isAdmin = false,
+}) {
   const isEdit = Boolean(meetup)
 
   const [fieldErrors, setFieldErrors] = useState({})
   const [submitError, setSubmitError] = useState('')
   const formRef = useRef(null)
   const submitting = useRef(false)
-  const [form, setForm] = useState(() => makeInitialForm(meetup))
+  const [form, setForm] = useState(() => makeInitialForm(meetup, initialCategory))
 
   const [placeResults, setPlaceResults] = useState([])
 
@@ -298,7 +304,13 @@ export default function useMeetupEditor({ meetup, onSubmit, isAdmin = false }) {
   const isProject = form.category === 'project'
   const isStudy = form.category === 'study'
   const isProjectOrStudy = isProject || isStudy
-  const isProgram = isProjectOrStudy && (!isEdit || meetup?.permissions != null)
+  const categoryChanged = isEdit && form.category !== meetup.category
+  const replacingConfiguration = isEdit && (
+    categoryChanged || (meetup?.permissions == null && form.recruit_mode !== meetup.recruit_mode)
+  )
+  const isProgram = isProjectOrStudy && (
+    !isEdit || categoryChanged || meetup?.permissions != null
+  )
 
   useEffect(() => {
     setFieldErrors((previous) => {
@@ -331,10 +343,10 @@ export default function useMeetupEditor({ meetup, onSubmit, isAdmin = false }) {
 
   // 편집 대상이 바뀌면 폼과 장소 검색 상태를 초기화함.
   useEffect(() => {
-    setForm(makeInitialForm(meetup))
+    setForm(makeInitialForm(meetup, initialCategory))
     setPlaceResults([])
     setPlaceSearchStatus('')
-  }, [meetup])
+  }, [meetup, initialCategory])
 
   // 오프라인 모임의 지도를 준비하고 저장된 위치가 있으면 마커를 표시함.
   useEffect(() => {
@@ -599,7 +611,9 @@ export default function useMeetupEditor({ meetup, onSubmit, isAdmin = false }) {
     event.preventDefault()
 
     if (submitting.current) return
-    const errors = validateMeetupForm(form, { isEdit, program: isProgram, isAdmin })
+    const errors = validateMeetupForm(form, {
+      isEdit: isEdit && !replacingConfiguration, program: isProgram, isAdmin,
+    })
     if (Object.keys(errors).length) { showErrors(errors); return }
     setSubmitError('')
 
@@ -649,21 +663,25 @@ export default function useMeetupEditor({ meetup, onSubmit, isAdmin = false }) {
         : {}),
     }
 
-    const payload = isEdit ? commonPayload : {
+    const partialEdit = isEdit && !replacingConfiguration
+    const payload = partialEdit ? commonPayload : {
       ...commonPayload, recruit_mode: isGroupBuy ? 'short' : form.recruit_mode,
       category: form.category,
       ...(isProject && !isAdmin ? { creator_application: buildCreatorApplication(form) } : {}),
     }
-    let request = isProgram
-      ? pickPayload(payload, isEdit ? programEditFields : programCreateFields)
-      : pickPayload(payload, isEdit ? legacyEditFields : legacyCreateFields)
-    if (isProgram && isEdit) {
-      request = Object.fromEntries(Object.entries(request).filter(([key, value]) => {
-        if (key === 'starts_at' || key === 'ends_at') return Date.parse(value) !== Date.parse(meetup[key])
-        if (key === 'required_skill_ids') return JSON.stringify([...value].sort()) !== JSON.stringify(normalizeSkillIds(meetup.required_skill_ids).sort())
-        return value !== meetup[key]
-      }))
+    if (isEdit && isProgram && meetup?.permissions?.can_edit_configuration) {
+      payload.recruit_mode = form.recruit_mode
     }
+    let request = isProgram
+      ? pickPayload(payload, partialEdit ? programEditFields : programCreateFields)
+      : pickPayload(payload, partialEdit ? legacyEditFields : legacyCreateFields)
+    if (isProgram && partialEdit) {
+      request = getChangedProgramFields(request, {
+        ...meetup,
+        required_skill_ids: normalizeSkillIds(meetup.required_skill_ids),
+      })
+    }
+
     submitting.current = true
     try { await onSubmit(request) }
     catch (error) {
@@ -675,7 +693,7 @@ export default function useMeetupEditor({ meetup, onSubmit, isAdmin = false }) {
 
   return {
     form,
-    formRef, fieldErrors, submitError, isProgram,
+    formRef, fieldErrors, submitError, isProgram, categoryChanged,
     isEdit,
     isGroupBuy,
     isProject,

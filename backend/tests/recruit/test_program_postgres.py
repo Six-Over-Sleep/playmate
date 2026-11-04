@@ -321,10 +321,16 @@ def test_main_api_program_flow_on_postgres(postgres, service, payload, monkeypat
                 )
                 assert response.status_code == 201, response.text
                 recruit = response.json()["recruit_id"]
-                public = await client.get(f"/api/recruits/{recruit}")
+                anonymous = await client.get(f"/api/recruits/{recruit}")
+                assert anonymous.status_code == 401, anonymous.text
+                public = await client.get(
+                    f"/api/recruits/{recruit}", headers={"X-Dev-Member-ID": "3"}
+                )
                 assert public.status_code == 200, public.text
                 assert public.json()["my_application"] is None
-                assert (await client.get("/api/recruits")).json()[0][
+                assert (await client.get(
+                    "/api/recruits", headers={"X-Dev-Member-ID": "3"}
+                )).json()[0][
                     "recruit_id"
                 ] == recruit
                 response = await client.post(
@@ -341,7 +347,9 @@ def test_main_api_program_flow_on_postgres(postgres, service, payload, monkeypat
                     response.status_code == 200
                     and response.json()["application_status"] == "WAITING"
                 )
-                assert (await client.get(f"/api/recruits/{recruit}/count")).json()[
+                assert (await client.get(
+                    f"/api/recruits/{recruit}/count", headers={"X-Dev-Member-ID": "1"}
+                )).json()[
                     "waiting_count"
                 ] == 1
 
@@ -397,3 +405,201 @@ def test_issue88_regular_study_postgres_roundtrip(postgres, service, payload):
         assert detail['regular_start_date'] == (local+timedelta(days=7)).date().isoformat()
         assert detail['regular_days'] == data['regular_days']
         assert detail['participant_count'] == 1
+
+
+@pytest.fixture
+def single_connection_catalog(postgres):
+    """실제 서버와 같은 연결 1개 제한으로 기술 사전 접근을 검증한다."""
+    from backend.app.models.recruit_program import RecruitSkill
+
+    schema = postgres.get_execution_options()["schema_translate_map"][None]
+    limited = create_engine(
+        postgres.url,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=0.2,
+        execution_options={"schema_translate_map": {None: schema}},
+    )
+    try:
+        RecruitSkill.__table__.create(limited)
+        with Session(limited) as session:
+            session.add_all([
+                RecruitSkill(skill_id=701, skill_code="PYTHON", name="Python"),
+                RecruitSkill(skill_id=702, skill_code="REACT", name="React"),
+            ])
+            session.commit()
+        yield limited
+    finally:
+        limited.dispose()
+
+
+def test_catalog_reuses_checked_out_connection(single_connection_catalog):
+    """회원 조회가 연결을 점유한 뒤에도 검사·조회가 추가 연결을 요구하지 않는다."""
+    from backend.app.domain.recruit_program import PolicyError
+    from backend.app.services.recruit_skill_catalog import DatabaseSkillCatalog
+
+    with Session(single_connection_catalog) as session:
+        session.get(Member, 1)
+        catalog = DatabaseSkillCatalog(session)
+        assert {item["skill_id"] for item in catalog.options()} == {701, 702}
+        catalog.validate([701, 702])
+        assert catalog.names([701, 702]) == {"701": "Python", "702": "React"}
+        for invalid in ([999], [701, 701]):
+            with pytest.raises(PolicyError) as error:
+                catalog.validate(invalid)
+            assert error.value.status == 422
+
+
+def test_project_roundtrip_with_one_connection(single_connection_catalog, service):
+    """생성·수정 트랜잭션 안에서 기술을 검사하고 새 세션으로 저장 결과를 읽는다."""
+    from backend.app.schemas.recruit_program import ProgramEdit
+    from backend.app.services.recruit_skill_catalog import DatabaseSkillCatalog
+
+    start = service.clock() + timedelta(days=7)
+    with Session(single_connection_catalog) as session:
+        actual = ProgramService(
+            ProgramRepository(session),
+            catalog=DatabaseSkillCatalog(session),
+            clock=service.clock,
+        )
+        created = actual.create(1, ProgramCreate(
+            title="연결 제한 프로젝트", body="기술 저장 검증", category="project",
+            capacity=3, starts_at=start, ends_at=start + timedelta(days=30),
+            required_skill_ids=[701],
+            creator_application=ProgramApplication(skill_ids=[701]),
+        ))
+        recruit_id = created["recruit_id"]
+        actual.edit(recruit_id, 1, ProgramEdit(required_skill_ids=[701, 702]))
+    with Session(single_connection_catalog) as session:
+        actual = ProgramService(
+            ProgramRepository(session),
+            catalog=DatabaseSkillCatalog(session),
+            clock=service.clock,
+        )
+        detail = actual.detail(recruit_id, 1)
+        assert detail["category"] == "project"
+        assert session.get(Recruit, recruit_id).category == "project"
+        assert {item["name"] for item in detail["required_skills"]} == {"Python", "React"}
+        assert detail["my_application"]["skill_ids"] == [701]
+
+
+def test_catalog_missing_table_uses_existing_connection(postgres):
+    """스키마에 사전이 없으면 다른 스키마를 읽거나 DB 오류를 숨기지 않고 안내한다."""
+    from backend.app.domain.recruit_program import PolicyError
+    from backend.app.services.recruit_skill_catalog import DatabaseSkillCatalog
+
+    with Session(postgres) as session:
+        session.get(Member, 1)
+        with pytest.raises(PolicyError) as error:
+            DatabaseSkillCatalog(session).options()
+        assert error.value.status == 503
+
+
+@pytest.mark.parametrize("mode", ["short", "regular"])
+def test_configuration_conversion_postgres(single_connection_catalog, service, payload, mode):
+    """실제 외래키·배열·연결 1개 조건에서 종류와 정기/단기를 바꾸고 재조회한다."""
+    from backend.app.models.recruit import (
+        RecruitSportsDetail, RecruitGameDetail, RecruitGroupBuyDetail,
+    )
+    from backend.app.schemas.recruit_program import ProgramEdit
+    from backend.app.services.recruit_dispatch_service import RecruitDispatchService
+    from backend.app.services.recruit_skill_catalog import DatabaseSkillCatalog
+    from backend.tests.recruit.test_configuration_edit import category_payload, regular_fields
+
+    for model in (RecruitSportsDetail, RecruitGameDetail, RecruitGroupBuyDetail):
+        model.__table__.create(single_connection_catalog)
+    with Session(single_connection_catalog) as session:
+        actual = ProgramService(
+            ProgramRepository(session), catalog=DatabaseSkillCatalog(session),
+            clock=service.clock,
+        )
+        dispatch = RecruitDispatchService(
+            actual, True, lambda: 1, lambda: 1, lambda: 1, lambda: 1,
+        )
+        recruit_id = actual.create(1, ProgramCreate(**payload))["recruit_id"]
+        post_id = actual.repository.basic_detail(recruit_id)["post_id"]
+        session.add(PostLike(post_id=post_id, member_id=2))
+        session.commit()
+        for category in ("project", "sports", "game", "group_buy", "study"):
+            data = category_payload(payload, category)
+            if mode == "regular" and category != "group_buy":
+                data.update(regular_fields(payload["starts_at"]))
+                data.update(meeting_start=None, meeting_end=None)
+            if category == "project":
+                data["required_skill_ids"] = [701]
+                data["creator_application"]["skill_ids"] = [701]
+            dispatch.update(recruit_id, data)
+            session.expire_all()
+            assert dispatch.detail(recruit_id)["category"] == category
+            assert actual.repository.basic_detail(recruit_id)["post_id"] == post_id
+            assert session.get(PostLike, (post_id, 2)) is not None
+        actual.edit(recruit_id, 1, ProgramEdit(**regular_fields(payload["starts_at"])))
+    with Session(single_connection_catalog) as session:
+        actual = ProgramService(ProgramRepository(session), clock=service.clock)
+        detail = actual.detail(recruit_id, 1)
+        assert detail["category"] == "study"
+        assert detail["recruit_mode"] == "regular"
+        assert detail["regular_days"]
+        actual.edit(recruit_id, 1, ProgramEdit(recruit_mode="short"))
+        session.expire_all()
+        assert actual.detail(recruit_id, 1)["regular_days"] is None
+
+
+def test_category_conversion_and_join_serialize(postgres, service, payload, monkeypatch):
+    """기존 모임 신청과 프로젝트 전환이 겹쳐도 신청 조건을 우회하지 않는다."""
+    from sqlalchemy import text
+    from fastapi import HTTPException
+    from backend.app.domain.recruit_program import PolicyError
+    from backend.app.models.recruit import (
+        RecruitSportsDetail, RecruitGameDetail, RecruitGroupBuyDetail,
+    )
+    from backend.app.schemas.recruit import RecruitCreate
+    from backend.app.services import recruit as legacy, recruit_member
+    from backend.app.services.recruit_dispatch_service import RecruitDispatchService
+    from backend.tests.recruit.test_configuration_edit import category_payload
+
+    monkeypatch.setattr(
+        recruit_member, "kst_now",
+        lambda: service.clock().replace(tzinfo=None) + timedelta(hours=9),
+    )
+    for model in (RecruitSportsDetail, RecruitGameDetail, RecruitGroupBuyDetail):
+        model.__table__.create(postgres)
+    with Session(postgres) as session:
+        recruit_id = legacy.create_recruit(
+            session, RecruitCreate(**category_payload(payload, "sports")), 1
+        )["recruit_id"]
+    barrier = Barrier(2)
+
+    def run(convert):
+        with Session(postgres) as session:
+            session.execute(text("SET LOCAL lock_timeout = '3s'"))
+            actual = ProgramService(
+                ProgramRepository(session), catalog=service.catalog, clock=service.clock,
+            )
+            member = 1 if convert else 2
+            dispatch = RecruitDispatchService(
+                actual, True, lambda: member, lambda: member,
+                lambda: member, lambda: member,
+            )
+            barrier.wait(timeout=5)
+            try:
+                if convert:
+                    dispatch.update(recruit_id, category_payload(payload, "project"))
+                else:
+                    dispatch.apply(recruit_id, None)
+                return 200
+            except (PolicyError, HTTPException) as error:
+                return getattr(error, "status", None) or error.status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(run, convert) for convert in (True, False)]
+        results = [future.result(timeout=10) for future in futures]
+    assert all(status in {200, 400, 409, 422} for status in results)
+    with Session(postgres) as session:
+        recruit = session.get(Recruit, recruit_id)
+        if recruit.category == "project":
+            member = session.get(RecruitMember, (recruit_id, 2))
+            assert member is None or member.status != "JOINED"
+        else:
+            assert recruit.category == "sports"
+            assert session.get(RecruitMember, (recruit_id, 2)).status == "JOINED"

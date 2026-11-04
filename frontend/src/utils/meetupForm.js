@@ -82,8 +82,39 @@ export function validateMeetupForm(form, { isEdit = false, program = true, isAdm
 export function pickPayload(payload, fields) {
   return Object.fromEntries(fields.filter((key) => key in payload).map((key) => [key, payload[key]]))
 }
+
+export function getChangedProgramFields(payload, original) {
+  // API의 19:00:00과 입력창의 19:00은 같은 시간이다.
+  // 제목만 고쳤을 때 일정을 다시 저장하거나 일정 버전을 올리지 않는다.
+  const timeValue = (value) => value?.length === 5 ? `${value}:00` : value
+  const scheduleFields = [
+    'recruit_mode', 'regular_days', 'regular_time',
+    'regular_start_date', 'meeting_start', 'meeting_end',
+  ]
+  return Object.fromEntries(Object.entries(payload).filter(([key, value]) => {
+    if (scheduleFields.includes(key) && !original.permissions?.can_edit_configuration) {
+      return false
+    }
+    if (['starts_at', 'ends_at', 'meeting_start', 'meeting_end'].includes(key)) {
+      return value == null
+        ? original[key] != null
+        : Date.parse(value) !== Date.parse(original[key])
+    }
+    if (key === 'regular_time') return timeValue(value) !== timeValue(original[key])
+    if (key === 'regular_days') return JSON.stringify(value) !== JSON.stringify(original[key])
+    if (key === 'required_skill_ids') {
+      return JSON.stringify([...value].sort()) !==
+        JSON.stringify([...(original.required_skill_ids || [])].sort())
+    }
+    return value !== original[key]
+  }))
+}
 export const programCreateFields = ['title','body','category','recruit_mode','capacity','starts_at','ends_at','meeting_start','meeting_end','regular_days','regular_time','regular_start_date','deadline_at','required_skill_ids','creator_application','study_type','difficulty','study_topic','study_period','study_method','place','is_online','contact_method']
-export const programEditFields = ['title','body','contact_method','capacity','starts_at','ends_at','required_skill_ids']
+export const programEditFields = [
+  'title', 'body', 'contact_method', 'capacity', 'starts_at', 'ends_at',
+  'required_skill_ids', 'recruit_mode', 'regular_days', 'regular_time',
+  'regular_start_date', 'meeting_start', 'meeting_end',
+]
 export const legacyEditFields = ['title','body','capacity','regular_days','regular_time','regular_start_date','meeting_start','meeting_end','deadline_at','place','is_online','sport_name','game_name','study_topic','study_period','study_method','product_name','purchase_url','estimated_price_per_person','pickup_method']
 
 export const legacyCreateFields = [...legacyEditFields, 'category', 'recruit_mode', 'contact_method']

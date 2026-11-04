@@ -53,7 +53,7 @@ export default function MeetupPage({
         <button
           type="button"
           className="meetup-write-button"
-          onClick={onWrite}
+          onClick={() => onWrite?.(category)}
         >
           + 모임 만들기
         </button>

@@ -9,6 +9,7 @@ from backend.app.schemas.recruit_program import (
 )
 from backend.app.services import recruit as legacy
 from backend.app.services import recruit_member as legacy_members
+from backend.app.services.recruit_configuration_service import RecruitConfigurationService
 
 
 class RecruitDispatchService:
@@ -53,29 +54,40 @@ class RecruitDispatchService:
         if self.is_program(recruit_id):
             self.require_enabled()
             return self.programs.detail(recruit_id, self.optional_member())
-        return legacy.get_recruit(self.db, recruit_id, self.legacy_optional_member())
+        member = self.legacy_optional_member()
+        result = legacy.get_recruit(self.db, recruit_id, member)
+        result["can_edit_configuration"] = RecruitConfigurationService(self.programs).allowed(
+            recruit_id, member
+        )
+        return result
 
     def list(self, category=None):
         """기존 목록 순서와 배열을 유지하고 신규 행만 확장 응답으로 바꾼다."""
         if category not in {None, "project", "study", "sports", "game", "group_buy"}:
             raise PolicyError("지원하지 않는 모임 종류입니다.", 422)
-        records = legacy.get_recruits(self.db, category)
         if not self.enabled:
+            records = legacy.get_recruits(self.db, category)
             program_ids = self.repository.program_ids()
             return [item for item in records if item["recruit_id"] not in program_ids]
-        self.require_enabled()
-        if category not in {None, "project", "study"} or not records:
-            return records
-        programs = {
-            item["recruit_id"]: item
-            for item in self.programs.list(
-                self.optional_member(), category, base_rows=records
-            )
-        }
-        return [programs.get(item["recruit_id"], item) for item in records]
+        if category not in {None, "project", "study"}:
+            return legacy.get_recruits(self.db, category)
+        return self.programs.mixed_list(self.optional_member(), category)
 
     def update(self, recruit_id, changes):
-        if self.is_program(recruit_id):
+        is_program = self.is_program(recruit_id)
+        if {"category", "recruit_mode"}.intersection(changes):
+            current = self.repository.basic_detail(recruit_id)
+            category_changed = changes.get("category", current["category"]) != current["category"]
+            legacy_mode_changed = (
+                not is_program
+                and changes.get("recruit_mode", current["recruit_mode"]) != current["recruit_mode"]
+            )
+            if category_changed or legacy_mode_changed:
+                self.require_enabled()
+                return RecruitConfigurationService(self.programs).change(
+                    recruit_id, self.current_member(), changes
+                )
+        if is_program:
             self.require_enabled()
             return self.programs.edit(
                 recruit_id, self.current_member(), ProgramEdit.model_validate(changes)
@@ -115,7 +127,12 @@ class RecruitDispatchService:
             raise PolicyError("기존 모임은 프로젝트 신청서를 받지 않습니다.", 422)
         member_id = self.current_member()
         self.repository.actor(member_id)
-        return legacy_members.join_recruit(self.db, recruit_id, member_id)
+        recruit = self.repository.lock_recruit(recruit_id)
+        if self.is_program(recruit_id):
+            raise PolicyError("모임 종류가 변경되었습니다. 새로고침 후 다시 신청해주세요.")
+        return legacy_members.join_recruit(
+            self.db, recruit_id, member_id, locked_recruit=recruit
+        )
 
     def cancel_application(self, recruit_id):
         if self.is_program(recruit_id):
@@ -123,6 +140,9 @@ class RecruitDispatchService:
             return self.programs.cancel_application(recruit_id, self.current_member())
         member_id = self.current_member()
         self.repository.actor(member_id)
+        self.repository.lock_recruit(recruit_id)
+        if self.is_program(recruit_id):
+            raise PolicyError("모임 종류가 변경되었습니다. 새로고침 후 다시 시도해주세요.")
         return legacy_members.cancel_join(self.db, recruit_id, member_id)
 
     def members(self, recruit_id):

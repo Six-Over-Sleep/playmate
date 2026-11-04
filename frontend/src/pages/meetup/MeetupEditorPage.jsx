@@ -22,6 +22,7 @@ function getSkillName(skill) {
 // 모임 생성·수정 입력 화면
 export default function MeetupEditorPage({
   meetup = null,
+  initialCategory = 'study',
   isAdmin = false,
   busy,
   onBack,
@@ -29,6 +30,8 @@ export default function MeetupEditorPage({
 
 }) {
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10)
+  const configurationLocked = Boolean(meetup) &&
+    (meetup?.permissions?.can_edit_configuration ?? meetup?.can_edit_configuration) !== true
   const [skillOptions, setSkillOptions] = useState([])
   const [skillStatus, setSkillStatus] = useState('loading')
   const [skillAttempt, setSkillAttempt] = useState(0)
@@ -46,7 +49,7 @@ export default function MeetupEditorPage({
   // 편집 훅의 폼 상태와 이벤트 연결
   const {
     form,
-    formRef, fieldErrors, submitError, dismissSubmitError, isProgram,
+    formRef, fieldErrors, submitError, dismissSubmitError, isProgram, categoryChanged,
     isEdit,
     isGroupBuy,
     isProject,
@@ -74,6 +77,7 @@ export default function MeetupEditorPage({
     submit,
   } = useMeetupEditor({
     meetup,
+    initialCategory,
     onSubmit,
     isAdmin,
   })
@@ -100,6 +104,12 @@ export default function MeetupEditorPage({
       >
         {isEdit && isProgram && <p className="meetup-type-help">제목·소개·인원·전체 일정·필수 기술을 수정할 수 있어요. 다른 멤버가 신청한 뒤에는 인원·일정·기술 변경이 제한돼요.</p>}
         <MeetupNotice message={submitError} error onClose={dismissSubmitError} />
+        {categoryChanged && (
+          <p className="meetup-type-help">
+            종류를 바꾸면 이전 종류의 기술 배정·커리큘럼·전용 입력 정보가 정리됩니다.
+            새 종류에 필요한 정보를 입력해주세요. 댓글·좋아요·스크랩은 유지됩니다.
+          </p>
+        )}
         <fieldset disabled={busy} className="meetup-form-fields">
         <div className="meetup-form-section">
           <div className="meetup-field-title">
@@ -113,10 +123,10 @@ export default function MeetupEditorPage({
                 type="button"
                 className={form.category === option.value ? 'active' : ''}
                 onClick={() => setCategory(option.value)}
-                disabled={isEdit}
+                disabled={configurationLocked}
                 title={
-                  isEdit
-                    ? '모임 카테고리는 생성 후 변경할 수 없어요.'
+                  configurationLocked
+                    ? '다른 사람의 신청 이력이 없고 모집 마감 전일 때만 변경할 수 있어요.'
                     : undefined
                 }
               >
@@ -138,9 +148,9 @@ export default function MeetupEditorPage({
                 !isGroupBuy && form.recruit_mode === 'regular' ? 'active' : ''
               }
               onClick={() => setRecruitMode('regular')}
-              disabled={isEdit || isGroupBuy}
+              disabled={configurationLocked || isGroupBuy}
               title={
-                isEdit ? '모임 형태는 생성 후 변경할 수 없어요.' : undefined
+                configurationLocked ? '다른 사람의 신청 이력이 없고 모집 마감 전일 때만 변경할 수 있어요.' : undefined
               }
             >
               정기 모임
@@ -152,9 +162,9 @@ export default function MeetupEditorPage({
                 !isGroupBuy && form.recruit_mode === 'short' ? 'active' : ''
               }
               onClick={() => setRecruitMode('short')}
-              disabled={isEdit || isGroupBuy}
+              disabled={configurationLocked || isGroupBuy}
               title={
-                isEdit ? '모임 형태는 생성 후 변경할 수 없어요.' : undefined
+                configurationLocked ? '다른 사람의 신청 이력이 없고 모집 마감 전일 때만 변경할 수 있어요.' : undefined
               }
             >
               단기 모임
@@ -163,8 +173,8 @@ export default function MeetupEditorPage({
 
           {!isGroupBuy && (
             <p className="meetup-type-help">
-              {isEdit
-                ? '모임 형태는 생성 후 변경할 수 없어요.'
+              {configurationLocked
+                ? '다른 사람의 신청 이력이 없고 모집 마감 전일 때만 변경할 수 있어요.'
                 : form.recruit_mode === 'regular'
                   ? '반복적으로 진행되는 모임이에요.'
                   : '특정 날짜에 진행되는 모임이에요.'}
@@ -262,7 +272,7 @@ export default function MeetupEditorPage({
               <button
                 type="button"
                 className={!form.is_online ? 'active' : ''}
-                disabled={isEdit && isProgram}
+                disabled={isEdit && isProgram && !categoryChanged}
                 onClick={() => setPlaceType(false)}
               >
                 오프라인
@@ -271,7 +281,7 @@ export default function MeetupEditorPage({
               <button
                 type="button"
                 className={form.is_online ? 'active' : ''}
-                disabled={isEdit && isProgram}
+                disabled={isEdit && isProgram && !categoryChanged}
                 onClick={() => setPlaceType(true)}
               >
                 온라인
@@ -291,7 +301,7 @@ export default function MeetupEditorPage({
               <input
                 name="place"
                 aria-label="오프라인 모임 장소"
-              disabled={isEdit && isProgram}
+              disabled={isEdit && isProgram && !categoryChanged}
               aria-invalid={Boolean(fieldErrors.place)}
               aria-describedby={fieldErrors.place ? "error-place" : undefined}
                 value={form.place}
@@ -310,7 +320,7 @@ export default function MeetupEditorPage({
               <button
                 type="button"
                 className="meetup-place-search-button"
-                disabled={isEdit && isProgram}
+                disabled={isEdit && isProgram && !categoryChanged}
                 onClick={searchPlace}
               >
                 장소 검색
@@ -390,7 +400,7 @@ export default function MeetupEditorPage({
                     key={day}
                     type="button"
                     className={form.regular_days.includes(day) ? 'active' : ''}
-                    disabled={isEdit && isProgram}
+                    disabled={configurationLocked && isProgram}
                     onClick={() => toggleRegularDay(day)}
                   >
                     {day}
@@ -535,8 +545,8 @@ export default function MeetupEditorPage({
             </div>
 
             {fieldErrors.required_skill_ids && <small id="error-required_skill_ids" className="meetup-field-error">{fieldErrors.required_skill_ids}</small>}
-            {isEdit && <p className="meetup-type-help">내가 맡은 기술: {skillOptions.filter((skill) => form.creator_skill_ids.includes(getSkillId(skill))).map(getSkillName).join(' · ') || '담당 정보 없음'}</p>}
-            {!isEdit && !isAdmin && (
+            {isEdit && !categoryChanged && <p className="meetup-type-help">내가 맡은 기술: {skillOptions.filter((skill) => form.creator_skill_ids.includes(getSkillId(skill))).map(getSkillName).join(' · ') || '담당 정보 없음'}</p>}
+            {(!isEdit || categoryChanged) && !isAdmin && (
               <>
                 <div className="meetup-field">
                   <span>
@@ -667,7 +677,7 @@ export default function MeetupEditorPage({
 
                 <select
                   name="study_type"
-              disabled={isEdit && isProgram}
+              disabled={isEdit && isProgram && !categoryChanged}
               aria-invalid={Boolean(fieldErrors.study_type)}
               aria-describedby={fieldErrors.study_type ? "error-study_type" : undefined}
                   value={form.study_type ?? 'TECHNOLOGY'}
@@ -688,7 +698,7 @@ export default function MeetupEditorPage({
 
                   <select
                     name="difficulty"
-              disabled={isEdit && isProgram}
+              disabled={isEdit && isProgram && !categoryChanged}
               aria-invalid={Boolean(fieldErrors.difficulty)}
               aria-describedby={fieldErrors.difficulty ? "error-difficulty" : undefined}
                     value={form.difficulty ?? 'BEGINNER'}
@@ -721,7 +731,7 @@ export default function MeetupEditorPage({
 
                 <input
                   name="study_topic"
-              disabled={isEdit && isProgram}
+              disabled={isEdit && isProgram && !categoryChanged}
               aria-invalid={Boolean(fieldErrors.study_topic)}
               aria-describedby={fieldErrors.study_topic ? "error-study_topic" : undefined}
                   value={form.study_topic ?? ''}
@@ -741,7 +751,7 @@ export default function MeetupEditorPage({
 
                 <input
                   name="study_period"
-              disabled={isEdit && isProgram}
+              disabled={isEdit && isProgram && !categoryChanged}
               aria-invalid={Boolean(fieldErrors.study_period)}
               aria-describedby={fieldErrors.study_period ? "error-study_period" : undefined}
                   value={form.study_period ?? ''}
@@ -757,7 +767,7 @@ export default function MeetupEditorPage({
 
               <input
                 name="study_method"
-              disabled={isEdit && isProgram}
+              disabled={isEdit && isProgram && !categoryChanged}
               aria-invalid={Boolean(fieldErrors.study_method)}
               aria-describedby={fieldErrors.study_method ? "error-study_method" : undefined}
                 value={form.study_method ?? ''}

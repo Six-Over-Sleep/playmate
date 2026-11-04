@@ -69,6 +69,50 @@ def test_list_reuses_like_count_and_loads_no_career_or_other_waiters(service, pa
     assert "비공개 자료" not in str(own)
 
 
+def test_program_list_projection_uses_one_query(service, payload):
+    """신청·반응·이용 제한 정보를 별도로 다시 읽지 않는다."""
+    recruit = service.create(1, ProgramCreate(**payload))["recruit_id"]
+    service.apply(recruit, 2, ProgramApplication())
+    service.apply(recruit, 3, ProgramApplication())
+    base = legacy.get_recruits(service.repository.session)
+    with statements(service) as captured:
+        records = service.repository.list_programs(base, 3)
+    assert len(captured) == 1
+    assert "direct_input" not in captured[0]
+    program, _, _, counts = records[0]
+    assert [item.member_id for item in program.applications] == [1, 2, 3]
+    assert counts["waiting_count"] == 1
+    assert counts["eligibility"]["is_restricted"] is False
+
+
+def test_dispatch_list_uses_one_sql_including_member_check(service, payload):
+    """실제 목록 진입점에서 테이블 검사·회원·반응 조회가 추가되지 않는다."""
+    service.create(1, ProgramCreate(**payload))
+    fresh = type(service)(
+        type(service.repository)(service.repository.session),
+        catalog=service.catalog, clock=service.clock,
+    )
+    dispatch = RecruitDispatchService(
+        fresh, True, lambda: 1, lambda: 1, lambda: 1, lambda: 1,
+    )
+    with statements(service) as captured:
+        result = dispatch.list()
+    assert len(captured) == 1
+    assert result[0]["category"] == "study"
+
+
+def test_empty_list_still_validates_member_in_one_sql(service):
+    from backend.app.domain.recruit_program import PolicyError
+    import pytest
+
+    with statements(service) as captured:
+        assert service.mixed_list(1) == []
+    assert len(captured) == 1
+    with pytest.raises(PolicyError) as error:
+        service.mixed_list(999)
+    assert error.value.status == 403
+
+
 def test_flush_count_does_not_grow_with_cancelled_history(
     service, payload, monkeypatch
 ):

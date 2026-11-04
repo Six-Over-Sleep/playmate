@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { meetupApi } from '../../services/meetupApi'
 import { meetupErrorMessage } from '../../utils/meetupForm'
 import { normalizeMemberCount } from '../../utils/meetup'
+import { createMeetupRequestGate } from '../../utils/meetupRequest'
 
 
 // =========================================================
@@ -150,6 +151,10 @@ export default function useMeetups({
 
   // 댓글 상태 유지
   const [comments, setComments] = useState([])
+  const [commentsLoading, setCommentsLoading] = useState(false)
+  const [listRequests] = useState(createMeetupRequestGate)
+  const memberRef = useRef(currentMemberId)
+  memberRef.current = currentMemberId
 
   // 현재 회원의 모임 참여 여부
   const [joined, setJoined] = useState(false)
@@ -162,17 +167,22 @@ export default function useMeetups({
   // 1. 모임 목록 조회
   // =========================================================
 
-  const loadMeetups = async () => {
+  const loadMeetups = async ({ force = false } = {}) => {
+    const member = currentMemberId
+    const request = listRequests.get(member, () => meetupApi.list(), { force })
+    const isCurrent = () => request.isCurrent() && memberRef.current === member
     setLoading(true)
 
     try {
-      const data = await meetupApi.list()
+      const data = await request.promise
+      if (!isCurrent()) return
 
       setMeetups(
         Array.isArray(data) ? data : [],
       )
 
     } catch (err) {
+      if (!isCurrent()) return
       console.error(err)
 
       setError(
@@ -183,7 +193,7 @@ export default function useMeetups({
       )
 
     } finally {
-      setLoading(false)
+      if (isCurrent()) setLoading(false)
     }
   }
 
@@ -207,6 +217,7 @@ export default function useMeetups({
     setMembers([])
     setMemberCount(0)
     setComments([])
+    setCommentsLoading(false)
 
     setJoined(false)
 
@@ -322,9 +333,11 @@ export default function useMeetups({
 
     // 이전 상세 요청이 진행 중이면 실제 네트워크 요청도 취소한다.
     detailAbortController.current?.abort()
+    setCommentsLoading(false)
 
     const controller = new AbortController()
     detailAbortController.current = controller
+    let commentTask = null
 
     if (showLoading) {
       setDetailLoading(true)
@@ -353,16 +366,26 @@ export default function useMeetups({
         return null
       }
 
-      let commentData = []
-      try {
-        commentData = await meetupApi.comments(recruitId, { signal: controller.signal })
-      } catch (error) {
-        if (error.name === 'AbortError') throw error
-        if (requestId === detailRequest.current) setError('댓글을 불러오지 못했어요. 모임 정보는 계속 확인할 수 있어요.')
-      }
-      if (requestId !== detailRequest.current) return null
-      setComments(Array.isArray(commentData) ? commentData : [])
+      // 상세는 먼저 표시하고 댓글은 별도로 갱신한다. 이전 모임의 늦은 응답은 무시한다.
       setSelectedMeetup(detail)
+      setCommentsLoading(true)
+      commentTask = meetupApi.comments(recruitId, { signal: controller.signal })
+        .then((data) => {
+          if (requestId === detailRequest.current) {
+            setComments(Array.isArray(data) ? data : [])
+          }
+        })
+        .catch((error) => {
+          if (error.name !== 'AbortError' && requestId === detailRequest.current) {
+            setError('댓글을 불러오지 못했어요. 모임 정보는 계속 확인할 수 있어요.')
+          }
+        })
+        .finally(() => {
+          if (requestId === detailRequest.current) setCommentsLoading(false)
+          if (detailAbortController.current === controller) {
+            detailAbortController.current = null
+          }
+        })
       return detail
     } catch (err) {
       if (err?.name === 'AbortError') {
@@ -372,7 +395,7 @@ export default function useMeetups({
       throw err
     } finally {
       if (
-        detailAbortController.current === controller
+        !commentTask && detailAbortController.current === controller
       ) {
         detailAbortController.current = null
       }
@@ -397,7 +420,7 @@ export default function useMeetups({
     message,
   ) => {
     await refreshDetail(recruitId)
-    await loadMeetups()
+    await loadMeetups({ force: true })
 
     if (message) {
       setActionMessage(message)
@@ -428,6 +451,7 @@ export default function useMeetups({
     setMembers([])
     setMemberCount(0)
     setComments([])
+    setCommentsLoading(false)
     setJoined(false)
     setView('list')
 
@@ -480,6 +504,7 @@ export default function useMeetups({
     setMembers([])
     setMemberCount(0)
     setComments([])
+    setCommentsLoading(false)
 
     setJoined(false)
 
@@ -550,6 +575,7 @@ export default function useMeetups({
     setMembers([])
     setMemberCount(0)
     setComments([])
+    setCommentsLoading(false)
 
     setJoined(false)
 
@@ -579,6 +605,7 @@ export default function useMeetups({
     setMembers([])
     setMemberCount(0)
     setComments([])
+    setCommentsLoading(false)
 
     setJoined(false)
 
@@ -655,7 +682,7 @@ export default function useMeetups({
 
       setActionMessage('모임이 만들어졌어요.')
       // 생성 후 목록 갱신
-      await loadMeetups()
+      await loadMeetups({ force: true })
 
       if (created?.recruit_id) {
         const detail = await refreshDetail(
@@ -727,7 +754,7 @@ export default function useMeetups({
       )
 
       // 모임 목록도 갱신
-      await loadMeetups()
+      await loadMeetups({ force: true })
 
       setView('detail')
       setActionMessage('모임을 수정했어요.')
@@ -782,11 +809,12 @@ export default function useMeetups({
       setMembers([])
       setMemberCount(0)
       setComments([])
+    setCommentsLoading(false)
 
       setJoined(false)
 
       // 목록 새로고침
-      await loadMeetups()
+      await loadMeetups({ force: true })
 
       setView('list')
 
@@ -964,7 +992,7 @@ export default function useMeetups({
         selectedMeetup.recruit_id,
       )
 
-      await loadMeetups()
+      await loadMeetups({ force: true })
 
       if (join) {
         const resultStatus = String(
@@ -1381,6 +1409,7 @@ export default function useMeetups({
 
     // 댓글
     comments,
+    commentsLoading,
 
     // 메시지
     error,

@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 # RecruitMember : 모임 참여 회원 정보를 저장하는 ORM 모델
-from backend.app.models.recruit import RecruitMember
+from backend.app.models.recruit import Recruit, RecruitMember
 
 # recruit_repo : 모임·참여자 조회 및 등록을 담당하는 Repository
 from backend.app.repositories import recruit as recruit_repo
@@ -70,6 +70,8 @@ def join_recruit(
     db: Session,
     recruit_id: int,
     member_id: int,
+    *,
+    locked_recruit: Recruit | None = None,
 ) -> dict[str, str]:
     """모임 행을 잠근 뒤 참여 가능 여부를 확인하고 회원 참여를 저장함.
 
@@ -88,10 +90,10 @@ def join_recruit(
         # 모임 행을 잠그고 조회함.
         # 이 트랜잭션이 끝날 때까지 동일 모임에 대한
         # 다른 참여 요청은 대기함.
-        recruit = recruit_repo.get_recruit_for_update(
-            db,
-            recruit_id,
-        )
+        # Dispatch가 종류 전환과의 경합 검사를 위해 이미 잠갔다면 재조회하지 않는다.
+        recruit = locked_recruit
+        if recruit is None:
+            recruit = recruit_repo.get_recruit_for_update(db, recruit_id)
 
         # 모임이 존재하지 않거나 모집 상태가 OPEN이 아니면 참여 불가
         if recruit is None or recruit.state != "OPEN":

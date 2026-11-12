@@ -27,14 +27,15 @@ from discord.ext import tasks
 from config import (
     CHANNEL_PROVISION_BATCH_LIMIT,
     DEFAULT_VISIBILITY,
-    DISCORD_LOCK_HOLD_SECONDS,
+    DISCORD_CALL_TIMEOUT_SECONDS,
     GUILD_ID,
     KST,
+    SYNC_BACKOFF_BASE_SECONDS,
+    SYNC_BACKOFF_MAX_SECONDS,
     SYNC_INTERVAL_SECONDS,
+    SYNC_MAX_CHANGES_PER_POLL,
 )
 from repositories.meeting_repository import (
-    GuardRejected,
-    MeetingLockUnavailable,
     ProvisioningRejected,
     ProvisioningUnconfirmed,
     call,
@@ -46,8 +47,10 @@ from services.meeting_space import (
     delete_meeting_channel,
     resolve_channel,
 )
+from logging_setup import mask_id
 from services.official_channels import PROTECTED_CHANNEL_IDS
 from services.permissions import (
+    ChannelUnresolved,
     grant_participant_permissions,
     remove_participant_permissions,
 )
@@ -114,7 +117,8 @@ class DbSync:
         self.client = client
         self.repository = repository
         self.visibility = visibility  # TODO: Backend가 모임별 값을 저장하면 그 값으로 교체
-        self._skip_until: dict[tuple[int, int], datetime] = {}
+        # (채널, 회원, 목표 상태) -> (연속 실패 횟수, 다시 시도해도 되는 시각). 채널 조회 실패는 (채널, None, None).
+        self._failures: dict[tuple, tuple[int, datetime]] = {}
 
     # -- 1. 모집 마감된 모임 -> Discord 채널 -------------------------------
     async def provision_meetings(self, guild: discord.Guild) -> None:
@@ -206,62 +210,107 @@ class DbSync:
             print(f"[Discord 동기화] 실패 상태 저장 불가 recruit_id={recruit_id}: {error!r}")
 
     # -- 2. 참여자 권한 ----------------------------------------
+    def _blocked(self, key, now: datetime) -> bool:
+        """이전 실패 때문에 아직 다시 시도하면 안 되는 키인지."""
+        entry = self._failures.get(key)
+        return entry is not None and entry[1] > now
+
+    def _note_sync_failure(self, key, now: datetime, label: str, error) -> None:
+        """실패를 기록하고 다음 재시도 시각을 정한다: 30초 -> 60초 -> 120초 -> 240초 -> 최대 300초."""
+        count = self._failures.get(key, (0, now))[0] + 1
+        delay = min(SYNC_BACKOFF_BASE_SECONDS * 2 ** (count - 1), SYNC_BACKOFF_MAX_SECONDS)
+        self._failures[key] = (count, now + timedelta(seconds=delay))
+        status = getattr(error, "status", None)
+        http = "" if status is None else f"(HTTP {status})"
+        print(
+            f"[Discord 동기화] 권한 변경 실패 {label} 연속 {count}회 "
+            f"{type(error).__name__}{http} → {delay}초 후 재시도"
+        )
+
     async def sync_participants(self, guild: discord.Guild) -> None:
         """JOINED 참여자에게 권한을 주고 CANCELED 참여자의 권한을 회수한다.
 
         채널은 캐시나 카테고리가 아니라 저장된 채널 ID로 찾는다. 이미 목표 상태면 건너뛰고,
-        채널 조회가 불명확하면 완료로 보지 않고 다음 poll에 다시 시도한다.
-        변경은 recruits 행 락(FOR SHARE) 안에서 DISCORD_LOCK_HOLD_SECONDS 안에만 한다:
-        그동안 Backend의 모임 방식 변경은 대기하고, 이미 대상이 아니면 GuardRejected로 시작하지 않는다.
+        채널 조회가 불명확하면 완료로 보지 않고 backoff 뒤에 다시 시도한다.
+
+        Discord API를 부르는 동안 DB 락이나 전용 연결을 잡지 않는다. 대상 모임과 참여 상태는
+        list_participant_states가 이미 걸러 주고, 변경 직전에 공유 연결로 최신 참여 상태를 한 번 더
+        읽어(participant_status) 그사이 취소/삭제된 경우는 쓰지 않는다. 그래도 남는 짧은 경쟁(읽은 직후
+        취소)은 다음 poll이 같은 규칙으로 다시 맞춘다 (권한 변경은 멱등).
+
+        실패는 (채널, 회원, 목표 상태)별로 지수 backoff하므로, 한 회원의 실패가 다른 회원을 막지 않고
+        영구적인 오류(403 등)도 재시도가 몰리지 않는다. 한 poll에서 처리하는 변경 수에는 상한이 있다.
         """
         now = datetime.now(KST)
         by_channel: dict[int, list[dict]] = {}
         for state in await call(self.repository.list_participant_states):
             by_channel.setdefault(state["channel_id"], []).append(state)
 
-        for channel_id, states in by_channel.items():
-            channel_state, channel = await resolve_channel(guild, channel_id)
-            if channel_state == "gone":
-                continue  # 채널이 없어졌다: lifecycle이 삭제 완료로 기록한다
-            if channel_state == "unknown":
-                print(f"[Discord 동기화] 채널 조회가 불명확해 이번 poll은 건너뜀 channel_id={channel_id}")
-                continue
-            for state in states:
-                discord_id = state["discord_id"]
-                key = (channel_id, discord_id)
-                if self._skip_until.get(key, now) > now:
+        live_keys: set = set()
+        attempts = deferred = 0
+        # 채널 조회는 poll당 한 번만 한다 (회수/부여 두 단계에서 같은 결과를 쓴다).
+        resolved: dict[int, tuple[str, object]] = {}
+        # 회수(CANCELED)를 부여(JOINED)보다 먼저 처리한다: 한 poll의 상한에 걸려도 취소한 회원의 쓰기 권한이
+        # 새 참여자 부여 뒤로 밀리지 않게 한다.
+        for wanted in ("CANCELED", "JOINED"):
+            for channel_id, states in by_channel.items():
+                channel_key = (channel_id, None, None)
+                live_keys.add(channel_key)
+                if self._blocked(channel_key, now):
                     continue
-                if state["status"] == "JOINED":
-                    needs_change = not _joined_ok(channel, discord_id)
-                else:
-                    needs_change = not _revoked_ok(channel, discord_id, self.visibility)
-                if not needs_change:
-                    continue
-                recruit_id = state["recruit_id"]
-                try:
-                    # recruits 행에 FOR SHARE 락을 잡고 Discord 변경이 끝날 때까지 유지한다.
-                    async with self.repository.meeting_lock(recruit_id):
+                if channel_id not in resolved:
+                    resolved[channel_id] = await resolve_channel(guild, channel_id)
+                    if resolved[channel_id][0] == "unknown":
+                        self._note_sync_failure(channel_key, now, f"channel_id={channel_id} 채널 조회 불명확",
+                                                ChannelUnresolved("unknown"))
+                    elif resolved[channel_id][0] == "present":
+                        self._failures.pop(channel_key, None)
+                channel_state, channel = resolved[channel_id]
+                if channel_state != "present":
+                    continue  # gone: lifecycle이 삭제 완료로 기록한다 / unknown: 위에서 backoff 기록
+                for state in states:
+                    if state["status"] != wanted:
+                        continue
+                    discord_id = state["discord_id"]
+                    key = (channel_id, discord_id, state["status"])
+                    live_keys.add(key)
+                    if self._blocked(key, now):
+                        continue
+                    if state["status"] == "JOINED":
+                        needs_change = not _joined_ok(channel, discord_id)
+                    else:
+                        needs_change = not _revoked_ok(channel, discord_id, self.visibility)
+                    if not needs_change:
+                        self._failures.pop(key, None)
+                        continue
+                    if attempts >= SYNC_MAX_CHANGES_PER_POLL:
+                        deferred += 1  # 실패가 아니므로 backoff 없이 다음 poll에서 처리한다
+                        continue
+                    attempts += 1
+                    recruit_id = state["recruit_id"]
+                    label = f"recruit_id={recruit_id} channel_id={channel_id} member={mask_id(discord_id)}"
+                    try:
+                        current = await call(self.repository.participant_status, recruit_id, discord_id)
+                        if current != state["status"]:
+                            print(f"[Discord 동기화] 그사이 참여 상태가 바뀌었거나 대상이 아니어서 건너뜀 {label}")
+                            continue
                         if state["status"] == "JOINED":
                             work = grant_participant_permissions(guild, channel_id, discord_id)
                         else:
-                            work = remove_participant_permissions(
-                                guild, channel_id, discord_id, self.visibility
-                            )
-                        ok = await asyncio.wait_for(work, DISCORD_LOCK_HOLD_SECONDS)
-                except GuardRejected:
-                    print(f"[Discord 동기화] 대상 모임이 아니거나 삭제됨, 권한 변경 안 함 {key}")
-                    continue
-                except MeetingLockUnavailable:
-                    print(f"[Discord 동기화] recruits 행 잠금 대기 초과, 다음 poll에 재시도 {key}")
-                    continue
-                except Exception as error:
-                    # 다음 poll에서 다시 확인한다.
-                    print(f"[Discord 동기화] 권한 변경 실패 {key}: {error!r}")
-                    continue
-                if ok:
-                    self._skip_until.pop(key, None)
-                else:  # 서버에 없는 참여자: 잠시 다시 조회하지 않는다
-                    self._skip_until[key] = now + MISSING_MEMBER_BACKOFF
+                            work = remove_participant_permissions(guild, channel_id, discord_id, self.visibility)
+                        ok = await asyncio.wait_for(work, DISCORD_CALL_TIMEOUT_SECONDS)
+                    except Exception as error:
+                        self._note_sync_failure(key, now, label, error)
+                        continue
+                    if ok:
+                        self._failures.pop(key, None)
+                    else:  # 서버에 없는 참여자: 잠시 다시 조회하지 않는다
+                        self._failures[key] = (0, now + MISSING_MEMBER_BACKOFF)
+        if deferred:
+            print(f"[Discord 동기화] 한 번에 {SYNC_MAX_CHANGES_PER_POLL}건까지만 처리, 남은 {deferred}건은 다음 poll에서 처리")
+        # 더 이상 대상이 아닌 키의 실패 기록은 지운다 (참여 상태가 바뀌었거나 모임/채널이 사라진 경우).
+        for key in [k for k in self._failures if k not in live_keys]:
+            del self._failures[key]
 
     # -- 한 번의 동기화 ---------------------------------------------------------------
     async def run_once(self) -> None:

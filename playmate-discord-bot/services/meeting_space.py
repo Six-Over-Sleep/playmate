@@ -6,6 +6,7 @@
 import discord
 
 from config import MEETING_CATEGORY_CHANNEL_LIMIT, MEETING_CATEGORY_NAME
+from logging_setup import mask_id
 
 # 참여자 권한 (텍스트 채널). db_sync가 목표 상태를 확인할 때도 같은 세트를 쓴다.
 # HOST도 일반 참여자와 같다. 채널 구조를 바꾸는 권한(manage_channels 등)은 누구에게도 주지 않는다.
@@ -79,10 +80,10 @@ async def create_meeting_channel(
         try:
             member = await guild.fetch_member(participant_id)
         except discord.NotFound:
-            print(f'참여자를 찾을 수 없음: {participant_id}')
+            print(f'참여자를 찾을 수 없음: {mask_id(participant_id)}')
             continue
         except discord.Forbidden:
-            print(f'참여자 조회 권한 없음: {participant_id}')
+            print(f'참여자 조회 권한 없음: {mask_id(participant_id)}')
             continue
         overwrites[member] = participant_overwrite()
     category = await ensure_meeting_category(guild)

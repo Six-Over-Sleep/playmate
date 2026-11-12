@@ -18,6 +18,7 @@ from config import (
     TEST_MODE,
     TOKEN,
 )
+from logging_setup import setup_file_logging
 from handlers.message_handler import handle_message
 from handlers.notification_command_handler import build_notification_command
 from handlers.promotion_command_handler import build_promotion_command
@@ -37,6 +38,9 @@ from services.hot_content_service import HotContentService
 from services.lifecycle import create_lifecycle_task
 from services.notification_service import NotificationService, create_notification_task
 from services.official_channels import ensure_official_channels
+
+if __name__ == "__main__":
+    setup_file_logging()  # 봇이 종료된 뒤에도 장애 로그를 볼 수 있도록 회전 파일 로그를 켠다
 
 # 기본 intents만 사용한다. 메시지 본문(message content)은 필요하지도, 저장하지도 않는다.
 intents = discord.Intents.default()

@@ -64,6 +64,12 @@ DB_LOCK_IDLE_IN_TRANSACTION_MS = 60000
 
 # DB polling 주기(초).
 SYNC_INTERVAL_SECONDS = int(os.getenv("PLAYMATE_SYNC_INTERVAL_SECONDS") or "10")
+# 참여자 권한 변경 한 번의 Discord 작업 시간 예산(초). 이 동안 DB 락은 잡지 않는다.
+DISCORD_CALL_TIMEOUT_SECONDS = 30
+# 권한 변경 실패 backoff: 30 -> 60 -> 120 -> 240 -> 최대 300초. 한 poll에서 처리하는 변경 수 상한.
+SYNC_BACKOFF_BASE_SECONDS = 30
+SYNC_BACKOFF_MAX_SECONDS = 300
+SYNC_MAX_CHANGES_PER_POLL = int(os.getenv("PLAYMATE_SYNC_MAX_CHANGES") or "20")
 # FAILED 생성의 자동 재시도 대기(MANUAL/ABORTED 제외) / 이보다 오래된 PENDING은 중단으로 보고 MANUAL 처리.
 SYNC_RETRY_AFTER_SECONDS = 300
 SYNC_STALE_PENDING_SECONDS = 600

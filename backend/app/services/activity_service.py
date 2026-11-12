@@ -57,11 +57,11 @@ def get_usage(days: int, page: int = 1) -> dict:
 
     with db_cursor(read_only=True) as cursor:
         summary = repository.read_summary(cursor, start, today)
-        daily_rows = repository.read_daily(cursor, start)
+        daily_rows = repository.read_daily(cursor, start, today)
         member_count = repository.count_members(cursor, start)
         max_page = max(1, (member_count + page_size - 1) // page_size)
         current_page = min(page, max_page)
-        members = repository.read_members(cursor, start, current_page, page_size)
+        members = repository.read_members(cursor, start, today, current_page, page_size)
         top_boards = repository.read_top_boards(cursor, start, today)
         most_visited_board = repository.read_most_visited_board(cursor)
 

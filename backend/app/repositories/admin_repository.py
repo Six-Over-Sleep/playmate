@@ -4,9 +4,11 @@
 def is_admin(cursor, member_id: int) -> bool:
     cursor.execute(
         """
-        SELECT 1 FROM members
+        SELECT 1
+        FROM members
         WHERE member_id = %s
           AND UPPER(COALESCE(role_code, '')) = 'ADMIN'
+          AND member_status = 'ACTIVE'
         """,
         (member_id,),
     )

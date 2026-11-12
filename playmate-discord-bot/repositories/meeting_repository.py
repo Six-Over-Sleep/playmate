@@ -18,6 +18,7 @@ from config import (
     CHANNEL_CATCHUP_DAYS,
     CHANNEL_PROVISION_BATCH_LIMIT,
     CHANNEL_RECRUIT_MODES,
+    STRAY_WITHDRAWN_WINDOW_DAYS,
     DB_LOCK_IDLE_IN_TRANSACTION_MS,
     DB_LOCK_TIMEOUT_MS,
     KST,
@@ -724,6 +725,36 @@ class PostgresMeetingRepository:
                 states.append({"recruit_id": row["recruit_id"], "status": row["status"],
                                "discord_id": discord_id, "channel_id": channel_id})
         return states
+
+    def list_audit_rows(self, recruit_id: int | None = None,
+                        window_days: int = STRAY_WITHDRAWN_WINDOW_DAYS) -> list[dict]:
+        """잔여 권한 점검용: 관리 중인 모임 채널과 모든 참여자 행(JOINED/CANCELED 포함, 탈퇴 회원 포함).
+
+        참여자가 없는 모임도 한 행(status=None)으로 나온다. 탈퇴 회원은 discord_id가 `w<member_id>` 형태다.
+        DB 락을 잡지 않는 단순 조회이며, 점검이 판정에 쓸 수 있도록 값을 가공하지 않고 그대로 돌려준다.
+        withdrawn_recent는 탈퇴한 지 window_days일 이내인지(회원 정보 갱신 시각 기준)이며, 잔여 권한 점검이 탈퇴 근거로
+        쓰는 값이다. 갱신 시각을 알 수 없으면 근거로 쓰지 않는다. recruit_id를 주면 그 모임만 조회한다 (회수 직전 재확인용).
+        """
+        where, params = "", [window_days]
+        if recruit_id is not None:
+            where = " AND rc.recruit_id = %s"
+            params.append(recruit_id)
+        return self._execute(
+            f"""
+            SELECT rc.recruit_id, rc.discord_text_channel_id, rm.status, rm.role,
+                   m.discord_id, m.member_status,
+                   COALESCE(m.updated_at >= now() - make_interval(days => %s), FALSE) AS withdrawn_recent
+              FROM recruit_discord_channels rc
+              LEFT JOIN recruit_members rm ON rm.recruit_id = rc.recruit_id
+              LEFT JOIN members m ON m.member_id = rm.member_id
+             WHERE rc.sync_status = 'SUCCESS'
+               AND rc.discord_deleted_at IS NULL
+               AND {_CHANNEL_ROW}
+               AND {_managed('rc')}{where}
+             ORDER BY rc.recruit_id
+            """,
+            tuple(params), fetch="all",
+        )
 
     def participant_status(self, recruit_id: int, discord_id: int) -> str | None:
         """권한을 바꾸기 직전의 최신 참여 상태(JOINED/CANCELED). 대상 모임이 아니거나 채널이 사라졌으면 None.

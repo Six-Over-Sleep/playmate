@@ -185,9 +185,18 @@ def test_active_member_flows(world):
 
 
 @pytest.mark.parametrize("app_env,header,expected", [
-    ("development", "2", 200), ("test", "2", 200), ("DEVELOPMENT", "2", 200),
-    ("development", "5", 401), ("development", "999", 401), ("development", "abc", 422), ("development", "-1", 401),
-    ("production", "2", 401), ("staging", "2", 401), (None, "2", 401), (" development", "2", 401), ("dev", "2", 401),
+    ("development", "2", 401),
+    ("test", "2", 401),
+    ("DEVELOPMENT", "2", 401),
+    ("development", "5", 401),
+    ("development", "999", 401),
+    ("development", "abc", 401),
+    ("development", "-1", 401),
+    ("production", "2", 401),
+    ("staging", "2", 401),
+    (None, "2", 401),
+    (" development", "2", 401),
+    ("dev", "2", 401),
 ])
 def test_dev_header_policy(world, monkeypatch, app_env, header, expected):
     if app_env is None:

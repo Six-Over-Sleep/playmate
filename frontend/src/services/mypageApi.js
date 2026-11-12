@@ -2,18 +2,11 @@
 
 import { apiRequest } from './apiClient'
 
-// 개발 환경에서만 테스트 회원 ID 사용
-const devMemberId = import.meta.env.DEV
-  ? import.meta.env.VITE_DEV_MEMBER_ID
-  : null
 
 // 내 프로필 조회
 export function getMyProfile() {
   return apiRequest('/mypage/profile', {
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
   })
 }
 
@@ -22,9 +15,6 @@ export function updateMyNickname(nickname) {
   return apiRequest('/mypage/profile', {
     method: 'PATCH',
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
     body: JSON.stringify({ nickname }),
   })
 }
@@ -37,9 +27,6 @@ export function uploadMyProfileImage(file) {
   return apiRequest('/mypage/profile/image', {
     method: 'POST',
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
     body: formData,
   })
 }
@@ -48,18 +35,12 @@ export function uploadMyProfileImage(file) {
 export function getMyLevel() {
   return apiRequest('/mypage/level', {
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
   })
 }
 
 export function getMySkills() {
   return apiRequest('/mypage/skills', {
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
   })
 }
 
@@ -67,9 +48,6 @@ export function getMySkills() {
 export function getMyActivitySummary() {
   return apiRequest('/mypage/summary', {
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
   })
 }
 
@@ -95,9 +73,6 @@ export function getMyActivities(type, page = 1) {
 
   return apiRequest(path, {
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
   })
 }
 
@@ -109,9 +84,6 @@ export function getMyActivities(type, page = 1) {
 export function getMyCareerSpecs() {
   return apiRequest('/mypage/career-specs', {
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
   })
 }
 
@@ -121,9 +93,6 @@ export function saveMyCareerSpecs(data) {
   return apiRequest('/mypage/career-specs', {
     method: 'PUT',
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
     body: JSON.stringify(data),
   })
 }
@@ -134,9 +103,6 @@ export function updateCareerSpecVisibility(isPublic) {
   return apiRequest('/mypage/career-specs/visibility', {
     method: 'PATCH',
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
     body: JSON.stringify({
       is_public: isPublic,
     }),
@@ -147,17 +113,12 @@ export function updateCareerSpecVisibility(isPublic) {
 export function getMyXPHistory() {
   return apiRequest('/mypage/xp-history', {
     credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
   })
 }
 
 // 내가 좋아요를 누른 게시글 (10개씩)
 export function getMyLikes(page = 1) {
-  return apiRequest(`/mypage/likes?page=${page}&page_size=10`, {
-    credentials: 'include',
-    headers: devMemberId ? { 'X-Dev-Member-ID': devMemberId } : {},
+  return apiRequest(`/mypage/likes?page=${page}&page_size=10`, {    credentials: 'include',
   })
 }
 
@@ -165,6 +126,5 @@ export function getMyLikes(page = 1) {
 export function getMyXPHistoryPage(page = 1, pageSize = 10) {
   return apiRequest(`/mypage/xp-history/paged?page=${page}&page_size=${pageSize}`, {
     credentials: 'include',
-    headers: devMemberId ? { 'X-Dev-Member-ID': devMemberId } : {},
   })
 }

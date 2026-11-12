@@ -160,6 +160,9 @@ def router_client(monkeypatch):
         session=FakeDb(),
         is_program=lambda recruit_id: False,
         actor=checked_members.append,
+        lock_recruit=lambda recruit_id: SimpleNamespace(
+            recruit_id=recruit_id,
+        ),
     )
     program_service = SimpleNamespace(repository=repository)
 
@@ -215,7 +218,7 @@ def test_router_passes_authenticated_member_id(
     request, checked, queries = router_client
     received = []
 
-    def process(db, recruit_id, member_id):
+    def process(db, recruit_id, member_id, **kwargs):
         received.append((recruit_id, member_id))
         return {"message": "완료"}
 

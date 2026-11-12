@@ -253,53 +253,32 @@ def session_cookie(member_id=1, discord_id="discord-user"):
     return TimestampSigner("isolated-test-secret").sign(data).decode()
 
 
-@pytest.mark.parametrize(
-    "env,header,status",
-    [
-        ("production", None, 401),
-        ("production", "1", 401),
-        ("test", None, 401),
-        ("test", "bad", 422),
-    ],
-)
-def test_real_auth_rejects_missing_or_bad_headers(monkeypatch, env, header, status):
+@pytest.mark.parametrize("env", ["development", "test", "production"])
+@pytest.mark.parametrize("header", [None, "1", "14", "bad"])
+def test_real_auth_requires_discord_session(monkeypatch, env, header):
+    """개발용 회원 헤더는 어떤 환경에서도 인증 수단이 될 수 없습니다."""
     monkeypatch.setenv("APP_ENV", env)
     with TestClient(app) as client:
         response = client.get(
             "/api/boards", headers={"X-Dev-Member-ID": header} if header else {}
         )
-    assert response.status_code == status
+    assert response.status_code == 401
 
 
 def test_real_auth_missing_member(database):
-    database([None])
+    """유효한 서명 쿠키라도 DB에 활성 회원이 없으면 차단합니다."""
+    cursor, _, _ = database([None])
     with TestClient(app) as client:
-        assert (
-            client.get("/api/boards", headers={"X-Dev-Member-ID": "999"}).status_code
-            == 401
-        )
+        client.cookies.set("playmate_session", session_cookie(member_id=999))
+        response = client.get("/api/boards")
+    assert response.status_code == 401
+    assert cursor.queries[0][1] == (999, "discord-user")
 
 
-def test_real_auth_valid_dev_member(database):
+def test_real_auth_valid_signed_session(database):
+    """Discord 세션과 DB 회원이 일치하는 경우에만 정상 인증합니다."""
     cursor, _, _ = database([
-        {"exists": 1},  # 회원 인증
-        [],              # 게시판 목록
-        {                # 회원의 과정·기수 정보
-            "course": "family-ai",
-            "cohort": 1,
-            "role_code": "USER",
-        },
-    ])
-    with TestClient(app) as client:
-        response = client.get("/api/boards", headers={"X-Dev-Member-ID": "1"})
-    assert response.status_code == 200 and response.json() == []
-    assert cursor.queries[0][1] == (1,)
-
-
-def test_real_signed_session_precedes_dev_header(database, monkeypatch):
-    monkeypatch.setenv("APP_ENV", "production")
-    cursor, _, _ = database([
-        {"exists": 1},  # 회원 인증
+        {"exists": 1},  # 회원 세션 검증
         [],              # 게시판 목록
         {                # 회원의 과정·기수 정보
             "course": "family-ai",
@@ -309,10 +288,28 @@ def test_real_signed_session_precedes_dev_header(database, monkeypatch):
     ])
     with TestClient(app) as client:
         client.cookies.set("playmate_session", session_cookie())
-        response = client.get("/api/boards", headers={"X-Dev-Member-ID": "99"})
-    assert response.status_code == 200
+        response = client.get("/api/boards")
+    assert response.status_code == 200 and response.json() == []
     assert cursor.queries[0][1] == (1, "discord-user")
 
+
+def test_real_signed_session_ignores_dev_header(database, monkeypatch):
+    """정상 세션이 있으면 위조된 개발 헤더를 보내도 세션 사용자로 인증합니다."""
+    monkeypatch.setenv("APP_ENV", "development")
+    cursor, _, _ = database([
+        {"exists": 1},
+        [],
+        {
+            "course": "family-ai",
+            "cohort": 1,
+            "role_code": "USER",
+        },
+    ])
+    with TestClient(app) as client:
+        client.cookies.set("playmate_session", session_cookie())
+        response = client.get("/api/boards", headers={"X-Dev-Member-ID": "14"})
+    assert response.status_code == 200
+    assert cursor.queries[0][1] == (1, "discord-user")
 
 @pytest.mark.parametrize(
     "cookie", [session_cookie(member_id="1"), session_cookie() + "tampered"]

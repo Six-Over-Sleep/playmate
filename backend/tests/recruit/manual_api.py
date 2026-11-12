@@ -3,7 +3,6 @@
 실행: python -m backend.tests.recruit.manual_api --port 8001
 테스트 서버를 종료하면 모든 가상 데이터가 사라진다. 운영 main.py에는 등록하지 않는다.
 """
-
 import argparse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -282,7 +281,7 @@ def create_app():
         return {"now": clock[0].isoformat(), **invoke(process_once, service)}
 
     def openapi():
-        """Swagger 기본 예시를 실제 격리 데이터에 맞춰 바로 실행할 수 있게 만든다."""
+        """격리 테스트용 Swagger 문서를 생성합니다."""
         if app.openapi_schema is None:
             schema = get_openapi(
                 title=app.title,
@@ -290,25 +289,44 @@ def create_app():
                 description=app.description,
                 routes=app.routes,
             )
-            # FastAPI는 override 전 원본 의존성의 헤더를 문서화하므로 수동 테스트 헤더로 맞춘다.
-            for path in schema["paths"].values():
-                for operation in path.values():
-                    for parameter in operation.get("parameters", []):
-                        if (
-                            parameter.get("in") == "header"
-                            and parameter["name"].lower() == "x-dev-member-id"
-                        ):
-                            parameter.update(
-                                name="X-Test-Member-ID",
-                                required=False,
-                                description="가상 회원 1~8, 관리자 9. 실제 로그인이 아닙니다.",
-                                schema={
-                                    "type": "integer",
-                                    "default": 1,
-                                    "minimum": 1,
-                                    "maximum": 9,
-                                },
-                            )
+
+            # 격리 테스트 서버 전용 헤더를 Swagger에 표시합니다.
+            for path, operations in schema["paths"].items():
+                if not path.startswith("/api/recruits"):
+                    continue
+
+                for method, operation in operations.items():
+                    if method.lower() not in {
+                        "get", "post", "put", "patch", "delete"
+                    }:
+                        continue
+
+                    parameters = operation.setdefault("parameters", [])
+
+                    # 중복 등록 방지
+                    if any(
+                        p.get("in") == "header"
+                        and p.get("name", "").lower() == "x-test-member-id"
+                        for p in parameters
+                    ):
+                        continue
+
+                    parameters.append({
+                        "name": "X-Test-Member-ID",
+                        "in": "header",
+                        "required": False,
+                        "description": (
+                            "격리 테스트 전용 가상 회원 ID (1~9). "
+                            "실제 Discord 로그인과 무관합니다."
+                        ),
+                        "schema": {
+                            "type": "integer",
+                            "default": 1,
+                            "minimum": 1,
+                            "maximum": 9,
+                        },
+                    })
+
             examples = schema["components"]["schemas"]
             examples["ProgramCreate"]["example"] = project_payload()
             examples["ProgramApplication"]["example"] = {

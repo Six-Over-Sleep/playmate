@@ -446,3 +446,46 @@
     align-self: flex-end;
   }
 }
+
+.admin-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 22px;
+  padding: 14px 0;
+}
+
+.admin-pagination-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-pagination-buttons button {
+  min-width: 36px;
+  padding: 9px 12px;
+  border: 1px solid #e1dced;
+  border-radius: 9px;
+  background: #fff;
+  color: #51388a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-pagination-buttons button.active {
+  background: #4c3485;
+  color: #fff;
+  border-color: #4c3485;
+}
+
+.admin-pagination-buttons button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.admin-pagination-count {
+  font-size: 13px;
+  color: #736b85;
+}

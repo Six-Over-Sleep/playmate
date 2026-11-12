@@ -1,8 +1,8 @@
 """게시글 신고: 신고자 중복 방지, 3명 신고 시 자동 비노출, 관리자 요약 조회."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Literal
+from typing import Annotated, Literal
 
 from app.core.auth import get_current_member_id
 from app.core.db_connect import db_cursor
@@ -104,9 +104,16 @@ def list_reported_posts(member_id: int = Depends(get_current_member_id)):
 
 # PLAYMATE_ADMIN_REPORT_PANEL_V1
 @admin_router.get("/board-reports/details")
-def list_reported_posts_details(member_id: int = Depends(get_current_member_id)):
+def list_reported_posts_details(
+    member_id: int = Depends(get_current_member_id),
+    page: Annotated[int | None, Query(ge=1, le=100000)] = None,
+    q: Annotated[str, Query(max_length=100)] = "",
+    status_filter: Literal["all", "visible", "hidden"] = "all",
+):
     """신고가 접수된 게시글과 신고별 사유를 관리자에게만 반환한다."""
     admin_service.assert_admin(member_id)
+    if page is not None:
+        return _reports_paged(page, q.strip(), status_filter)
     with db_cursor(read_only=True) as cursor:
         cursor.execute(
             """
@@ -153,3 +160,105 @@ def list_reported_posts_details(member_id: int = Depends(get_current_member_id))
             post['reports'] = grouped[post['post_id']]
         return posts
 
+
+
+_REPORTS_FILTER_SQL = """
+FROM post_reports AS r
+JOIN posts AS p ON p.post_id = r.post_id
+JOIN boards AS b ON b.board_id = p.board_id
+LEFT JOIN members AS m ON m.member_id = p.author_member_id
+WHERE p.deleted_at IS NULL
+  AND p.post_type = 'BOARD'
+  AND (
+      %s = ''
+      OR p.title ILIKE %s
+      OR b.board_name ILIKE %s
+      OR COALESCE(m.nickname, '') ILIKE %s
+  )
+  AND (
+      %s = 'all'
+      OR (%s = 'hidden' AND COALESCE(p.post_status, 'PUBLISHED') = 'HIDDEN')
+      OR (%s = 'visible' AND COALESCE(p.post_status, 'PUBLISHED') <> 'HIDDEN')
+  )
+"""
+
+
+def _reports_paged(page: int, search: str, state: str) -> dict:
+    """Return filtered reported posts and their details, 20 per page."""
+    size = 20
+    pattern = f"%{search}%"
+    params = (
+        search, pattern, pattern, pattern,
+        state, state, state,
+    )
+
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT
+                COUNT(DISTINCT p.post_id)::int AS total,
+                COUNT(DISTINCT p.post_id) FILTER (
+                    WHERE COALESCE(p.post_status, 'PUBLISHED') = 'HIDDEN'
+                )::int AS hidden_total,
+                COUNT(r.report_id)::bigint AS report_count
+            """ + _REPORTS_FILTER_SQL,
+            params,
+        )
+        summary = dict(cursor.fetchone())
+
+        total = int(summary["total"])
+        total_pages = max(1, (total + size - 1) // size)
+        current = min(page, total_pages)
+
+        cursor.execute(
+            """
+            SELECT
+                p.post_id, p.board_id, p.title,
+                COALESCE(p.post_status, 'PUBLISHED') AS post_status,
+                b.board_name,
+                COALESCE(NULLIF(m.nickname, ''), 'Withdrawn member') AS author_name,
+                p.created_at,
+                COUNT(r.report_id)::int AS report_count,
+                MAX(r.created_at) AS last_reported_at
+            """ + _REPORTS_FILTER_SQL + """
+            GROUP BY p.post_id, p.board_id, p.title, p.post_status,
+                     b.board_name, m.nickname, p.created_at
+            ORDER BY last_reported_at DESC, p.post_id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (*params, size, (current - 1) * size),
+        )
+        posts = [dict(row) for row in cursor.fetchall()]
+
+        if posts:
+            ids = [post["post_id"] for post in posts]
+            cursor.execute(
+                """
+                SELECT r.post_id, r.report_id, r.reason, r.details,
+                       r.created_at,
+                       COALESCE(NULLIF(m.nickname, ''), 'Withdrawn member')
+                           AS reporter_name
+                FROM post_reports AS r
+                LEFT JOIN members AS m
+                    ON m.member_id = r.reporter_member_id
+                WHERE r.post_id = ANY(%s)
+                ORDER BY r.created_at DESC, r.report_id DESC
+                """,
+                (ids,),
+            )
+            grouped = {post_id: [] for post_id in ids}
+            for row in cursor.fetchall():
+                item = dict(row)
+                grouped[item.pop("post_id")].append(item)
+            for post in posts:
+                post["reports"] = grouped[post["post_id"]]
+
+    return {
+        "items": posts,
+        "total": total,
+        "page": current,
+        "page_size": size,
+        "total_pages": total_pages,
+        "hidden_total": int(summary["hidden_total"]),
+        "report_count": int(summary["report_count"]),
+    }

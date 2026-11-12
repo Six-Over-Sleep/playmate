@@ -87,13 +87,14 @@ def read_summary(cursor, start_date: date, today: date) -> dict:
                 WHERE activity_date = %s
             )::int AS today_users
         FROM member_daily_activity
+        WHERE activity_date <= %s
         """,
-        (start_date, start_date, start_date, today),
+        (start_date, start_date, start_date, today, today),
     )
     return dict(cursor.fetchone())
 
 
-def read_daily(cursor, start_date: date) -> list[dict]:
+def read_daily(cursor, start_date: date, end_date: date) -> list[dict]:
     """날짜별 이용 시간과 활동 회원 수를 조회합니다."""
     cursor.execute(
         """
@@ -102,11 +103,11 @@ def read_daily(cursor, start_date: date) -> list[dict]:
             COALESCE(SUM(active_seconds), 0)::bigint AS seconds,
             COUNT(DISTINCT member_id)::int AS users
         FROM member_daily_activity
-        WHERE activity_date >= %s
+        WHERE activity_date BETWEEN %s AND %s
         GROUP BY activity_date
         ORDER BY activity_date
         """,
-        (start_date,),
+        (start_date, end_date),
     )
     return list(cursor.fetchall())
 
@@ -123,7 +124,9 @@ def count_members(cursor, start_date: date) -> int:
     return int(cursor.fetchone()["count"])
 
 
-def read_members(cursor, start_date: date, page: int, page_size: int = 10) -> list[dict]:
+def read_members(
+    cursor, start_date: date, end_date: date, page: int, page_size: int = 10
+) -> list[dict]:
     """활동 시간이 0인 회원까지 10명 단위로 조회합니다."""
     offset = (page - 1) * page_size
 
@@ -137,13 +140,13 @@ def read_members(cursor, start_date: date, page: int, page_size: int = 10) -> li
         FROM members AS m
         LEFT JOIN member_daily_activity AS d
             ON m.member_id = d.member_id
-           AND d.activity_date >= %s
+           AND d.activity_date BETWEEN %s AND %s
         WHERE m.member_id > 0
         GROUP BY m.member_id, m.nickname
         ORDER BY seconds DESC, m.member_id
         LIMIT %s OFFSET %s
         """,
-        (start_date, page_size, offset),
+        (start_date, end_date, page_size, offset),
     )
     return list(cursor.fetchall())
 

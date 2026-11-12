@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { apiRequest } from '../../services/apiClient'
+import { downloadAdminUsageCsv } from '../../services/adminCsvApi'
 import '../../styles/adminUsage.css'
 
 // 서버는 이용 시간을 초 단위로 저장합니다. 화면에서는 분/시간으로 변환합니다.
@@ -18,12 +19,37 @@ function formatDuration(seconds) {
 }
 
 /** 관리자 전용 회원 활동 시간 통계를 표시합니다. */
+
+function kstDate(offsetDays = 0) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+
+  const number = (type) =>
+    Number(parts.find((part) => part.type === type)?.value)
+
+  const date = new Date(Date.UTC(
+    number('year'),
+    number('month') - 1,
+    number('day') + offsetDays,
+  ))
+
+  return date.toISOString().slice(0, 10)
+}
+
 export default function AdminUsagePanel() {
   const [days, setDays] = useState(7)
   const [page, setPage] = useState(1)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [downloadingKind, setDownloadingKind] = useState(null)
+  const [exportStart, setExportStart] = useState(() => kstDate(-6))
+  const [exportEnd, setExportEnd] = useState(() => kstDate(0))
+  const [downloadError, setDownloadError] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -56,6 +82,24 @@ export default function AdminUsagePanel() {
 
     return () => controller.abort()
   }, [days, page])
+
+
+  const handleCsvDownload = async (kind) => {
+    if (downloadingKind !== null) return
+
+    setDownloadingKind(kind)
+    setDownloadError('')
+
+    try {
+      await downloadAdminUsageCsv(days, kind, exportStart, exportEnd)
+    } catch (cause) {
+      setDownloadError(
+        cause.message || 'CSV ????? ??????.',
+      )
+    } finally {
+      setDownloadingKind(null)
+    }
+  }
 
   const maxSeconds = Math.max(
     1, ...(data?.daily || []).map((day) => Number(day.seconds) || 0),
@@ -137,6 +181,61 @@ export default function AdminUsagePanel() {
         </div>
       </div>
 
+
+      <div className="admin-usage-export">
+        <div className="admin-usage-export-range">
+          <strong>{'CSV \ub2e4\uc6b4\ub85c\ub4dc \uae30\uac04'}</strong>
+          <label>
+            <span>{'\uc2dc\uc791\uc77c'}</span>
+            <input
+              type="date"
+              aria-label="CSV start date"
+              value={exportStart}
+              max={kstDate(0)}
+              disabled={downloadingKind !== null}
+              onChange={(event) => setExportStart(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>{'\uc885\ub8cc\uc77c'}</span>
+            <input
+              type="date"
+              aria-label="CSV end date"
+              value={exportEnd}
+              max={kstDate(0)}
+              disabled={downloadingKind !== null}
+              onChange={(event) => setExportEnd(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="admin-usage-export-buttons">
+          <button
+            type="button"
+            disabled={loading || downloadingKind !== null}
+            onClick={() => handleCsvDownload('members')}
+          >
+            {downloadingKind === 'members'
+              ? '\ub2e4\uc6b4\ub85c\ub4dc \uc911...'
+              : '\ud68c\uc6d0\ubcc4 CSV'}
+          </button>
+
+          <button
+            type="button"
+            disabled={loading || downloadingKind !== null}
+            onClick={() => handleCsvDownload('boards')}
+          >
+            {downloadingKind === 'boards'
+              ? '\ub2e4\uc6b4\ub85c\ub4dc \uc911...'
+              : '\uac8c\uc2dc\ud310\ubcc4 CSV'}
+          </button>
+        </div>
+      </div>
+
+      {downloadError && (
+        <p className="admin-alert" role="alert">{downloadError}</p>
+      )}
+
       {error && <p className="admin-alert" role="alert">{error}</p>}
 
       {loading ? (
@@ -190,13 +289,13 @@ export default function AdminUsagePanel() {
 
           <section className="admin-usage-box">
             <div className="admin-usage-box-heading">
-              <h3>{'\uac8c\uc2dc\ud310\ubcc4 \ubc29\ubb38 TOP 10'}</h3>
+              <h3>{'게시판별 방문 TOP 10'}</h3>
               <span>{days} days</span>
             </div>
 
             {(data.top_boards || []).length === 0 ? (
               <p className="admin-empty">
-                {'\ubc29\ubb38 \uae30\ub85d\uc774 \uc5c6\uc2b5\ub2c8\ub2e4.'}
+                {'방문 기록이 없습니다.'}
               </p>
             ) : (
               <div className="admin-usage-chart" role="list">
@@ -256,20 +355,20 @@ export default function AdminUsagePanel() {
 
             <div
               className="admin-usage-pagination"
-              aria-label={'\ud68c\uc6d0 \ubaa9\ub85d \ud398\uc774\uc9c0 \uc774\ub3d9'}
+              aria-label={'회원 목록 페이지 이동'}
             >
               <button
                 type="button"
                 disabled={loading || currentPage <= 1}
                 onClick={() => setPage(currentPage - 1)}
               >
-                {'\uc774\uc804'}
+                {'이전'}
               </button>
 
               <span aria-live="polite">
                 {currentPage} / {totalPages}
                 {' ('}{Number(data.members_total || 0).toLocaleString()}
-                {'\uba85)'}
+                {'명)'}
               </span>
 
               <button
@@ -277,12 +376,12 @@ export default function AdminUsagePanel() {
                 disabled={loading || currentPage >= totalPages}
                 onClick={() => setPage(currentPage + 1)}
               >
-                {'\ub2e4\uc74c'}
+                {'다음'}
               </button>
             </div>
 
             <p className="admin-usage-note">
-              {'\ud68c\uc6d0\ubcc4 \uc774\uc6a9 \uc2dc\uac04\uc740 \ud398\uc774\uc9c0\ub2f9 10\uba85\uc529 \ud45c\uc2dc\ub429\ub2c8\ub2e4. \ud65c\ub3d9 \uc2dc\uac04\uc740 \ucd94\uc815\uce58\uc785\ub2c8\ub2e4.'}
+              {'회원별 이용 시간은 페이지당 10명씩 표시됩니다. 활동 시간은 추정치입니다.'}
             </p>
           </section>
         </>

@@ -42,6 +42,7 @@ export async function apiRequest(
 
   try {
     response = await fetch(url, {
+      credentials: 'include',
       ...options,
       headers,
     })
@@ -67,6 +68,18 @@ export async function apiRequest(
   }
 
   if (!response.ok) {
+    if (
+      typeof window !== 'undefined' &&
+      [401, 403].includes(response.status) &&
+      new URL(url, window.location.origin).pathname.startsWith('/api/admin/')
+    ) {
+      window.dispatchEvent(
+        new CustomEvent('playmate:admin-auth-error', {
+          detail: { status: response.status },
+        }),
+      )
+    }
+
     const error = new Error(errorMessage(data, response.status))
 
     error.status = response.status

@@ -19,6 +19,53 @@ function date(value) {
   return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleDateString('ko-KR')
 }
 
+
+function AdminPagination({
+  page, totalPages, total, onPageChange, disabled = false,
+}) {
+  const pages = Math.max(1, Number(totalPages) || 1)
+  const current = Math.min(pages, Math.max(1, Number(page) || 1))
+  const start = Math.max(1, Math.min(current - 2, pages - 4))
+  const numbers = Array.from(
+    { length: Math.min(5, pages) },
+    (_, index) => start + index,
+  )
+
+  return (
+    <nav className="admin-pagination" aria-label="Pagination">
+      <span className="admin-pagination-count">
+        {Number(total || 0).toLocaleString()} {'\uac74'}
+      </span>
+      {pages > 1 && (
+        <div className="admin-pagination-buttons">
+          <button type="button"
+            disabled={disabled || current <= 1}
+            onClick={() => onPageChange(current - 1)}>
+            {'\uc774\uc804'}
+          </button>
+          {numbers.map((number) => (
+            <button type="button" key={number}
+              className={number === current ? 'active' : ''}
+              aria-current={number === current ? 'page' : undefined}
+              disabled={disabled}
+              onClick={() => onPageChange(number)}>
+              {number}
+            </button>
+          ))}
+          <button type="button"
+            disabled={disabled || current >= pages}
+            onClick={() => onPageChange(current + 1)}>
+            {'\ub2e4\uc74c'}
+          </button>
+        </div>
+      )}
+      <span className="admin-pagination-count">
+        {current} / {pages}
+      </span>
+    </nav>
+  )
+}
+
 export default function AdminPage() {
   const navigate = useNavigate()
   const [tab, setTab] = useState('notices')
@@ -31,6 +78,14 @@ export default function AdminPage() {
   const [forbidden, setForbidden] = useState(false)
   const [search, setSearch] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
+  const [noticePage, setNoticePage] = useState(1)
+  const [noticeSearch, setNoticeSearch] = useState('')
+  const [appliedNoticeSearch, setAppliedNoticeSearch] = useState('')
+  const [postsPage, setPostsPage] = useState(1)
+  const [membersPage, setMembersPage] = useState(1)
+  const [memberSearch, setMemberSearch] = useState('')
+  const [appliedMemberSearch, setAppliedMemberSearch] = useState('')
+  const [pagination, setPagination] = useState(null)
   const [editing, setEditing] = useState(null)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
@@ -41,16 +96,21 @@ export default function AdminPage() {
     try {
       const [summary, records] = await Promise.all([
         adminApi.dashboard(),
-        tab === 'notices' ? adminApi.notices()
-          : tab === 'posts' ? adminApi.posts(appliedSearch)
+        tab === 'notices' ? adminApi.notices(noticePage, appliedNoticeSearch)
+          : tab === 'posts' ? adminApi.posts(appliedSearch, postsPage)
           : tab === 'reports' ? []
-          : tab === 'usage' ? [] : adminApi.members(),
+          : tab === 'usage' ? [] : adminApi.members(membersPage, appliedMemberSearch),
       ])
       setStats(summary)
-      setRows(records)
+      setRows(Array.isArray(records) ? records : (records?.items || []))
+      setPagination(Array.isArray(records) ? null : records)
+      if (tab === 'notices' && records?.page && records.page !== noticePage) {
+        setNoticePage(records.page)
+      }
       setForbidden(false)
     } catch (err) {
       setRows([])
+      setPagination(null)
       if (err.status === 403 || err.status === 401) {
         setForbidden(true)
       }
@@ -58,7 +118,7 @@ export default function AdminPage() {
     } finally {
       setLoading(false)
     }
-  }, [tab, appliedSearch])
+  }, [tab, appliedSearch, postsPage, membersPage, appliedMemberSearch, noticePage, appliedNoticeSearch])
 
   useEffect(() => { load() }, [load])
 
@@ -197,7 +257,27 @@ export default function AdminPage() {
                   </button>
                 </div>
               </form>
-              <h3>등록된 공지 ({rows.length})</h3>
+
+              <form className="admin-search" onSubmit={(event) => {
+                event.preventDefault()
+                const next = noticeSearch.trim()
+                setNoticePage(1)
+                setAppliedNoticeSearch(next)
+                if (next === appliedNoticeSearch && noticePage === 1) load()
+              }}>
+                <input
+                  type="search"
+                  maxLength={100}
+                  aria-label="Notice title search"
+                  placeholder={'\uacf5\uc9c0 \uc81c\ubaa9 \uac80\uc0c9'}
+                  value={noticeSearch}
+                  onChange={(event) => setNoticeSearch(event.target.value)}
+                />
+                <button type="submit" disabled={busy}>
+                  {'\uac80\uc0c9'}
+                </button>
+              </form>
+              <h3>{'\ub4f1\ub85d\ub41c \uacf5\uc9c0'} ({pagination?.total ?? rows.length})</h3>
               {loading ? <p className="admin-empty">불러오는 중…</p>
                 : rows.length === 0 ? <p className="admin-empty">등록된 공지사항이 없습니다.</p>
                   : <div className="admin-list">
@@ -226,8 +306,8 @@ export default function AdminPage() {
                 <h2>게시글 관리</h2><span>일반 게시판 게시글 숨김 / 복구</span>
               </div>
               <form className="admin-search" onSubmit={(event) => {
-                event.preventDefault(); setAppliedSearch(search.trim())
-                if (search.trim() === appliedSearch) load()
+                event.preventDefault(); setPostsPage(1); setAppliedSearch(search.trim())
+                if (search.trim() === appliedSearch && postsPage === 1) load()
               }}>
                 <input value={search} maxLength={100} onChange={e => setSearch(e.target.value)} placeholder="게시글 제목 검색" />
                 <button type="submit" disabled={busy}>검색</button>
@@ -265,6 +345,25 @@ export default function AdminPage() {
           {tab === 'members' && (
             <>
               <div className="admin-section-title"><h2>회원 조회</h2><span>권한 변경은 지원하지 않습니다.</span></div>
+              <form className="admin-search" onSubmit={(event) => {
+                event.preventDefault()
+                const next = memberSearch.trim()
+                setMembersPage(1)
+                setAppliedMemberSearch(next)
+                if (next === appliedMemberSearch && membersPage === 1) load()
+              }}>
+                <input
+                  type="search"
+                  aria-label="Member search"
+                  placeholder={'\ub2c9\ub124\uc784 \ub610\ub294 \ud68c\uc6d0 ID \uac80\uc0c9'}
+                  value={memberSearch}
+                  onChange={(event) => setMemberSearch(event.target.value)}
+                />
+                <button type="submit" disabled={busy}>
+                  {'\uac80\uc0c9'}
+                </button>
+              </form>
+
               {loading ? <p className="admin-empty">불러오는 중…</p>
                 : rows.length === 0 ? <p className="admin-empty">조회된 회원이 없습니다.</p>
                   : <div className="admin-table-wrap">
@@ -283,6 +382,17 @@ export default function AdminPage() {
                   </div>}
             </>
           )}
+
+          {!loading && !error && pagination &&
+            (tab === 'posts' || tab === 'members' || tab === 'notices') && (
+              <AdminPagination
+                page={pagination.page}
+                totalPages={pagination.total_pages}
+                total={pagination.total}
+                onPageChange={tab === 'posts' ? setPostsPage : tab === 'members' ? setMembersPage : setNoticePage}
+                disabled={busy}
+              />
+            )}
         </section>
       </div>
     </main>

@@ -30,8 +30,14 @@ def dashboard(_: int = Depends(require_admin)):
 
 
 @router.get("/notices")
-def list_notices(_: int = Depends(require_admin)):
-    return admin_service.notices()
+def list_notices(
+    page: int | None = Query(default=None, ge=1, le=100000),
+    q: str = Query(default="", max_length=100),
+    _: int = Depends(require_admin),
+):
+    if page is None:
+        return admin_service.notices()
+    return admin_service.notices_paginated(q.strip(), page)
 
 
 @router.post("/notices", status_code=status.HTTP_201_CREATED)
@@ -51,8 +57,14 @@ def delete_notice(post_id: int, _: int = Depends(require_admin)):
 
 
 @router.get("/posts")
-def list_posts(q: str = Query(default="", max_length=100), _: int = Depends(require_admin)):
-    return admin_service.board_posts(q.strip())
+def list_posts(
+    q: str = Query(default="", max_length=100),
+    page: int | None = Query(default=None, ge=1, le=100000),
+    _: int = Depends(require_admin),
+):
+    if page is None:
+        return admin_service.board_posts(q.strip())
+    return admin_service.board_posts_paginated(q.strip(), page)
 
 
 @router.patch("/posts/{post_id}/visibility", status_code=status.HTTP_204_NO_CONTENT)
@@ -62,8 +74,14 @@ def set_visibility(post_id: int, data: VisibilityWrite, _: int = Depends(require
 
 
 @router.get("/members")
-def list_members(_: int = Depends(require_admin)):
-    return admin_service.members()
+def list_members(
+    page: int | None = Query(default=None, ge=1, le=100000),
+    q: str = Query(default="", max_length=100),
+    _: int = Depends(require_admin),
+):
+    if page is None:
+        return admin_service.members()
+    return admin_service.members_paginated(q.strip(), page)
 
 @router.get("/meetup-xp/activities")
 def list_meetup_xp_activities(

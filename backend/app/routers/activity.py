@@ -1,10 +1,12 @@
 """회원 활동 기록과 관리자 전용 통계 API입니다."""
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_member_id
-from app.services import activity_service, admin_service
+from app.services import activity_csv_service, activity_service, admin_service
 
 
 router = APIRouter(prefix="/api", tags=["activity"])
@@ -46,3 +48,17 @@ def get_admin_usage(
     if days not in (7, 30):
         raise HTTPException(status_code=422, detail="7일 또는 30일만 선택할 수 있습니다.")
     return activity_service.get_usage(days, page)
+
+
+@router.get("/admin/usage/export")
+def export_admin_usage(
+    days: int = Query(default=7),
+    kind: str = Query(default="members"),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    _: int = Depends(require_admin),
+):
+    """Download admin usage statistics with server-side authorization."""
+    return activity_csv_service.export_usage_csv(
+        days, kind, start_date, end_date
+    )

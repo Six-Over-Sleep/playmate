@@ -48,6 +48,41 @@ def board_posts(search: str) -> list[dict]:
         return repo.list_board_posts(cursor, search)
 
 
+
+def board_posts_paginated(search: str, page: int) -> dict:
+    size = 20
+    with db_cursor(read_only=True) as cursor:
+        total = repo.count_board_posts(cursor, search)
+        pages = max(1, (total + size - 1) // size)
+        current = min(max(page, 1), pages)
+        rows = repo.read_board_posts_page(cursor, search, current, size)
+
+    return {
+        "items": rows,
+        "total": total,
+        "page": current,
+        "page_size": size,
+        "total_pages": pages,
+    }
+
+
+def members_paginated(search: str, page: int) -> dict:
+    size = 20
+    with db_cursor(read_only=True) as cursor:
+        total = repo.count_admin_members(cursor, search)
+        pages = max(1, (total + size - 1) // size)
+        current = min(max(page, 1), pages)
+        rows = repo.read_members_page(cursor, search, current, size)
+
+    return {
+        "items": rows,
+        "total": total,
+        "page": current,
+        "page_size": size,
+        "total_pages": pages,
+    }
+
+
 def change_post_visibility(post_id: int, hidden: bool) -> None:
     with db_cursor(commit=True) as cursor:
         if not repo.set_post_hidden(cursor, post_id, hidden):
@@ -115,3 +150,23 @@ def meetup_xp_activities(limit: int = 30) -> list[dict]:
         })
 
     return result
+
+def notices_paginated(search: str, page: int) -> dict:
+    page_size = 20
+
+    with db_cursor(read_only=True) as cursor:
+        total = repo.count_notices_paginated(cursor, search)
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        current_page = min(max(1, page), total_pages)
+
+        items = repo.read_notices_paginated(
+            cursor, search, current_page, page_size
+        )
+
+    return {
+        "items": items,
+        "total": total,
+        "page": current_page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }

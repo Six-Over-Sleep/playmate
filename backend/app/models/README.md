@@ -1,77 +1,49 @@
-# models | SQLAlchemy ORM
+# models | SQLAlchemy ORM 모델
 
-## 파일별 역할
+실제 PostgreSQL 테이블에 대응하는 SQLAlchemy 모델을 정의합니다. **ORM 클래스가 존재한다고 테이블이 자동으로 생성되거나 마이그레이션이 적용되는 것은 아닙니다.**
 
-| 파일 | 모델/테이블 | 주요 역할 |
-|---|---|---|
-| `member.py` | `Member` → `members` | 회원 정보, 권한, 계정 상태 및 Discord DM 수신 동의 관리 |
-| `post.py` | `Post` → `posts` | 게시글 제목, 본문, 작성자 및 게시 상태 관리 |
-| `recruit.py` | `Recruit`, `RecruitMember`, 4가지 상세 모델 → 모임 관련 6개 테이블 | 모임 모집 정보, 참여자 및 카테고리별 상세 정보 관리 |
-| `notification.py` | `Notification` → `notifications` | 댓글, 답글, 반응에 따른 Discord DM 알림 및 전송 상태 관리 |
+## 파일별 모델
 
-## ORM이란?
+| 파일 | 테이블·대상 |
+|---|---|
+| `member.py` | `members`: 회원, Discord ID, 상태, DM 설정 등 |
+| `post.py` | `posts`: 게시글 |
+| `comment.py` | `comments`: 댓글·답글 |
+| `post_like.py` | `post_likes`: 게시글 좋아요 |
+| `post_scrap.py` | `post_scraps`: 스크랩 |
+| `notification.py` | `notifications`: Discord DM 알림 대기/이력 |
+| `recruit.py` | `recruits`, `recruit_members` 및 운동·게임·스터디·공동구매 상세 테이블 |
+| `recruit_program.py` | `recruit_programs`, `recruit_applications`, `recruit_eligibility`, `recruit_withdrawals`, `recruit_curricula`, `recruit_activities`, `recruit_recognitions`, `recruit_outbox`, `recruit_program_commands`, `recruit_skills` |
 
-ORM(Object-Relational Mapping)은 DB 테이블을 Python 클래스와 연결하여 데이터를 객체 형태로 다루는 기술임.
+게시판·취업·관리자 기능의 일부 데이터 접근은 SQLAlchemy 모델 대신 **repositories의 직접 SQL**을 사용하므로 이 파일 목록이 DB 전체 테이블 목록을 의미하지는 않습니다.
 
-SQLAlchemy ORM을 사용하면 SQL을 직접 작성하지 않고 데이터를 조회하거나 저장할 수 있음.
+## 주요 관계
 
-**예시**
-```python
-db.query(Recruit).all()
+```text
+members ── posts ── comments
+   │         │
+   │         ├── post_likes
+   │         ├── post_scraps
+   │         └── recruits ── recruit_members
+   │                          ├── 카테고리별 상세
+   │                          └── 프로그램/신청/커리큘럼/활동
+   └── notifications (수신자/행동자)
 ```
 
-위 코드는 `recruits` 테이블의 데이터를 조회함.
+**DB 구조의 최종 기준은 실제 PostgreSQL 스키마와 `database/sql/` 적용 이력**입니다. `recruit_id`, `post_id`, `member_id` 간 FK 및 제약조건은 수정 전 DB에서 확인합니다.
 
-각 모델의 `__tablename__`은 연결할 DB 테이블 이름을 지정함.
+## 데이터 정책 메모
 
-## 키 관계
+- 회원 탈퇴에는 `members.member_status` 컬럼이 필요합니다. 관련 SQL: `020_member_withdrawal.sql`.
+- 익명 게시글·댓글은 **작성자 식별 및 화면 표시 정책을 분리**합니다. DB 소유권을 익명 표시 문자열로 대체하지 않습니다.
+- 알림은 `PENDING`, `SENT`, `SKIPPED`, `FAILED` 상태를 다룹니다. Bot/Backend가 공유하는 스키마 변경 시 양쪽을 함께 수정합니다.
+- `recruit_program.py` 사용은 신규 모임 마이그레이션 및 기능 설정에 영향을 받습니다.
 
-- `posts.author_member_id` → `members.member_id`
-- `recruits.post_id` → `posts.post_id`
-- `recruit_members.recruit_id` → `recruits.recruit_id`
-- `recruit_members.member_id` → `members.member_id`
-- `notifications.receiver_member_id` → `members.member_id`
-- `notifications.actor_member_id` → `members.member_id`
-- `notifications.post_id` → `posts.post_id`
-- `notifications.comment_id` → `comments.comment_id`
+## 변경 순서
 
-`recruit_members`는 `(recruit_id, member_id)`를 복합 PK로 사용함.
+1. 적용 대상 DB/ERD와 실제 컬럼을 확인합니다.
+2. 필요한 SQL 마이그레이션을 작성합니다.
+3. ORM·repository·schema·service 및 테스트를 수정합니다.
+4. 격리 테스트 DB에서 검증한 뒤 팀 합의하에 공유 DB에 반영합니다.
 
-모임 상세 테이블 4개는 `recruit_id`를 PK이자 FK로 사용하여 `recruits`와 1:1 관계를 구성함.
-
-## Notification 모델
-
-Discord 개인 DM 알림 내역과 전송 상태를 관리하는 모델임.
-
-**알림 유형**
-
-| 유형 | 설명 |
-|---|---|
-| `COMMENT` | 게시글 댓글 알림 |
-| `REPLY` | 댓글 답글 알림 |
-| `REACTION` | 게시글 또는 댓글 반응 알림 |
-
-**전송 상태**
-
-| 상태 | 설명 |
-|---|---|
-| `PENDING` | 알림 전송 대기 |
-| `SENT` | 알림 전송 완료 |
-| `SKIPPED` | 알림 전송 생략 |
-| `FAILED` | 알림 전송 실패 |
-
-알림을 받을 회원은 `receiver_member_id`, 행동한 회원은 `actor_member_id`로 구분함.
-
-Discord DM 수신 동의 여부는 `members.external_dm_opt_in` 컬럼을 사용함.
-
-전송 실패 시 `error_message`, `retry_count`, `last_attempt_at`을 통해 오류 및 재시도 정보를 관리함.
-
-## 주의사항
-
-- 모델 import가 누락되면 FK 참조 과정에서 `NoReferencedTableError`가 발생할 수 있음.
-- FK로 연결된 모델은 동일한 `Base`의 메타데이터에 등록되어야 함.
-- `notifications.comment_id`가 참조하는 `comments` 테이블도 메타데이터에 등록되어 있어야 함.
-- ORM 클래스가 존재한다고 실제 DB 테이블이 자동으로 생성되는 것은 아님.
-- 모델 변경 후 실제 PostgreSQL 테이블 구조와 일치하는지 확인해야 함.
-- Discord DM은 기본 ON임. `external_dm_opt_in`이 `False`(회원이 `/알림설정`으로 끔)인 회원에게만 보내지 않음.
-  `NULL`(선택 안 함)은 ON으로 처리하고, 신규 가입은 `True`로 저장함.
+참고: [DB 가이드](../../../database/README.md)

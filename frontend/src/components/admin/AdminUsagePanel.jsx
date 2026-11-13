@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { apiRequest } from '../../services/apiClient'
+import { downloadAdminUsageCsv } from '../../services/adminCsvApi'
 import '../../styles/adminUsage.css'
 
 // 서버는 이용 시간을 초 단위로 저장합니다. 화면에서는 분/시간으로 변환합니다.
 function formatDuration(seconds) {
-  const minutes = Math.round(Number(seconds || 0) / 60)
+  const value = Number(seconds)
+  const minutes = Number.isFinite(value)
+    ? Math.max(0, Math.round(value / 60))
+    : 0
 
   if (minutes < 60) return `${minutes.toLocaleString()}분`
 
@@ -15,11 +19,37 @@ function formatDuration(seconds) {
 }
 
 /** 관리자 전용 회원 활동 시간 통계를 표시합니다. */
+
+function kstDate(offsetDays = 0) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+
+  const number = (type) =>
+    Number(parts.find((part) => part.type === type)?.value)
+
+  const date = new Date(Date.UTC(
+    number('year'),
+    number('month') - 1,
+    number('day') + offsetDays,
+  ))
+
+  return date.toISOString().slice(0, 10)
+}
+
 export default function AdminUsagePanel() {
   const [days, setDays] = useState(7)
+  const [page, setPage] = useState(1)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [downloadingKind, setDownloadingKind] = useState(null)
+  const [exportStart, setExportStart] = useState(() => kstDate(-6))
+  const [exportEnd, setExportEnd] = useState(() => kstDate(0))
+  const [downloadError, setDownloadError] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -27,17 +57,21 @@ export default function AdminUsagePanel() {
     const loadUsage = async () => {
       setLoading(true)
       setError('')
+      setData(null)
 
       try {
-        const result = await apiRequest(`/admin/usage?days=${days}`, {
+        const result = await apiRequest(`/admin/usage?days=${days}&page=${page}`, {
           signal: controller.signal,
           credentials: 'include',
         })
 
-        setData(result)
+        if (!controller.signal.aborted) {
+          setData(result)
+        }
       } catch (cause) {
-        if (cause.name !== 'AbortError') {
-          setError(cause.message)
+        if (!controller.signal.aborted && cause.name !== 'AbortError') {
+          setData(null)
+          setError(cause.message || 'Request failed')
         }
       } finally {
         if (!controller.signal.aborted) setLoading(false)
@@ -47,9 +81,36 @@ export default function AdminUsagePanel() {
     loadUsage()
 
     return () => controller.abort()
-  }, [days])
+  }, [days, page])
 
-  const maxSeconds = Math.max(1, ...(data?.daily || []).map((day) => day.seconds))
+
+  const handleCsvDownload = async (kind) => {
+    if (downloadingKind !== null) return
+
+    setDownloadingKind(kind)
+    setDownloadError('')
+
+    try {
+      await downloadAdminUsageCsv(days, kind, exportStart, exportEnd)
+    } catch (cause) {
+      setDownloadError(
+        cause.message || 'CSV ????? ??????.',
+      )
+    } finally {
+      setDownloadingKind(null)
+    }
+  }
+
+  const maxSeconds = Math.max(
+    1, ...(data?.daily || []).map((day) => Number(day.seconds) || 0),
+  )
+  const maxVisits = Math.max(
+    1, ...(data?.top_boards || []).map((board) => Number(board.visits) || 0),
+  )
+  const totalPages = Math.max(1, Number(data?.members_total_pages) || 1)
+  const currentPage = Math.min(
+    totalPages, Math.max(1, Number(data?.members_page) || page),
+  )
 
   return (
     <div className="admin-usage">
@@ -112,13 +173,68 @@ export default function AdminUsagePanel() {
               type="button"
               className={days === value ? 'active' : ''}
               aria-pressed={days === value}
-              onClick={() => setDays(value)}
+              onClick={() => { setPage(1); setDays(value) }}
             >
               최근 {value}일
             </button>
           ))}
         </div>
       </div>
+
+
+      <div className="admin-usage-export">
+        <div className="admin-usage-export-range">
+          <strong>{'CSV \ub2e4\uc6b4\ub85c\ub4dc \uae30\uac04'}</strong>
+          <label>
+            <span>{'\uc2dc\uc791\uc77c'}</span>
+            <input
+              type="date"
+              aria-label="CSV start date"
+              value={exportStart}
+              max={kstDate(0)}
+              disabled={downloadingKind !== null}
+              onChange={(event) => setExportStart(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>{'\uc885\ub8cc\uc77c'}</span>
+            <input
+              type="date"
+              aria-label="CSV end date"
+              value={exportEnd}
+              max={kstDate(0)}
+              disabled={downloadingKind !== null}
+              onChange={(event) => setExportEnd(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="admin-usage-export-buttons">
+          <button
+            type="button"
+            disabled={loading || downloadingKind !== null}
+            onClick={() => handleCsvDownload('members')}
+          >
+            {downloadingKind === 'members'
+              ? '\ub2e4\uc6b4\ub85c\ub4dc \uc911...'
+              : '\ud68c\uc6d0\ubcc4 CSV'}
+          </button>
+
+          <button
+            type="button"
+            disabled={loading || downloadingKind !== null}
+            onClick={() => handleCsvDownload('boards')}
+          >
+            {downloadingKind === 'boards'
+              ? '\ub2e4\uc6b4\ub85c\ub4dc \uc911...'
+              : '\uac8c\uc2dc\ud310\ubcc4 CSV'}
+          </button>
+        </div>
+      </div>
+
+      {downloadError && (
+        <p className="admin-alert" role="alert">{downloadError}</p>
+      )}
 
       {error && <p className="admin-alert" role="alert">{error}</p>}
 
@@ -153,7 +269,7 @@ export default function AdminUsagePanel() {
           <section className="admin-usage-box">
             <h3>일별 이용 시간</h3>
             <div className="admin-usage-chart" role="list" aria-label="일별 이용 시간">
-              {data.daily.map((item) => (
+              {(data.daily || []).map((item) => (
                 <div className="admin-usage-bar-row" key={item.date} role="listitem">
                   <span className="admin-usage-date">{item.date.slice(5)}</span>
                   <div className="admin-usage-bar-track">
@@ -170,6 +286,45 @@ export default function AdminUsagePanel() {
             </div>
           </section>
 
+
+          <section className="admin-usage-box">
+            <div className="admin-usage-box-heading">
+              <h3>{'게시판별 방문 TOP 10'}</h3>
+              <span>{days} days</span>
+            </div>
+
+            {(data.top_boards || []).length === 0 ? (
+              <p className="admin-empty">
+                {'방문 기록이 없습니다.'}
+              </p>
+            ) : (
+              <div className="admin-usage-chart" role="list">
+                {data.top_boards.map((board, index) => (
+                  <div
+                    className="admin-usage-board-row"
+                    key={board.board_key}
+                    role="listitem"
+                  >
+                    <span className="admin-usage-board-name">
+                      <b>{index + 1}.</b> {board.name}
+                    </span>
+                    <div className="admin-usage-bar-track">
+                      <div
+                        className="admin-usage-bar"
+                        style={{
+                          width: `${((Number(board.visits) || 0) / maxVisits) * 100}%`,
+                        }}
+                      />
+                    </div>
+                    <span className="admin-usage-bar-label">
+                      {Number(board.visits || 0).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
           <section className="admin-usage-box">
             <h3>회원별 이용 시간 (최근 {days}일)</h3>
             <div className="admin-table-wrap">
@@ -183,23 +338,50 @@ export default function AdminUsagePanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.members.map((member) => (
+                  {(data.members || []).map((member) => (
                     <tr key={member.member_id}>
                       <td>{member.nickname} (#{member.member_id})</td>
                       <td>{formatDuration(member.seconds)}</td>
                       <td>{member.active_days}일</td>
-                      <td>{formatDuration(member.seconds / member.active_days)}</td>
+                      <td>{formatDuration(member.active_days > 0 ? member.seconds / member.active_days : 0)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {data.members.length === 0 && (
+            {(data.members || []).length === 0 && (
               <p className="admin-empty">아직 기록된 이용 시간이 없습니다.</p>
             )}
+
+            <div
+              className="admin-usage-pagination"
+              aria-label={'회원 목록 페이지 이동'}
+            >
+              <button
+                type="button"
+                disabled={loading || currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                {'이전'}
+              </button>
+
+              <span aria-live="polite">
+                {currentPage} / {totalPages}
+                {' ('}{Number(data.members_total || 0).toLocaleString()}
+                {'명)'}
+              </span>
+
+              <button
+                type="button"
+                disabled={loading || currentPage >= totalPages}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                {'다음'}
+              </button>
+            </div>
+
             <p className="admin-usage-note">
-              최대 100명의 회원을 이용 시간순으로 표시합니다.
-              로그인한 회원의 활성 탭에서 수집한 추정치이며, 기록은 설치 후부터 누적됩니다.
+              {'회원별 이용 시간은 페이지당 10명씩 표시됩니다. 활동 시간은 추정치입니다.'}
             </p>
           </section>
         </>

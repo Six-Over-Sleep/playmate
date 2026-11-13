@@ -7,20 +7,29 @@ import threading
 from typing import Any, Callable
 
 
-def connect_from_env():
-    """환경변수(DB_*)로 연결한다: autocommit, 서울 시간대, 서버 statement_timeout. 두 저장소가 함께 쓴다."""
+def connect_from_env(application_name: str = "playmate_bot"):
+    """환경변수(DB_*)로 연결한다: autocommit, 서울 시간대, 서버 statement_timeout. 두 저장소가 함께 쓴다.
+
+    application_name은 pg_stat_activity에서 봇의 연결 용도를 구분하려는 이름이다 (연결 수와는 무관).
+    """
     import psycopg
     import config
 
-    return psycopg.connect(
-        host=config.DB_HOST, port=int(config.DB_PORT), user=config.DB_USER,
-        password=config.DB_PASSWORD, dbname=config.DB_NAME,
-        sslmode=config.DB_SSLMODE, connect_timeout=10, autocommit=True,
-        options=(
-            "-c TimeZone=Asia/Seoul "
-            f"-c statement_timeout={config.DB_STATEMENT_TIMEOUT_MS}"
-        ),
-    )
+    try:
+        return psycopg.connect(
+            host=config.DB_HOST, port=int(config.DB_PORT), user=config.DB_USER,
+            password=config.DB_PASSWORD, dbname=config.DB_NAME,
+            sslmode=config.DB_SSLMODE, connect_timeout=10, autocommit=True,
+            application_name=application_name,
+            options=(
+                "-c TimeZone=Asia/Seoul "
+                f"-c statement_timeout={config.DB_STATEMENT_TIMEOUT_MS}"
+            ),
+        )
+    except psycopg.Error as error:
+        # 장애 때 "연결 한도 / 인증 / 네트워크"를 가를 수 있게 SQLSTATE와 용도만 남긴다 (접속 정보는 남기지 않는다).
+        print(f"[DB] 연결 실패 app={application_name} {type(error).__name__} sqlstate={getattr(error, 'sqlstate', None)}")
+        raise
 
 
 class Database:
@@ -32,9 +41,9 @@ class Database:
         self._lock = threading.RLock()
 
     @classmethod
-    def from_env(cls):
-        """실제 연결은 첫 쿼리 때 연다."""
-        return cls(connect_from_env)
+    def from_env(cls, application_name: str = "playmate_bot_feature"):
+        """실제 연결은 첫 쿼리 때 연다. 알림 / 공지 / HOT 저장소가 공유하는 연결의 이름을 붙인다."""
+        return cls(lambda: connect_from_env(application_name))
 
     def _reset(self) -> None:
         try:

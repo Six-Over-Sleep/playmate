@@ -28,6 +28,14 @@ DSN = os.environ.get("PLAYMATE_TEST_PG_DSN")
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 os.environ["DISCORD_BOT_TOKEN"] = "verification-only"
 os.environ["DISCORD_GUILD_ID"] = "1"
+# 루트 .env의 운영 DB 접속 정보가 테스트 프로세스에 들어와도 실수로 연결하지 않도록 비운다 (환경변수가 .env보다 우선).
+# DB를 쓰는 테스트는 일회용 로컬 DB의 DSN(PLAYMATE_TEST_PG_DSN)만 사용한다.
+for _name in ("DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_SSLMODE"):
+    os.environ[_name] = ""
+# 로컬 .env의 운영 설정(복구 범위, 한 번에 만드는 수 등)이 테스트 기본값을 바꾸지 않게 비워 둔다 (환경변수가 .env보다 우선).
+os.environ["PLAYMATE_CATCHUP_DAYS"] = ""
+os.environ["PLAYMATE_PROVISION_BATCH_LIMIT"] = ""
+os.environ["PLAYMATE_SYNC_MAX_CHANGES"] = ""
 
 import discord
 import psycopg
@@ -134,12 +142,17 @@ class FakeChannel:
         self.sent = []
         self.fail_send = None
         self.messages = []  # 최신순 Discord 기록 (created_at, author.bot)
+        self.fail_perm = None  # 설정하면 set_permissions가 이 예외로 실패한다
+        self.perm_attempts = 0
 
     @property
     def channels(self):
         return [c for c in self._children if c.id not in self.guild.cache_miss_ids]
 
     async def set_permissions(self, target, overwrite=None):
+        self.perm_attempts += 1
+        if self.fail_perm is not None:
+            raise self.fail_perm
         if overwrite is None:
             self.overwrites.pop(target, None)
         else:
@@ -426,6 +439,11 @@ async def main():
     def mode_of(recruit_id):
         return conn.execute("SELECT recruit_mode FROM recruits WHERE recruit_id=%s", (recruit_id,)).fetchone()[0]
 
+    def expire_backoff(extra=1):
+        """실패 backoff 대기 시간이 지난 것으로 만든다 (실제로 5분을 기다리지 않기 위한 시간 이동)."""
+        for key, (count, until) in list(sync._failures.items()):
+            sync._failures[key] = (count, until - timedelta(seconds=300 + extra))
+
     # =====================================================================
     # 3단계: 마감(deadline_at) 기반 생성
     # =====================================================================
@@ -689,7 +707,10 @@ async def main():
           "채널 조회가 불명확하면 완료로 보지 않고 권한을 바꾸지 않는다 (다음 poll 재시도)")
     guild.cache_miss_ids, guild.fetch_errors = set(), {}
     await sync.run_once()
-    check(_revoked_ok(cache_channel, 9009, "PUBLIC"), "조회가 정상화되면 다음 poll에서 회수")
+    check(_member_has_access(cache_channel, 9009), "채널 조회 실패는 backoff 중이라 바로 다음 poll에서 다시 시도하지 않는다")
+    expire_backoff()
+    await sync.run_once()
+    check(_revoked_ok(cache_channel, 9009, "PUBLIC"), "backoff가 지난 뒤 조회가 정상화되면 회수")
 
     # =====================================================================
     # 2단계: 단일 채널 삭제 / 안전
@@ -966,26 +987,29 @@ async def main():
     retire(manual_id)
     retire(abort_id)
 
-    # ---- row lock: Backend의 모임 방식 변경과 Discord 작업을 직렬화 -----------------------
+    # ---- 권한 동기화는 DB 락 없이 동시 변경을 견뎌야 한다 --------------------------------------
+    # (삭제 쪽 row lock은 아래 delete 테스트에서 계속 검증한다)
     lock_id, lock_channel = await create_meeting("락 모임", members=[(11, "HOST", "JOINED")])
     conn.execute("INSERT INTO recruit_members VALUES (%s,9,'MEMBER','JOINED')", (lock_id,))
     racer = BackendUpdate(lock_id)
+    seen = {}
 
     async def start_and_probe_once():
         if racer.task is None:
             racer.start()
             await racer.probe()
+            seen["idle_in_tx"] = idle_in_tx()
 
     guild.on_fetch_member = start_and_probe_once
     await sync.run_once()
     guild.on_fetch_member = None
-    check(racer.blocked is True, "grant: Bot이 row lock을 잡은 동안 Backend UPDATE가 대기")
-    check(_joined_ok(lock_channel, 9009), "grant: UPDATE가 막힌 동안 권한 부여 완료")
-    check(mode_of(lock_id) == "regular", "grant: Bot 작업 중에는 모임 방식 변경이 보이지 않는다")
+    check(racer.blocked is False, "grant: Discord API 호출 중에도 Backend UPDATE가 기다리지 않는다 (DB 락 없음)")
+    check(seen.get("idle_in_tx") == 1, "grant: Discord API 호출 중 Backend 모의 연결 외에 열려 있는 락 transaction이 없다")
+    check(_joined_ok(lock_channel, 9009), "grant: Backend가 모임을 수정하는 동안에도 권한 부여 완료")
     await racer.finish()
-    check(mode_of(lock_id) == "group", "grant: Bot commit 뒤 모임 방식 변경 완료")
+    check(mode_of(lock_id) == "group", "grant: Backend 변경도 막힘 없이 완료")
 
-    # 반대 순서: 이미 대상이 아니게 commit되었다면 Discord 쓰기 0회
+    # 읽은 직후 모임이 대상에서 빠지면 (변경 직전 재확인) Discord 쓰기 0회
     rev_id, rev_channel = await create_meeting("락 역순 모임", members=[(11, "HOST", "JOINED")])
     conn.execute("INSERT INTO recruit_members VALUES (%s,9,'MEMBER','JOINED')", (rev_id,))
     real_states = repo.list_participant_states
@@ -998,8 +1022,56 @@ async def main():
     repo.list_participant_states = snapshot_then_change
     await sync.run_once()
     repo.list_participant_states = real_states
-    check(not _joined_ok(rev_channel, 9009) and getattr(rev_channel, "perm_writes", 0) == 0,
-          "grant 역순: 대상이 아니게 commit된 뒤에는 Discord 권한 쓰기 0회")
+    check(not _joined_ok(rev_channel, 9009) and rev_channel.perm_attempts == 0,
+          "grant 역순: 읽은 뒤 대상이 아니게 되면 Discord 권한 쓰기 0회")
+
+    # 읽은 직후 참여 취소: 취소한 회원에게 권한을 주지 않는다 (변경 직전 재확인)
+    cancel_id, cancel_channel = await create_meeting("취소 경쟁 모임", members=[(11, "HOST", "JOINED")])
+    conn.execute("INSERT INTO recruit_members VALUES (%s,9,'MEMBER','JOINED')", (cancel_id,))
+
+    def snapshot_then_cancel():
+        states = real_states()
+        conn.execute("UPDATE recruit_members SET status='CANCELED' WHERE recruit_id=%s AND member_id=9", (cancel_id,))
+        return states
+
+    repo.list_participant_states = snapshot_then_cancel
+    await sync.run_once()
+    repo.list_participant_states = real_states
+    check(cancel_channel.perm_attempts == 0 and not _member_has_access(cancel_channel, 9009),
+          "참여 취소 경쟁: 읽은 직후 취소한 회원에게 권한을 부여하지 않는다")
+    await sync.run_once()
+    check(not _member_has_access(cancel_channel, 9009) and _joined_ok(cancel_channel, 1011),
+          "취소한 회원은 다음 동기화에서도 권한이 없고, HOST/다른 참여자 권한은 그대로")
+
+    # Discord API가 지연되는 동안 참여 상태가 바뀜: 이미 시작한 부여는 끝나고, 다음 동기화가 취소를 회수한다
+    slow_id, slow_channel = await create_meeting("API 지연 경쟁 모임", members=[(11, "HOST", "JOINED")])
+    conn.execute("INSERT INTO recruit_members VALUES (%s,9,'MEMBER','JOINED')", (slow_id,))
+
+    async def cancel_during_discord_call():
+        conn.execute("UPDATE recruit_members SET status='CANCELED' WHERE recruit_id=%s AND member_id=9", (slow_id,))
+
+    guild.on_fetch_member = cancel_during_discord_call
+    await sync.run_once()
+    guild.on_fetch_member = None
+    check(_member_has_access(slow_channel, 9009), "API 호출 중 취소: 이미 시작한 부여는 그대로 끝난다 (짧은 stale 구간)")
+    await sync.run_once()
+    check(_revoked_ok(slow_channel, 9009, "PUBLIC") and not _member_has_access(slow_channel, 9009)
+          and _joined_ok(slow_channel, 1011), "다음 동기화에서 취소한 회원은 회수되고 HOST 권한은 유지된다")
+
+    # 읽은 직후 모임 채널이 삭제 처리됨: 삭제된 채널에 권한을 쓰지 않는다
+    gone_id, gone_channel = await create_meeting("삭제 경쟁 모임", members=[(11, "HOST", "JOINED")])
+    conn.execute("INSERT INTO recruit_members VALUES (%s,9,'MEMBER','JOINED')", (gone_id,))
+
+    def snapshot_then_delete_record():
+        states = real_states()
+        conn.execute("UPDATE recruit_discord_channels SET discord_deleted_at=now() WHERE recruit_id=%s", (gone_id,))
+        return states
+
+    repo.list_participant_states = snapshot_then_delete_record
+    await sync.run_once()
+    repo.list_participant_states = real_states
+    check(gone_channel.perm_attempts == 0, "삭제 경쟁: 삭제 처리된 모임 채널에는 권한을 쓰지 않는다")
+    retire(gone_id)
 
     # delete: 삭제와 기록 전체가 락 안에서 이뤄진다
     dl_id, dl_channel = await create_meeting("락 삭제 모임")
@@ -1032,32 +1104,54 @@ async def main():
     check(guild.delete_calls == calls_before and dr_channel.id in guild.channels
           and row_of(dr_id)["discord_deleted_at"] is None, "delete 역순: 대상이 아니게 된 뒤에는 Discord delete 호출 0회")
 
-    # Backend가 아직 commit하지 않은 변경을 잡고 있으면 Bot은 대기했다가 아무것도 하지 않는다
+    # Backend가 recruits 행을 잠그고(미커밋) 있어도 권한 동기화는 기다리지 않고 새 연결도 만들지 않는다
     wait_id, wait_channel = await create_meeting("락 대기 모임", members=[(11, "HOST", "JOINED")])
     conn.execute("INSERT INTO recruit_members VALUES (%s,9,'MEMBER','JOINED')", (wait_id,))
     backend = psycopg.connect(DSN, options=DB_OPTIONS)
-    backend.execute("UPDATE recruits SET recruit_mode='group' WHERE recruit_id=%s", (wait_id,))
-    waiting = asyncio.create_task(sync.run_once())
-    await asyncio.sleep(0.7)
-    check(not waiting.done(), "Backend의 미커밋 변경이 있으면 Bot은 락 획득을 대기")
-    backend.commit()
-    await waiting
-    backend.close()
-    check(getattr(wait_channel, "perm_writes", 0) == 0, "대기 뒤 대상이 아니면 Discord 쓰기 0회")
-
-    # 락 대기 timeout: 건너뛰었다가 풀리면 처리
-    to_id, to_channel = await create_meeting("락 timeout 모임", members=[(11, "HOST", "JOINED")])
-    conn.execute("INSERT INTO recruit_members VALUES (%s,9,'MEMBER','JOINED')", (to_id,))
-    backend = psycopg.connect(DSN, options=DB_OPTIONS)
-    backend.execute("UPDATE recruits SET recruit_mode='regular' WHERE recruit_id=%s", (to_id,))  # 잠금만 보유
-    repo.lock_timeout_ms = 300
+    backend.execute("UPDATE recruits SET recruit_mode=recruit_mode WHERE recruit_id=%s", (wait_id,))  # 락만 보유
+    sessions_before = session_count()
+    started = time.monotonic()
     await sync.run_once()
-    del repo.lock_timeout_ms
-    check(getattr(to_channel, "perm_writes", 0) == 0, "락 대기가 길면 이번 poll은 건너뛰고 쓰기 0회")
+    elapsed = time.monotonic() - started
+    check(elapsed < 3 and _joined_ok(wait_channel, 9009), "Backend가 행 락을 쥐고 있어도 권한 동기화는 기다리지 않는다")
+    check(session_count() <= sessions_before, "권한 동기화는 참여자별 새 DB 연결을 만들지 않는다")
     backend.rollback()
     backend.close()
+
+    # ---- 권한 변경 실패 backoff (실제 PostgreSQL + 가짜 Discord)
+    fail_id, fail_channel = await create_meeting("실패 모임", members=[(11, "HOST", "JOINED")])
+    ok_id, ok_channel = await create_meeting("정상 모임", members=[(11, "HOST", "JOINED")])
+    conn.execute("INSERT INTO recruit_members VALUES (%s,9,'MEMBER','JOINED')", (fail_id,))
+    conn.execute("INSERT INTO recruit_members VALUES (%s,2,'MEMBER','JOINED')", (ok_id,))
+    fail_channel.fail_perm = discord.Forbidden(SimpleNamespace(status=403, reason="x"), "Missing Permissions")
     await sync.run_once()
-    check(_joined_ok(to_channel, 9009), "락이 풀린 다음 poll에서 처리")
+    check(fail_channel.perm_attempts == 1 and _joined_ok(ok_channel, 1002),
+          "한 회원의 권한 변경이 실패해도 다른 모임/회원은 같은 poll에서 처리된다")
+    for _ in range(3):
+        await sync.run_once()
+    check(fail_channel.perm_attempts == 1, "실패한 변경은 backoff 동안 다음 poll들에서 다시 시도하지 않는다")
+    failure_key = (fail_channel.id, 9009, "JOINED")
+    check(sync._failures[failure_key][0] == 1, "연속 실패 1회로 기록")
+    delays = []
+    for _ in range(6):
+        expire_backoff()
+        before = datetime.now(KST)
+        await sync.run_once()
+        count, until = sync._failures[failure_key]
+        delays.append((count, round((until - before).total_seconds() / 10) * 10))
+    check(delays == [(2, 60), (3, 120), (4, 240), (5, 300), (6, 300), (7, 300)],
+          "실패 대기: 30 -> 60 -> 120 -> 240 -> 최대 300초")
+    check(fail_channel.perm_attempts == 7, "backoff가 끝난 뒤에만 재시도")
+
+    # 참여 상태가 바뀌면 오래된 실패 기록이 동기화를 막지 않는다: 취소(기록 정리) 후 재참여는 즉시 처리
+    conn.execute("UPDATE recruit_members SET status='CANCELED' WHERE recruit_id=%s AND member_id=9", (fail_id,))
+    await sync.run_once()
+    check(failure_key not in sync._failures, "대상이 아닌 키의 실패 기록은 정리된다")
+    conn.execute("UPDATE recruit_members SET status='JOINED' WHERE recruit_id=%s AND member_id=9", (fail_id,))
+    fail_channel.fail_perm = None
+    await sync.run_once()
+    check(_joined_ok(fail_channel, 9009) and failure_key not in sync._failures,
+          "재참여는 오래된 실패 기록과 무관하게 바로 처리되고 성공하면 기록이 지워진다")
 
     # ---- 취소/누수: 락 획득 도중, 보유 중 취소 ---------------------------------------------
     leak_id, _ = await create_meeting("누수 모임")

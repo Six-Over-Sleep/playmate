@@ -70,6 +70,27 @@ DISCORD_CALL_TIMEOUT_SECONDS = 30
 SYNC_BACKOFF_BASE_SECONDS = 30
 SYNC_BACKOFF_MAX_SECONDS = 300
 SYNC_MAX_CHANGES_PER_POLL = int(os.getenv("PLAYMATE_SYNC_MAX_CHANGES") or "20")
+# 탈퇴 회원 등 자격 없는 사용자의 잔여 채널 권한 점검. 기본은 dry-run(로그만 남기고 권한은 바꾸지 않는다).
+# 실제 회수는 PLAYMATE_STRAY_REVOKE_ENABLED=true로 명시했을 때만 한다. 점검 주기는 기본 300초.
+STRAY_REVOKE_ENABLED = (os.getenv("PLAYMATE_STRAY_REVOKE_ENABLED") or "false").strip().lower() == "true"
+STRAY_AUDIT_INTERVAL_SECONDS = int(os.getenv("PLAYMATE_STRAY_AUDIT_INTERVAL_SECONDS") or "300")
+# 탈퇴 회원의 잔여 권한이라고 볼 수 있는 기간(일): 탈퇴한 지 이 기간이 지난 기록은 회수 근거로 쓰지 않는다
+# (그 뒤에 남은 overwrite는 운영자가 수동으로 준 권한일 가능성이 크므로 "수동 확인 필요"로만 기록한다).
+STRAY_WITHDRAWN_WINDOW_DAYS = int(os.getenv("PLAYMATE_STRAY_WITHDRAWN_WINDOW_DAYS") or "7")
+
+
+def _id_set(name: str) -> frozenset[int]:
+    """쉼표로 구분한 Discord ID 목록 환경변수. 숫자가 아닌 값은 무시한다."""
+    values = [part.strip() for part in (os.getenv(name) or "").split(",") if part.strip()]
+    ids = frozenset(int(v) for v in values if v.isdigit())
+    if len(ids) != len(values):
+        print(f"{name}에 숫자가 아닌 값이 있어 무시합니다.")
+    return ids
+
+
+# 잔여 권한 점검이 절대 회수하지 않는 대상: 운영진 역할 ID, 사용자 ID (운영 권한이 없어도 수동으로 권한을 받은 운영진 보호).
+STRAY_STAFF_ROLE_IDS = _id_set("PLAYMATE_STAFF_ROLE_IDS")
+STRAY_PROTECTED_USER_IDS = _id_set("PLAYMATE_PROTECTED_USER_IDS")
 # FAILED 생성의 자동 재시도 대기(MANUAL/ABORTED 제외) / 이보다 오래된 PENDING은 중단으로 보고 MANUAL 처리.
 SYNC_RETRY_AFTER_SECONDS = 300
 SYNC_STALE_PENDING_SECONDS = 600

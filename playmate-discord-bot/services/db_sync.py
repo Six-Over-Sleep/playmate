@@ -49,6 +49,7 @@ from services.meeting_space import (
 )
 from logging_setup import mask_id
 from services.official_channels import PROTECTED_CHANNEL_IDS
+from services.permission_audit import StrayPermissionAudit
 from services.permissions import (
     ChannelUnresolved,
     grant_participant_permissions,
@@ -119,6 +120,8 @@ class DbSync:
         self.visibility = visibility  # TODO: Backend가 모임별 값을 저장하면 그 값으로 교체
         # (채널, 회원, 목표 상태) -> (연속 실패 횟수, 다시 시도해도 되는 시각). 채널 조회 실패는 (채널, None, None).
         self._failures: dict[tuple, tuple[int, datetime]] = {}
+        # 탈퇴 회원 등 자격 없는 사용자의 잔여 권한 점검 (기본 dry-run, 5분 주기)
+        self._audit = StrayPermissionAudit(client, repository, visibility)
 
     # -- 1. 모집 마감된 모임 -> Discord 채널 -------------------------------
     async def provision_meetings(self, guild: discord.Guild) -> None:
@@ -314,13 +317,17 @@ class DbSync:
 
     # -- 한 번의 동기화 ---------------------------------------------------------------
     async def run_once(self) -> None:
-        """채널 생성 -> 참여자 권한 -> 활동 감지 대상 목록 갱신."""
+        """채널 생성 -> 참여자 권한 -> 잔여 권한 점검 -> 활동 감지 대상 목록 갱신."""
         guild = self.client.get_guild(GUILD_ID)
         if guild is None:
             print("Discord 서버를 찾을 수 없습니다.")
             return
         await self.provision_meetings(guild)
         await self.sync_participants(guild)
+        try:
+            await self._audit.run(guild)
+        except Exception as error:  # 점검 실패가 채널 생성/권한 동기화를 막으면 안 된다
+            print(f"[권한 점검] 이번 점검 실패, 다음 주기에 재시도: {type(error).__name__}")
         await call(self.repository.refresh_known_channels)
 
 

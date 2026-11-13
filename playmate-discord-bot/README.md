@@ -436,7 +436,7 @@ PLAYMATE_LOG_DIR=
 PLAYMATE_ADMIN_ROLE_ID=
 PLAYMATE_HOT_CHANNEL_ID=
 PLAYMATE_CAREER_CHANNEL_ID=   # #취업-소식 채널: 취업게시판 신규 글 자동 공지 (매일 18:00)
-PLAYMATE_WEB_BASE_URL=   # 예: https://playmate.example.com (localhost는 PLAYMATE_TEST_MODE=true일 때만)
+PLAYMATE_WEB_BASE_URL=   # 예: https://playmate.example.com (localhost는 PLAYMATE_TEST_MODE=true일 때만). 알림 DM / HOT / 취업 공지의 링크에 쓴다
 ```
 
 ### 중요
@@ -934,6 +934,33 @@ slash command는 `DISCORD_GUILD_ID` 서버에만 등록됩니다. Bot 초대 sco
   `updated_at`은 DB trigger가 갱신하므로 Bot이 직접 바꾸지 않습니다.
 - 한 알림의 처리·저장 실패는 로그만 남기고 다음 알림과 루프는 계속됩니다.
 - 상수: `config.NOTIFICATION_MAX_ATTEMPTS = 3`, `NOTIFICATION_RETRY_DELAY_SECONDS = 60`, `NOTIFICATION_BATCH_SIZE = 20`.
+
+**댓글·대댓글 DM의 원본 게시글 링크**
+
+COMMENT(내 게시글에 댓글)와 REPLY(내 댓글에 대댓글) DM 끝에 원본 게시글 링크를 한 줄 붙입니다. 문구, 게시글 제목, 보낼 대상, DM 수신 동의,
+재시도와 상태 전이(`SENT` / `SKIPPED` / `FAILED`)는 링크와 무관하게 그대로입니다. 알림의 `post_id`는 두 종류 모두 댓글이 달린 글(`comments.post_id`)입니다.
+
+```text
+(변경 전)                                  (변경 후, 예시 도메인)
+💬 내 게시글에 새 댓글이 달렸어요.          💬 내 게시글에 새 댓글이 달렸어요.
+게시글: 예시 게시글                         게시글: 예시 게시글
+                                            🔗 PlayMate에서 보기: https://playmate.example.test/board/3/posts/10
+```
+
+| 게시글 종류 | 판단 근거 (알림 조회 `claim_pending`의 JOIN) | 주소 (프론트 라우트와 같은 규칙, `services/web_links.py`) |
+| --- | --- | --- |
+| 일반 게시판 | `posts.post_type='BOARD'`, `posts.board_id` | `/board/{board_id}/posts/{post_id}` |
+| 모임 | `post_type='RECRUIT'`, `recruits.post_id`로 찾은 `recruit_id` | `/meetup/{recruit_id}` (post_id가 아님) |
+| 취업 | `post_type='CAREER'`, `career_posts.category_code`가 `reviews`/`talk`/`lounge`/`lab` | `/career/{category}/{post_id}` |
+
+- 웹 주소는 `PLAYMATE_WEB_BASE_URL`에서만 가져옵니다 (코드에 도메인을 고정하지 않음). 비어 있거나 http(s)가 아니면, 운영에서 localhost이면
+  링크만 생략하고 DM은 그대로 보냅니다 (localhost는 `PLAYMATE_TEST_MODE=true`일 때만 허용하는 기존 정책 유지).
+- **종류를 확실히 알 수 없으면 추측하지 않고 링크 없이** 보냅니다: `post_type`과 근거가 다르거나(예: BOARD인데 모임 행도 있음), 근거가 둘 이상이거나,
+  알 수 없는 `post_type`이거나, 상세 화면이 없는 취업 분류(예: `insights`)인 경우. 한 글이 다른 종류의 상세 페이지로 연결되는 일을 막기 위한 것입니다.
+- 삭제되었거나 존재하지 않는 글·댓글은 기존대로 DM 없이 `SKIPPED`(대상 없음)입니다. 링크 생성 중 예외가 나도 DM은 링크 없이 발송됩니다.
+- 로그인 전후: 링크는 로그인 상태와 무관하게 같은 주소입니다. 다만 현재 웹의 Discord 로그인은 완료 후 `/`로 돌아와서(백엔드 콜백이 원래 경로를 보관하지 않음),
+  **로그인하지 않은 상태에서 링크를 열면 로그인 후 원래 글이 아니라 기본 화면으로 이동할 수 있습니다.** 이를 고치려면 백엔드/프론트에 로그인 후 복귀 경로 기능이 필요합니다(이 Bot의 범위 밖).
+- DB 계정에 `recruits`, `career_posts`의 SELECT 권한이 필요합니다 (모임 동기화와 HOT/취업 공지에서 이미 읽는 테이블입니다).
 
 **제한 사항 (MVP에서 허용)**
 

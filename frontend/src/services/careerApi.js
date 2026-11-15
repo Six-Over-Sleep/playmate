@@ -22,11 +22,6 @@ async function request(url, options = {}) {
         ...options.headers,
     }
 
-    // 개발·테스트 환경에서만 사용하는 회원 ID
-    if (import.meta.env.DEV && import.meta.env.VITE_DEV_MEMBER_ID) {
-        headers['X-Dev-Member-ID'] = import.meta.env.VITE_DEV_MEMBER_ID
-    }
-
     const response = await fetch(url, {
         ...options,
         headers,

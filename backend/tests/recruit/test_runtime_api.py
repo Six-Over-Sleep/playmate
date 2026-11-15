@@ -48,41 +48,56 @@ def runtime(service, monkeypatch):
     monkeypatch.setenv("ENABLE_RECRUIT_PROGRAMS", "true")
     app.dependency_overrides[build_program_service] = lambda: service
 
-    def fake_auth(request, development_member):
-        member = request.session.get("member_id") or development_member
-        if member is None:
-            raise HTTPException(401, "로그인이 필요합니다.")
-        return member
+    def fake_auth(request):
+        """실제 DB 연결 없이 Discord 세션 구조를 검증합니다."""
+        member_id = request.session.get("member_id")
+        user = request.session.get("user")
+
+        if (
+            type(member_id) is not int
+            or not isinstance(user, dict)
+            or not user.get("discord_id")
+        ):
+            raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+
+        return member_id
 
     monkeypatch.setattr(routes, "get_current_member_id", fake_auth)
-    cookie = (
-        TimestampSigner("isolated-test-secret")
-        .sign(
-            b64encode(
-                json.dumps({"member_id": 1, "user": {"discord_id": "fake"}}).encode()
-            )
-        )
-        .decode()
-    )
+
+    def session_cookie(member_id):
+        """테스트 회원별 서명된 로그인 세션을 생성합니다."""
+        payload = {
+            "member_id": member_id,
+            "user": {"discord_id": f"test-{member_id}"},
+        }
+        encoded = b64encode(json.dumps(payload).encode())
+        signed = TimestampSigner("isolated-test-secret").sign(encoded)
+        return f"playmate_session={signed.decode()}"
 
     class Client:
         def request(self, method, path, *, member=None, legacy_login=False, **kwargs):
-            headers = {}
-            if member is not None:
-                headers["X-Dev-Member-ID"] = str(member)
-            if legacy_login:
-                headers["Cookie"] = "playmate_session=" + cookie
+            headers = dict(kwargs.pop("headers", {}) or {})
+
+            # 기존 테스트의 member 인자는 유지하되 인증에는 세션을 사용합니다.
+            if member is not None or legacy_login:
+                member_id = member if member is not None else 1
+                headers["Cookie"] = session_cookie(member_id)
 
             async def send():
                 async with httpx.AsyncClient(
-                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                    transport=httpx.ASGITransport(app=app),
+                    base_url="http://test",
                 ) as client:
-                    return await client.request(method, path, headers=headers, **kwargs)
+                    return await client.request(
+                        method,
+                        path,
+                        headers=headers,
+                        **kwargs,
+                    )
 
             return asyncio.run(send())
 
     yield Client()
-    app.dependency_overrides.pop(build_program_service, None)
 
 
 def json_payload(payload):

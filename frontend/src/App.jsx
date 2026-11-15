@@ -70,8 +70,6 @@ function AppContent() {
 
   const [avatarUrl, setAvatarUrl] = useState(null)
 
-  // 개발용 관리자 직접 진입 여부
-  const [devAdminMode, setDevAdminMode] = useState(false)
 
   // =========================================================
   // 화면 상태
@@ -112,8 +110,6 @@ function AppContent() {
   // =========================================================
 
   const enterService = useCallback(() => {
-    // 일반 Discord 로그인은 개발용 관리자 모드를 사용하지 않는다.
-    setDevAdminMode(false)
     setAuthView('board')
   }, [])
 
@@ -122,11 +118,6 @@ function AppContent() {
   // =========================================================
 
   const checkAuth = useCallback(async () => {
-    // 개발 관리자 모드에서는 실제 인증 확인 생략
-    if (devAdminMode) {
-      return
-    }
-
     try {
       const data = await apiRequest('/me', {
         urlBuilder: getAuthUrl,
@@ -210,44 +201,57 @@ function AppContent() {
     }
   }, [
     enterService,
-    devAdminMode,
   ])
 
   useEffect(() => {
     checkAuth()
   }, [checkAuth])
 
-  // =========================================================
-  // 개발 환경 관리자 진입
-  // =========================================================
+  // Keep the UI synchronized with server-side admin authorization.
+  useEffect(() => {
+    const onAdminAuthError = (event) => {
+      setRoleCode('')
 
-  const handleDevAdmin = () => {
-    if (!import.meta.env.DEV) {
-      return
+      if (event.detail?.status === 401) {
+        setCurrentMemberId(null)
+        setNickname('')
+        setAvatarUrl(null)
+        setAuthView('login')
+      }
     }
 
-    setDevAdminMode(true)
+    window.addEventListener('playmate:admin-auth-error', onAdminAuthError)
 
-    setCurrentMemberId(null)
-    setRoleCode('ADMIN')
-    setNickname('관리자')
+    return () => {
+      window.removeEventListener('playmate:admin-auth-error', onAdminAuthError)
+    }
+  }, [])
 
-    setMemberCourse(null)
-    setMemberCohort(null)
-    setAvatarUrl(null)
+  // Recheck the role when returning to the application.
+  useEffect(() => {
+    if (authView !== 'board') return undefined
 
-    // 관리자 페이지로 바로 가지 않고 게시판으로 진입
-    setSavedSection('board')
+    const refreshRole = async () => {
+      try {
+        const data = await apiRequest('/me', {
+          urlBuilder: getAuthUrl,
+          credentials: 'include',
+          cache: 'no-store',
+        })
 
-    sessionStorage.setItem(
-      SECTION_STORAGE_KEY,
-      'board',
-    )
+        setRoleCode((data.member?.role_code || '').toUpperCase())
+      } catch (error) {
+        if (error.status === 401) {
+          setRoleCode('')
+          setCurrentMemberId(null)
+          setAuthView('login')
+        }
+      }
+    }
 
-    navigate('/board')
-
-    setAuthView('board')
-  }
+    window.addEventListener('focus', refreshRole)
+    return () => window.removeEventListener('focus', refreshRole)
+  }, [authView])
 
   // =========================================================
   // 로그아웃
@@ -277,11 +281,6 @@ function AppContent() {
   // =========================================================
 
   const handleWithdraw = async () => {
-    if (devAdminMode) {
-      alert('개발용 관리자 모드에서는 회원 탈퇴를 할 수 없습니다.')
-      return
-    }
-
     if (!window.confirm('정말 회원 탈퇴하시겠습니까?')) return
 
     try {
@@ -558,9 +557,7 @@ function AppContent() {
 
           <button
             className="button purple"
-            onClick={() =>
-              navigate('/board')
-            }
+            onClick={() => handleNavigate('board')}
           >
             게시판으로 돌아가기
           </button>
@@ -642,9 +639,6 @@ function AppContent() {
     <LoginPage
       onSignup={() =>
         setAuthView('signup')
-      }
-      onDevAdmin={
-        handleDevAdmin
       }
     />
   )

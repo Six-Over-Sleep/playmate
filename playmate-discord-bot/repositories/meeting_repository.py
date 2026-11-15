@@ -18,6 +18,7 @@ from config import (
     CHANNEL_CATCHUP_DAYS,
     CHANNEL_PROVISION_BATCH_LIMIT,
     CHANNEL_RECRUIT_MODES,
+    STRAY_WITHDRAWN_WINDOW_DAYS,
     DB_LOCK_IDLE_IN_TRANSACTION_MS,
     DB_LOCK_TIMEOUT_MS,
     KST,
@@ -267,8 +268,10 @@ class PostgresMeetingRepository:
            AND {_managed('rc')}
     """
 
-    def __init__(self, connect: Callable[[], Any]):
+    def __init__(self, connect: Callable[[], Any], lock_connect: Callable[[], Any] | None = None):
         self._connect = connect
+        # 락 전용 연결을 여는 함수. 따로 주지 않으면 같은 함수로 연다 (기존 생성자와 호환).
+        self._lock_connect = lock_connect or connect
         self._conn = None
         self._last_used = 0.0
         self._lock = threading.RLock()
@@ -279,7 +282,10 @@ class PostgresMeetingRepository:
     @classmethod
     def from_env(cls):
         """환경변수(DB_*)로 저장소를 만든다. 실제 연결은 첫 쿼리 때 연다."""
-        return cls(connect_from_env)
+        return cls(
+            lambda: connect_from_env("playmate_bot_meeting"),
+            lambda: connect_from_env("playmate_bot_lock"),
+        )
 
     # -- 연결 ---------------------------------------------------------
     def _connection(self):
@@ -720,6 +726,60 @@ class PostgresMeetingRepository:
                                "discord_id": discord_id, "channel_id": channel_id})
         return states
 
+    def list_audit_rows(self, recruit_id: int | None = None,
+                        window_days: int = STRAY_WITHDRAWN_WINDOW_DAYS) -> list[dict]:
+        """잔여 권한 점검용: 관리 중인 모임 채널과 모든 참여자 행(JOINED/CANCELED 포함, 탈퇴 회원 포함).
+
+        참여자가 없는 모임도 한 행(status=None)으로 나온다. 탈퇴 회원은 discord_id가 `w<member_id>` 형태다.
+        DB 락을 잡지 않는 단순 조회이며, 점검이 판정에 쓸 수 있도록 값을 가공하지 않고 그대로 돌려준다.
+        withdrawn_recent는 탈퇴한 지 window_days일 이내인지(회원 정보 갱신 시각 기준)이며, 잔여 권한 점검이 탈퇴 근거로
+        쓰는 값이다. 갱신 시각을 알 수 없으면 근거로 쓰지 않는다. recruit_id를 주면 그 모임만 조회한다 (회수 직전 재확인용).
+        """
+        where, params = "", [window_days]
+        if recruit_id is not None:
+            where = " AND rc.recruit_id = %s"
+            params.append(recruit_id)
+        return self._execute(
+            f"""
+            SELECT rc.recruit_id, rc.discord_text_channel_id, rm.status, rm.role,
+                   m.discord_id, m.member_status,
+                   COALESCE(m.updated_at >= now() - make_interval(days => %s), FALSE) AS withdrawn_recent
+              FROM recruit_discord_channels rc
+              LEFT JOIN recruit_members rm ON rm.recruit_id = rc.recruit_id
+              LEFT JOIN members m ON m.member_id = rm.member_id
+             WHERE rc.sync_status = 'SUCCESS'
+               AND rc.discord_deleted_at IS NULL
+               AND {_CHANNEL_ROW}
+               AND {_managed('rc')}{where}
+             ORDER BY rc.recruit_id
+            """,
+            tuple(params), fetch="all",
+        )
+
+    def participant_status(self, recruit_id: int, discord_id: int) -> str | None:
+        """권한을 바꾸기 직전의 최신 참여 상태(JOINED/CANCELED). 대상 모임이 아니거나 채널이 사라졌으면 None.
+
+        list_participant_states와 같은 조건을 한 회원에 대해 다시 읽는다. DB 락을 잡지 않는 단순 조회다.
+        """
+        row = self._execute(
+            f"""
+            SELECT rm.status
+              FROM recruit_discord_channels rc
+              JOIN recruit_members rm ON rm.recruit_id = rc.recruit_id
+              JOIN members m ON m.member_id = rm.member_id
+             WHERE rc.recruit_id = %s
+               AND rc.sync_status = 'SUCCESS'
+               AND rc.discord_deleted_at IS NULL
+               AND {_CHANNEL_ROW}
+               AND {_managed('rc')}
+               AND m.member_id <> -1
+               AND m.discord_id = %s
+               AND rm.status IN ('JOINED', 'CANCELED')
+            """,
+            (recruit_id, str(discord_id)), fetch="one",
+        )
+        return None if row is None else row["status"]
+
     def list_joined_discord_ids(self, recruit_id: int) -> list[int]:
         """한 모임의 JOINED 참여자 Discord ID (채널 생성 때 최종 참여자로 사용). HOST 포함, -1/무효 ID 제외."""
         rows = self._execute(
@@ -892,7 +952,7 @@ class _PostgresMeetingLock:
         with self._state:
             if self._abandoned:  # worker가 시작하기도 전에 취소됨
                 return
-        conn = self._repository._connect()
+        conn = self._repository._lock_connect()
         self._conn = conn
         try:
             self._tx = conn.transaction()
@@ -920,6 +980,7 @@ class _PostgresMeetingLock:
                 raise GuardRejected()
         except psycopg.errors.LockNotAvailable as error:
             self._finish(False)
+            print(f"[DB 락] recruits 행 락 대기 {int(self._repository.lock_timeout_ms)}ms 초과 recruit_id={self._recruit_id}")
             raise MeetingLockUnavailable() from error
         except BaseException:
             self._finish(False)

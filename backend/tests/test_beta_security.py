@@ -140,10 +140,14 @@ def test_production_recruit_dispatch_rejects_dev_header(monkeypatch):
 
     monkeypatch.setenv("APP_ENV", "production")
     used = forbid_auth_db(monkeypatch)
-    request = Request({"type": "http", "headers": [], "session": {}})
+    request = Request({
+    "type": "http",
+    "headers": [(b"x-dev-member-id", b"1")],
+    "session": {},
+    })
 
     with pytest.raises(HTTPException) as error:
-        get_dispatch_service(request, MagicMock(), x_dev_member_id=1)
+        get_dispatch_service(request, MagicMock())
 
     assert error.value.status_code == 401
     used.assert_not_called()
@@ -168,16 +172,19 @@ def _member_exists_cursor(*_, **__):
 
 
 @pytest.mark.parametrize("app_env", ["development", "test"])
-def test_development_dev_header_still_authenticates(monkeypatch, app_env):
+def test_dev_header_never_authenticates(monkeypatch, app_env):
     monkeypatch.setenv("APP_ENV", app_env)
-    monkeypatch.setattr(auth, "db_cursor", _member_exists_cursor)
+    used = forbid_auth_db(monkeypatch)
+
     client = TestClient(_whoami_app())
 
-    response = client.get("/whoami", headers={"X-Dev-Member-ID": "7"})
+    response = client.get(
+        "/whoami",
+        headers={"X-Dev-Member-ID": "7"},
+    )
 
-    assert response.status_code == 200
-    assert response.json() == {"member_id": 7}
-
+    assert response.status_code == 401
+    used.assert_not_called()
 
 # ---------------------------------------------------------
 # 6~7. API 문서

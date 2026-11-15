@@ -4,6 +4,8 @@
 """
 import discord
 
+from logging_setup import mask_id
+
 from services.meeting_space import participant_overwrite, resolve_channel
 
 
@@ -22,10 +24,10 @@ async def _channel_and_member(guild: discord.Guild, channel_id: int, participant
     try:
         member = await guild.fetch_member(participant_id)
     except discord.NotFound:
-        print(f'참여자를 찾을 수 없음: {participant_id}')
+        print(f'참여자를 찾을 수 없음: {mask_id(participant_id)}')
         return None
     except discord.Forbidden:
-        print(f'참여자 조회 권한 없음: {participant_id}')
+        print(f'참여자 조회 권한 없음: {mask_id(participant_id)}')
         return None
     return channel, member
 
@@ -41,7 +43,7 @@ async def grant_participant_permissions(guild: discord.Guild, channel_id: int, p
         return False
     channel, member = found
     await channel.set_permissions(member, overwrite=participant_overwrite())
-    print(f'참여자 권한 부여 완료: {member} → channel_id={channel_id}')
+    print(f'참여자 권한 부여 완료: {mask_id(participant_id)} → channel_id={channel_id}')
     return True
 
 
@@ -71,7 +73,7 @@ async def remove_participant_permissions(
         overwrite = None
     await channel.set_permissions(member, overwrite=overwrite)
     if visibility == 'PUBLIC':
-        print(f'PUBLIC 참여 취소 처리 완료: {member} → 읽기만 허용')
+        print(f'PUBLIC 참여 취소 처리 완료: {mask_id(participant_id)} → 읽기만 허용')
     else:
-        print(f'PRIVATE 참여 취소 처리 완료: {member} → 접근 권한 제거')
+        print(f'PRIVATE 참여 취소 처리 완료: {mask_id(participant_id)} → 접근 권한 제거')
     return True

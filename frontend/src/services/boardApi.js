@@ -6,13 +6,8 @@ import { resolveMediaUrl } from '../config/api'
 
 /** 기존 게시판 개발용 헤더만 연결한다. 인증·모임에는 이 헤더를 강제하지 않는다. */
 function request(path, options = {}) {
-  const headers = new Headers(options.headers)
-  const devMemberId = import.meta.env.VITE_DEV_MEMBER_ID
-  // 운영 빌드에서는 개발용 회원 헤더를 보내지 않는다.
-  if (import.meta.env.DEV && devMemberId) headers.set('X-Dev-Member-ID', devMemberId)
-  return apiRequest(path, { ...options, headers })
+  return apiRequest(path, options)
 }
-
 /** endpoint와 payload만 정의한다. 조회 options는 취소 신호 전달에 사용한다. */
 export const boardApi = {
   /** 게시판 목록을 조회한다. options로 AbortSignal 등 조회 옵션을 전달할 수 있다. */

@@ -29,12 +29,12 @@ function scrapTime(value) {
 }
 
 function getPostScrapPage(page) {
-  return apiRequest(`/mypage/scraps?page=${page}&page_size=${POST_PAGE_SIZE}`, {
-    credentials: 'include',
-    headers: devMemberId
-      ? { 'X-Dev-Member-ID': devMemberId }
-      : {},
-  })
+  return apiRequest(
+    `/mypage/scraps?page=${page}&page_size=${POST_PAGE_SIZE}`,
+    {
+      credentials: 'include',
+    },
+  )
 }
 
 // 합친 목록의 page번째 10건을 만들려면 게시글 스크랩도 최신 page*10건이 필요하다.

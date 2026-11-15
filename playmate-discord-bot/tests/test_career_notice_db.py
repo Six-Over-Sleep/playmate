@@ -22,6 +22,10 @@ if not DSN:
     sys.exit(0)
 os.environ["DISCORD_BOT_TOKEN"] = "verification-only"
 os.environ["DISCORD_GUILD_ID"] = "1"
+# 루트 .env의 운영 DB 접속 정보가 테스트 프로세스에 들어와도 실수로 연결하지 않도록 비운다 (환경변수가 .env보다 우선).
+# DB를 쓰는 테스트는 일회용 로컬 DB의 DSN(PLAYMATE_TEST_PG_DSN)만 사용한다.
+for _name in ("DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_SSLMODE"):
+    os.environ[_name] = ""
 
 import discord
 import psycopg

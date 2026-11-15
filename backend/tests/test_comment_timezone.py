@@ -69,5 +69,7 @@ def test_comment_and_report_queries_cast_to_timestamptz():
     mypage = (APP / "routers" / "mypage.py").read_text(encoding="utf-8")
     assert "c.created_at::timestamptz AS created_at" in mypage
     moderation = (APP / "routers" / "board_moderation.py").read_text(encoding="utf-8")
-    assert moderation.count("MAX(r.created_at)::timestamptz AS last_reported_at") == 2
-    assert "r.created_at::timestamptz AS created_at" in moderation
+    # 요약형·상세형·페이지형(develop #108) 신고 조회 모두 시간대 포함
+    assert "MAX(r.created_at) AS" not in moderation
+    assert moderation.count("MAX(r.created_at)::timestamptz AS last_reported_at") == 3
+    assert moderation.count("r.created_at::timestamptz AS created_at") == 2

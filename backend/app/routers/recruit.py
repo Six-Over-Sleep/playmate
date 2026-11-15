@@ -1,6 +1,6 @@
 # 모임의 생성, 조회, 수정, 삭제 및 참여 관리 API를 연결하는 Router
 
-from fastapi import APIRouter, Body, Depends, Header, Request, HTTPException
+from fastapi import APIRouter, Body, Depends, Request
 from sqlalchemy.orm import Session
 
 from backend.app.core.database import get_db
@@ -41,37 +41,10 @@ router = APIRouter(
 # 로그인 회원 ID
 # =========================================================
 
-def _dev_member_header(request: Request) -> int | None:
-    """
-    X-Dev-Member-ID 헤더를 공통 인증과 같은 정수 규칙으로 읽음.
-    헤더 사용 허용 여부(개발·테스트 환경)는 get_current_member_id가 판단함.
-    """
-
-    value = request.headers.get("x-dev-member-id")
-
-    if value is None:
-        return None
-
-    try:
-        return int(value)
-    except ValueError:
-        raise HTTPException(
-            status_code=422,
-            detail="X-Dev-Member-ID는 정수여야 합니다.",
-        ) from None
-
 
 def _login_member_id(request: Request) -> int:
-    """
-    공통 인증(get_current_member_id)으로 로그인 회원 ID를 확인함.
-
-    세션에 member_id가 있다는 것만으로 허용하지 않고,
-    DB에서 회원·Discord ID·활성 상태(ACTIVE)를 다시 확인함.
-    비로그인, 유효하지 않은 세션, 탈퇴·비활성 회원은 401.
-    """
-
-    return get_current_member_id(request, _dev_member_header(request))
-
+    """Discord 로그인 세션으로 회원을 인증합니다."""
+    return get_current_member_id(request)
 
 # =========================================================
 # Recruit Dispatch Service
@@ -79,26 +52,9 @@ def _login_member_id(request: Request) -> int:
 
 def get_dispatch_service(
     request: Request,
-    program_service: ProgramService = Depends(
-        build_program_service
-    ),
-    x_dev_member_id: int | None = Header(
-        default=None
-    ),
+    program_service: ProgramService = Depends(build_program_service),
 ):
-    """
-    기존 모임과 신규 프로젝트·스터디를 구분해 처리하는
-    RecruitDispatchService 의존성을 구성함.
-
-    PlayMate는 가입을 마친 활성 회원 전용 서비스이므로,
-    조회를 포함한 모든 모임 API에서 공통 인증으로 회원을 먼저 확인함.
-    비로그인·가입 미완료·탈퇴·비활성 회원은 401.
-    """
-
-    member_id = get_current_member_id(
-        request,
-        x_dev_member_id,
-    )
+    member_id = get_current_member_id(request)
 
     def verified():
         return member_id

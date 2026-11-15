@@ -4,9 +4,11 @@
 def is_admin(cursor, member_id: int) -> bool:
     cursor.execute(
         """
-        SELECT 1 FROM members
+        SELECT 1
+        FROM members
         WHERE member_id = %s
           AND UPPER(COALESCE(role_code, '')) = 'ADMIN'
+          AND member_status = 'ACTIVE'
         """,
         (member_id,),
     )
@@ -139,6 +141,46 @@ def list_board_posts(cursor, search: str) -> list[dict]:
     return list(cursor.fetchall())
 
 
+
+def count_board_posts(cursor, search: str) -> int:
+    cursor.execute(
+        """
+        SELECT COUNT(*)::int AS count
+        FROM posts AS p
+        JOIN boards AS b ON b.board_id = p.board_id
+        JOIN members AS m ON m.member_id = p.author_member_id
+        WHERE p.post_type = 'BOARD'
+          AND p.deleted_at IS NULL
+          AND b.board_name <> '\uacf5\uc9c0\uc0ac\ud56d'
+          AND (%s = '' OR p.title ILIKE %s)
+        """,
+        (search, f"%{search}%"),
+    )
+    return int(cursor.fetchone()["count"])
+
+
+def read_board_posts_page(cursor, search: str, page: int, size: int) -> list[dict]:
+    cursor.execute(
+        """
+        SELECT p.post_id AS id, p.title, p.board_id,
+               b.board_name AS board_name,
+               CASE WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자' ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
+               p.created_at, p.post_status,
+               (UPPER(COALESCE(p.post_status, 'PUBLISHED')) = 'HIDDEN') AS hidden
+        FROM posts AS p
+        JOIN boards AS b ON b.board_id = p.board_id
+        JOIN members AS m ON m.member_id = p.author_member_id
+        WHERE p.post_type = 'BOARD' AND p.deleted_at IS NULL
+          AND b.board_name <> '공지사항'
+          AND (%s = '' OR p.title ILIKE %s)
+        ORDER BY p.created_at DESC NULLS LAST, p.post_id DESC
+        LIMIT %s OFFSET %s
+        """,
+        (search, f"%{search}%", size, (page - 1) * size),
+    )
+    return list(cursor.fetchall())
+
+
 def set_post_hidden(cursor, post_id: int, hidden: bool) -> bool:
     cursor.execute(
         """
@@ -162,5 +204,88 @@ def list_members(cursor) -> list[dict]:
         ORDER BY member_id DESC
         LIMIT 200
         """
+    )
+    return list(cursor.fetchall())
+
+
+def count_admin_members(cursor, search: str) -> int:
+    cursor.execute(
+        """
+        SELECT COUNT(*)::int AS count
+        FROM members
+        WHERE member_id > 0
+          AND (
+              %s = ''
+              OR COALESCE(nickname, '') ILIKE %s
+              OR member_id::text = %s
+          )
+        """,
+        (search, f"%{search}%", search),
+    )
+    return int(cursor.fetchone()["count"])
+
+
+def read_members_page(cursor, search: str, page: int, size: int) -> list[dict]:
+    cursor.execute(
+        """
+        SELECT member_id, nickname, role_code, member_status, created_at
+        FROM members
+        WHERE member_id > 0
+          AND (
+              %s = ''
+              OR COALESCE(nickname, '') ILIKE %s
+              OR member_id::text = %s
+          )
+        ORDER BY member_id DESC
+        LIMIT %s OFFSET %s
+        """,
+        (search, f"%{search}%", search, size, (page - 1) * size),
+    )
+    return list(cursor.fetchall())
+
+
+def count_notices_paginated(cursor, search: str) -> int:
+    cursor.execute(
+        """
+        SELECT COUNT(*)::int AS count
+        FROM posts AS p
+        JOIN boards AS b ON b.board_id = p.board_id
+        JOIN members AS m ON m.member_id = p.author_member_id
+        WHERE b.board_name = '공지사항'
+          AND p.post_type = 'BOARD'
+          AND p.deleted_at IS NULL
+          AND (%s = '' OR p.title ILIKE %s)
+        """,
+        (search, f"%{search}%"),
+    )
+    return int(cursor.fetchone()["count"])
+
+
+def read_notices_paginated(
+    cursor, search: str, page: int, page_size: int
+) -> list[dict]:
+    offset = (page - 1) * page_size
+    cursor.execute(
+        """
+        SELECT
+            p.post_id AS id, p.board_id, p.title,
+            COALESCE(p.body, '') AS body,
+            p.created_at, p.updated_at,
+            CASE
+                WHEN m.member_status = 'WITHDRAWN'
+                THEN '\ud0c8\ud1f4\ud55c \uc0ac\uc6a9\uc790'
+                ELSE COALESCE(NULLIF(m.nickname, ''), '\uad00\ub9ac\uc790')
+            END AS author_name
+        FROM posts AS p
+        JOIN boards AS b ON b.board_id = p.board_id
+        JOIN members AS m ON m.member_id = p.author_member_id
+        WHERE b.board_name = '공지사항'
+          AND p.post_type = 'BOARD'
+          AND p.deleted_at IS NULL
+          AND (%s = '' OR p.title ILIKE %s)
+        ORDER BY p.created_at DESC NULLS LAST, p.post_id DESC
+        LIMIT %s OFFSET %s
+        """,
+        (search, f"%{search}%", page_size, offset),
     )
     return list(cursor.fetchall())

@@ -17,6 +17,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ["DISCORD_BOT_TOKEN"] = "verification-only"
 os.environ["DISCORD_GUILD_ID"] = "1"
+# 루트 .env의 운영 DB 접속 정보가 테스트 프로세스에 들어와도 실수로 연결하지 않도록 비운다 (환경변수가 .env보다 우선).
+# DB를 쓰는 테스트는 일회용 로컬 DB의 DSN(PLAYMATE_TEST_PG_DSN)만 사용한다.
+for _name in ("DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_SSLMODE"):
+    os.environ[_name] = ""
+# 로컬 .env의 운영 설정(복구 범위, 한 번에 만드는 수 등)이 테스트 기본값을 바꾸지 않게 비워 둔다 (환경변수가 .env보다 우선).
+os.environ["PLAYMATE_CATCHUP_DAYS"] = ""
+os.environ["PLAYMATE_PROVISION_BATCH_LIMIT"] = ""
+os.environ["PLAYMATE_SYNC_MAX_CHANGES"] = ""
 os.environ["PLAYMATE_TEST_MODE"] = "true"
 
 import discord
@@ -26,6 +34,9 @@ import config
 from config import KST
 from handlers import message_handler
 from repositories.meeting_repository import InMemoryMeetingRepository
+import logging_setup
+import services.db_sync as db_sync
+from repositories import db as db_module
 from services import lifecycle, meeting_space, official_channels
 
 NOW = datetime(2026, 10, 12, 11, 30, tzinfo=KST)
@@ -593,6 +604,416 @@ async def test_official_channels():
           "상시 채널은 모임 저장소에 없다 (자동삭제 대상 아님)")
 
 
+# ---------------------------------------------------------------- 참여자 권한 동기화 backoff (DB/Discord 없이)
+class SyncClock(datetime):
+    """db_sync가 보는 현재 시각을 테스트가 움직인다."""
+
+    current = NOW
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.current
+
+
+class FakeSyncRepo:
+    """DbSync.sync_participants가 쓰는 저장소 메서드만 가진 가짜. 락 메서드는 없다 (락 없이 동작해야 한다)."""
+
+    def __init__(self, states):
+        self.states = states
+        self.status_checks = 0
+
+    def list_participant_states(self):
+        return [dict(s) for s in self.states]
+
+    def participant_status(self, recruit_id, discord_id):
+        self.status_checks += 1
+        for s in self.states:
+            if s["recruit_id"] == recruit_id and s["discord_id"] == discord_id:
+                return s["status"]
+        return None
+
+
+class SyncChannel:
+    def __init__(self, channel_id):
+        self.id, self.overwrites, self.attempts, self.error, self.hang = channel_id, {}, [], None, False
+
+    async def set_permissions(self, target, overwrite=None):
+        self.attempts.append(SyncClock.current)
+        if self.hang:
+            await asyncio.sleep(5)
+        if self.error is not None:
+            raise self.error
+        self.overwrites[target] = overwrite
+
+
+def sync_state(recruit_id, channel_id, discord_id, status="JOINED"):
+    return {"recruit_id": recruit_id, "channel_id": channel_id, "discord_id": discord_id, "status": status}
+
+
+def sync_setup(states, channels):
+    guild = SimpleNamespace(
+        default_role=object(),
+        get_channel=lambda channel_id: channels.get(channel_id),
+        fetch_channel=AsyncMock(side_effect=discord_error("NotFound")),
+        fetch_member=AsyncMock(side_effect=lambda member_id: FakeMember(member_id)),
+    )
+    repository = FakeSyncRepo(states)
+    sync = db_sync.DbSync(SimpleNamespace(get_guild=lambda guild_id: guild), repository)
+    return sync, repository, guild
+
+
+async def poll(sync, guild, seconds=0):
+    """seconds만큼 시간을 보낸 뒤 한 번 동기화한다."""
+    SyncClock.current += timedelta(seconds=seconds)
+    await sync.sync_participants(guild)
+
+
+async def test_sync_backoff():
+    db_sync.datetime = SyncClock
+    try:
+        SyncClock.current = NOW
+        forbidden = discord_error("Forbidden")
+
+        # 영구적인 403: 1시간 동안 10초 polling을 해도 재시도가 몰리지 않고 다른 회원은 영향이 없다
+        bad, good = SyncChannel(1), SyncChannel(2)
+        bad.error = forbidden
+        sync, repository, guild = sync_setup(
+            [sync_state(1, 1, 111), sync_state(2, 2, 222)], {1: bad, 2: good})
+        await poll(sync, guild)
+        check(len(good.attempts) == 1 and len(bad.attempts) == 1, "첫 poll: 실패한 회원과 정상 회원 모두 한 번씩 시도")
+        for _ in range(360):
+            await poll(sync, guild, 10)
+        offsets = [round((t - NOW).total_seconds()) for t in bad.attempts]
+        check(offsets[:8] == [0, 30, 90, 210, 450, 750, 1050, 1350], f"30 -> 60 -> 120 -> 240 -> 300초 간격 {offsets[:8]}")
+        check(len(bad.attempts) <= 15, f"영구 오류도 1시간에 15회 이하 ({len(bad.attempts)}회, backoff 없으면 361회)")
+        check(len(good.attempts) == 1, "정상 회원은 이미 목표 상태라 다시 쓰지 않는다")
+        check(sync._failures[(1, 111, "JOINED")][0] == len(bad.attempts), "연속 실패 횟수 기록")
+
+        # 성공하면 실패 기록이 초기화된다
+        bad.error = None
+        await poll(sync, guild, 301)
+        check(111 in {getattr(t, "id", None) for t in bad.overwrites} and not sync._failures, "성공하면 실패 기록 초기화")
+
+        # 다른 종류의 실패: HTTP 오류 / 타임아웃 / 채널 조회 불명확 / 서버에 없는 회원
+        SyncClock.current = NOW
+        http_channel = SyncChannel(3)
+        http_channel.error = discord_error("HTTPException")
+        timeout_channel = SyncChannel(4)
+        timeout_channel.hang = True
+        original_timeout = db_sync.DISCORD_CALL_TIMEOUT_SECONDS
+        db_sync.DISCORD_CALL_TIMEOUT_SECONDS = 0.05
+        sync, repository, guild = sync_setup(
+            [sync_state(3, 3, 333), sync_state(4, 4, 444), sync_state(5, 5, 555), sync_state(6, 6, 666)],
+            {3: http_channel, 4: timeout_channel, 6: SyncChannel(6)})
+        guild.fetch_channel = AsyncMock(side_effect=discord_error("Forbidden"))  # 채널 5는 조회 자체가 불명확
+        guild.fetch_member = AsyncMock(side_effect=lambda member_id: (_ for _ in ()).throw(discord_error("NotFound"))
+                                       if member_id == 666 else FakeMember(member_id))
+        await poll(sync, guild)
+        db_sync.DISCORD_CALL_TIMEOUT_SECONDS = original_timeout
+        timeout_channel.hang = False
+        check(len(http_channel.attempts) == 1 and len(timeout_channel.attempts) == 1, "HTTP 오류 / 타임아웃도 한 번 시도")
+        check(sync._failures[(3, 333, "JOINED")][0] == 1 and sync._failures[(4, 444, "JOINED")][0] == 1,
+              "HTTP 오류와 타임아웃이 실패로 기록된다")
+        check(guild.fetch_channel.await_count == 1 and (5, None, None) in sync._failures, "채널 조회 불명확도 backoff")
+        before = guild.fetch_channel.await_count
+        for _ in range(2):
+            await poll(sync, guild, 10)
+        check(len(http_channel.attempts) == 1 and len(timeout_channel.attempts) == 1
+              and guild.fetch_channel.await_count == before, "30초 안의 다음 poll들은 재시도/재조회하지 않는다")
+        check(sync._failures[(6, 666, "JOINED")] == (0, SyncClock.current - timedelta(seconds=20) + db_sync.MISSING_MEMBER_BACKOFF),
+              "서버에 없는 회원은 실패 횟수 없이 5분 대기")
+        await poll(sync, guild, 11)
+        check(len(http_channel.attempts) == 2 and len(timeout_channel.attempts) == 2, "30초가 지나면 다시 시도한다")
+
+        # 참여 상태가 바뀌면(JOINED -> CANCELED -> JOINED) 오래된 실패 기록이 막지 않는다
+        SyncClock.current = NOW
+        flaky = SyncChannel(7)
+        flaky.error = forbidden
+        sync, repository, guild = sync_setup([sync_state(7, 7, 777)], {7: flaky})
+        await poll(sync, guild)
+        repository.states[0]["status"] = "CANCELED"
+        await poll(sync, guild, 1)
+        check(not sync._failures, "대상 상태가 바뀌면 이전 목표 상태의 실패 기록은 정리된다")
+        repository.states[0]["status"] = "JOINED"
+        flaky.error = None
+        await poll(sync, guild, 1)
+        check(len(flaky.attempts) == 2 and any(getattr(t, "id", None) == 777 for t in flaky.overwrites),
+              "재참여는 backoff를 기다리지 않고 바로 처리된다")
+
+        # 한 poll에서 처리하는 변경 수 상한: 넘는 분량은 실패가 아니라 다음 poll로 넘어간다
+        many = {i: SyncChannel(i) for i in range(10, 15)}
+        sync, repository, guild = sync_setup([sync_state(i, i, 1000 + i) for i in many], many)
+        original_cap = db_sync.SYNC_MAX_CHANGES_PER_POLL
+        db_sync.SYNC_MAX_CHANGES_PER_POLL = 2
+        done = []
+        for _ in range(3):
+            await poll(sync, guild, 10)
+            done.append(sum(1 for c in many.values() if c.overwrites))
+        db_sync.SYNC_MAX_CHANGES_PER_POLL = original_cap
+        check(done == [2, 4, 5] and not sync._failures, "poll당 변경 수 상한 2: 2 -> 4 -> 5건, backoff 없이 이어서 처리")
+
+        # 그사이 참여 상태가 바뀌었으면(변경 직전 재확인) Discord에 쓰지 않는다
+        late = SyncChannel(20)
+        sync, repository, guild = sync_setup([sync_state(20, 20, 2020)], {20: late})
+        original_states = repository.list_participant_states
+        repository.list_participant_states = lambda: (lambda s: (repository.states.clear(), s)[1])(original_states())
+        await poll(sync, guild)
+        check(not late.attempts and not sync._failures, "읽은 뒤 대상에서 빠졌다면 쓰지 않고 실패로도 기록하지 않는다")
+
+
+        # 상한(20)에 걸려도 취소한 회원의 권한 회수가 새 참여자 부여 뒤로 밀리지 않는다 (회수 우선)
+        SyncClock.current = NOW
+        grants = {i: SyncChannel(i) for i in range(100, 125)}  # 부여 25건
+        revoked_channel = SyncChannel(300)
+        revoked_channel.overwrites[FakeMember(9001)] = meeting_space.participant_overwrite()  # 쓰기 권한이 남은 취소 회원
+        states = [sync_state(i, i, 5000 + i) for i in grants] + [sync_state(300, 300, 9001, "CANCELED")]
+        sync, repository, guild = sync_setup(states, {**grants, 300: revoked_channel})
+        guild.fetch_member = AsyncMock(side_effect=lambda member_id: next(
+            (m for m in revoked_channel.overwrites if m.id == member_id), FakeMember(member_id)))
+        await poll(sync, guild)
+        first_poll_grants = sum(1 for c in grants.values() if c.overwrites)
+        check(len(revoked_channel.attempts) == 1 and first_poll_grants == 19,
+              "첫 poll(상한 20): 회수 1건이 먼저 처리되고 남은 19건만 부여한다")
+        await poll(sync, guild, 10)
+        check(sum(1 for c in grants.values() if c.overwrites) == 25 and not sync._failures,
+              "나머지 부여는 다음 poll에서 이어서 처리된다 (실패 기록 없음)")
+
+        # 회수가 실패해 backoff 중일 때 재참여하면 오래된 회수 실패 기록이 남지 않는다
+        SyncClock.current = NOW
+        stuck = SyncChannel(400)
+        stuck.overwrites[FakeMember(4001)] = meeting_space.participant_overwrite()
+        stuck.error = forbidden
+        sync, repository, guild = sync_setup([sync_state(400, 400, 4001, "CANCELED")], {400: stuck})
+        guild.fetch_member = AsyncMock(side_effect=lambda member_id: next(iter(stuck.overwrites)))
+        await poll(sync, guild)
+        check(sync._failures[(400, 4001, "CANCELED")][0] == 1, "회수 실패가 기록된다")
+        repository.states[0]["status"] = "JOINED"
+        stuck.error = None
+        await poll(sync, guild, 1)
+        check(not sync._failures and len(stuck.attempts) == 1,
+              "backoff 중 재참여: 이미 쓰기 권한이 있어 추가 변경 없이 오래된 회수 실패 기록만 정리된다")
+        check(not any(hasattr(repository, name) for name in ("meeting_lock",)), "권한 동기화 경로는 meeting_lock을 쓰지 않는다")
+    finally:
+        db_sync.datetime = datetime
+
+
+# ---------------------------------------------------------------- DB 연결 식별 (application_name)
+def test_connection_names():
+    import psycopg
+    from repositories.meeting_repository import PostgresMeetingRepository
+
+    captured = []
+    real_connect = psycopg.connect
+    psycopg.connect = lambda **kwargs: captured.append(kwargs) or SimpleNamespace(closed=False)
+    try:
+        db_module.connect_from_env()
+        db_module.connect_from_env("custom_name")
+        db_module.Database.from_env()._connect()
+        repository = PostgresMeetingRepository.from_env()
+        repository._connect()
+        repository._lock_connect()
+        names = [c["application_name"] for c in captured]
+        check(names == ["playmate_bot", "custom_name", "playmate_bot_feature", "playmate_bot_meeting", "playmate_bot_lock"],
+              f"연결 용도별 application_name {names}")
+        check(all(c["autocommit"] is True and c["connect_timeout"] == 10 for c in captured),
+              "나머지 연결 옵션(autocommit, connect_timeout)은 그대로")
+        plain = lambda: "same"  # noqa: E731
+        compat = PostgresMeetingRepository(plain)
+        check(compat._connect is plain and compat._lock_connect is plain, "기존 생성자(connect 하나)와 호환: 락 연결도 같은 함수")
+
+        # 연결 실패는 SQLSTATE와 용도만 남기고 접속 정보/비밀번호는 출력하지 않는다
+        import contextlib
+        import io
+
+        class Boom(psycopg.OperationalError):
+            sqlstate = "53300"
+
+        def failing(**kwargs):
+            raise Boom('connection to server at "secret-host" failed: FATAL: too many connections for role')
+
+        psycopg.connect = failing
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                db_module.connect_from_env("playmate_bot_lock")
+        except psycopg.OperationalError:
+            pass
+        message = out.getvalue()
+        check("playmate_bot_lock" in message and "53300" in message and "secret-host" not in message
+              and not (config.DB_PASSWORD and config.DB_PASSWORD in message), "연결 실패 로그: 용도와 SQLSTATE만, 접속 정보 없음")
+    finally:
+        psycopg.connect = real_connect
+
+
+# ---------------------------------------------------------------- 회전 파일 로그
+def test_file_logging():
+    import io
+    import logging
+    import subprocess
+    import tempfile
+
+    check(logging_setup._installed is False, "bot을 import해도 파일 로그를 켜지 않는다 (직접 실행할 때만)")
+    check(logging_setup.MAX_BYTES == 5 * 1024 * 1024 and logging_setup.BACKUP_COUNT + 1 == 5, "최대 5MB, 5개 파일")
+    check(logging_setup.LOG_DIR.name == "logs" and logging_setup.LOG_DIR.parent == ROOT, "저장 위치: playmate-discord-bot/logs/")
+
+    ignored = [subprocess.run(["git", "check-ignore", "-q", f"playmate-discord-bot/logs/{name}"], cwd=ROOT.parent).returncode
+               for name in ("bot.log", "bot.log.1", "bot.log.4")]
+    check(ignored == [0, 0, 0], "logs/bot.log와 백업 파일이 git에서 제외된다")
+
+    secret = "S3cr3t-Pa55word"
+    # Discord 토큰 "형태"(3부분, 점 구분)를 시험하되, 소스에는 토큰처럼 보이는 문자열을 두지 않도록 실행 시점에 조립한 명백한 가짜 값
+    token = "A" * 24 + "." + "B" * 6 + "." + "C" * 27
+    def file_logger(directory, name, max_bytes=None):
+        original = logging_setup.MAX_BYTES
+        if max_bytes:
+            logging_setup.MAX_BYTES = max_bytes
+        try:
+            handler = logging_setup.build_file_handler(Path(directory), secrets=(secret,))
+        finally:
+            logging_setup.MAX_BYTES = original
+        logger = logging.getLogger(name)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        logger.addHandler(handler)
+        return logger, handler
+
+    def read_all(directory):
+        return "".join(p.read_text(encoding="utf-8") for p in sorted(Path(directory).iterdir()))
+
+    # 비밀 가리기 (회전과 섞이지 않도록 한 파일에 모두 기록해 확인한다)
+    with tempfile.TemporaryDirectory() as tmp:
+        logger, handler = file_logger(tmp, "playmate.test.redact")
+        logger.info("비밀번호 값 %s 포함", secret)
+        logger.info("접속 postgresql://avnadmin:%s@db.example.com:12345/defaultdb?sslmode=require 시도", secret)
+        logger.info("password=%s token=abc123", secret)
+        logger.info("봇 토큰 %s", token)
+        logger.info('connection to server at "db.example.com" (10.0.0.1), port 12345 failed: FATAL: password authentication failed for user "avnadmin"')
+        logger.info("권한 변경 실패 member=%s", logging_setup.mask_id("123456789012345678"))
+        logger.info("일반 메시지 recruit_id=7 channel_id=5007")
+        handler.close()
+        content = read_all(tmp)
+        check(secret not in content and token not in content and "avnadmin" not in content
+              and "db.example.com" not in content and "abc123" not in content and "10.0.0.1" not in content,
+              "비밀번호/토큰/접속 URI/계정/서버 주소가 파일에 없다")
+        check(content.count("***") >= 6 and "member=…5678" in content and "123456789012345678" not in content,
+              "비밀은 ***로 가리고 Discord 사용자 ID는 뒤 4자리만 남긴다")
+        check("recruit_id=7 channel_id=5007" in content and " INFO " in content,
+              "진단에 필요한 모임/채널 ID와 레벨은 그대로 남는다")
+
+    # 회전: 크기를 넘으면 백업 파일로 넘어가고 전체 5개를 넘지 않는다
+    with tempfile.TemporaryDirectory() as tmp:
+        logger, handler = file_logger(tmp, "playmate.test.rotate", max_bytes=2000)
+        for number in range(120):
+            logger.info("회전 시험 %03d %s", number, "x" * 100)
+        handler.close()
+        names = sorted(p.name for p in Path(tmp).iterdir())
+        check(names == ["bot.log", "bot.log.1", "bot.log.2", "bot.log.3", "bot.log.4"],
+              f"회전: 현재 파일 + 백업 4개로 제한 {names}")
+        check("회전 시험 119" in (Path(tmp) / "bot.log").read_text(encoding="utf-8"), "가장 최근 로그는 bot.log에 있다")
+
+    # 파일 기록이 실패(디스크 가득 참, 회전 중 파일 잠김 등)해도 print()와 봇 기능이 멈추지 않는다
+    class FailingHandler(logging_setup._SafeRotatingFileHandler):
+        def emit(self, record):
+            try:
+                raise OSError("disk full")
+            except Exception:
+                self.handleError(record)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        failing_logger = logging.getLogger("playmate.test.failing")
+        failing_logger.setLevel(logging.INFO)
+        failing_logger.propagate = False
+        failing_handler = FailingHandler(str(Path(tmp) / "x.log"))
+        failing_logger.addHandler(failing_handler)
+        console_out, console_err = io.StringIO(), io.StringIO()
+        original_stderr = sys.stderr
+        sys.stderr = logging_setup._Tee(console_err, failing_logger, logging.WARNING)  # handleError가 stderr를 써도 재귀하지 않아야 한다
+        try:
+            logging_setup._Tee(console_out, failing_logger, logging.INFO).write("정상 출력\n")
+            raised = None
+        except BaseException as error:  # noqa: BLE001
+            raised = type(error).__name__
+        finally:
+            sys.stderr = original_stderr
+            failing_handler.close()
+        check(raised is None and console_out.getvalue() == "정상 출력\n",
+              f"파일 기록 실패가 print()로 전파되지 않고 콘솔 출력은 유지된다 (예외: {raised})")
+
+    # 기본 handleError(traceback을 stderr에 씀)를 쓰는 핸들러가 실패해도 Tee의 재진입 가드가 재귀를 막는다
+    class PlainFailingHandler(logging.Handler):
+        def emit(self, record):
+            try:
+                raise OSError("disk full")
+            except Exception:
+                self.handleError(record)
+
+    plain_logger = logging.getLogger("playmate.test.plain")
+    plain_logger.setLevel(logging.INFO)
+    plain_logger.propagate = False
+    plain_logger.addHandler(PlainFailingHandler())
+    guard_out, guard_err = io.StringIO(), io.StringIO()
+    original_stderr = sys.stderr
+    sys.stderr = logging_setup._Tee(guard_err, plain_logger, logging.WARNING)
+    try:
+        logging_setup._Tee(guard_out, plain_logger, logging.INFO).write("정상 출력\n")
+        guard_raised = None
+    except BaseException as error:  # noqa: BLE001
+        guard_raised = type(error).__name__
+    finally:
+        sys.stderr = original_stderr
+    check(guard_raised is None and guard_out.getvalue() == "정상 출력\n",
+          f"기본 handleError가 stderr에 써도 재귀하지 않는다 (예외: {guard_raised})")
+
+    # 로그 폴더를 만들 수 없으면 파일 로그만 포기하고 봇은 계속 시작한다
+    with tempfile.TemporaryDirectory() as tmp:
+        blocker = Path(tmp) / "not_a_dir"
+        blocker.write_text("파일", encoding="utf-8")
+        out = io.StringIO()
+        import contextlib
+        with contextlib.redirect_stdout(out):
+            handler = logging_setup.setup_file_logging(blocker / "logs")
+        check(handler is None and logging_setup._installed is False and "파일 로그를 켜지 못했습니다" in out.getvalue(),
+              "로그 폴더를 만들 수 없어도 예외 없이 콘솔 출력만으로 계속한다")
+
+    # stderr의 discord.py 로그는 줄에 적힌 등급으로 기록하고, 색상 코드는 파일에 남기지 않는다
+    levels = []
+
+    class LevelCapture(logging.Handler):
+        def emit(self, record):
+            levels.append((record.levelno, record.getMessage()))
+
+    level_logger = logging.getLogger("playmate.test.levels")
+    level_logger.propagate = False
+    level_logger.setLevel(logging.DEBUG)
+    level_logger.addHandler(LevelCapture())
+    level_logger.addFilter(logging_setup.RedactingFilter())
+    stderr_tee = logging_setup._Tee(io.StringIO(), level_logger, logging.WARNING)
+    stderr_tee.write("[2026-11-12 20:00:00] [INFO    ] discord.client: logging in\n")
+    stderr_tee.write("[2026-11-12 20:00:01] [WARNING ] discord.http: We are being rate limited. Retrying in 1.50 seconds\n")
+    stderr_tee.write("\x1b[30;1m2026-11-12 20:00:02\x1b[0m \x1b[34;1mINFO    \x1b[0m \x1b[35mdiscord.gateway\x1b[0m Shard connected\n")
+    stderr_tee.write("Traceback (most recent call last):\n")
+    check([lvl for lvl, _ in levels] == [logging.INFO, logging.WARNING, logging.INFO, logging.WARNING],
+          f"discord.py 로그 줄의 등급을 따르고, 그 밖의 stderr(traceback 등)는 WARNING {[lvl for lvl, _ in levels]}")
+    check(all("\x1b" not in message for _, message in levels), "색상 코드는 파일 로그에 남기지 않는다")
+
+    # 콘솔 출력은 그대로 두고 같은 줄을 파일 로거에도 보낸다
+    console, records = io.StringIO(), []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            records.append((record.levelno, record.getMessage()))
+
+    sink = logging.getLogger("playmate.test.tee")
+    sink.propagate = False
+    sink.setLevel(logging.INFO)
+    sink.addHandler(Capture())
+    tee = logging_setup._Tee(console, sink, logging.INFO)
+    tee.write("한 줄 출력\n부분")
+    tee.write(" 줄\n\n")
+    check(console.getvalue() == "한 줄 출력\n부분 줄\n\n", "콘솔 출력은 변경 없이 그대로 나간다")
+    check(records == [(logging.INFO, "한 줄 출력"), (logging.INFO, "부분 줄")], "줄 단위로 파일 로그에도 남긴다 (빈 줄 제외)")
+
+
 # ---------------------------------------------------------------- 배선
 async def test_wiring():
     repository = InMemoryMeetingRepository(meetings={100: meeting()})
@@ -687,6 +1108,9 @@ async def main():
     await test_activity_delete_race()
     await test_activity_tracking()
     await test_official_channels()
+    await test_sync_backoff()
+    test_connection_names()
+    test_file_logging()
     await test_wiring()
     print(f"PASS: {checks} policy and regression assertions passed.")
 

@@ -279,13 +279,19 @@ PENDING 행 선점 (중복 생성 방지) → 최종 JOINED 참여자 조회 (HO
   어느 하나라도 맞지 않으면 삭제하지 않고 삭제 완료로도 기록하지 않습니다.
 - 채널이 캐시에 없다는 것은 "없음"의 근거가 아닙니다. `fetch_channel`로 확인하고, Forbidden / HTTP 오류 / 타임아웃은
   "삭제 미완료"로 취급합니다. `discord_deleted_at`은 API가 NotFound를 돌려준 뒤에만 기록합니다.
-- **모임 방식 변경 직렬화 (DB row lock)**: 삭제와 참여/취소 권한 변경은 `recruits` 행에 `SELECT ... FOR SHARE`를 잡은 트랜잭션 안에서
+- **모임 방식 변경 직렬화 (DB row lock, 채널 삭제만)**: 채널 삭제는 `recruits` 행에 `SELECT ... FOR SHARE`를 잡은 트랜잭션 안에서
   실행합니다. 작업이 끝날 때까지 락을 유지하므로 Backend의 모임 방식 변경 UPDATE는 그동안 대기하고, 이미 대상이 아니게 commit되었다면
-  Bot은 락을 얻은 뒤 이를 확인하고 Discord를 건드리지 않습니다. 타임아웃은 세 가지로 구분됩니다.
+  Bot은 락을 얻은 뒤 이를 확인하고 Discord를 건드리지 않습니다. **참여자 권한 동기화는 이 락을 쓰지 않습니다**(아래 "참여자 권한 동기화"
+  참고). 타임아웃은 세 가지로 구분됩니다.
   - **DB 락 대기 5초** (`lock_timeout`): Backend가 해당 행을 잡고 있어 락을 못 얻으면 이번 주기는 건너뛰고 다음 주기에 재시도합니다.
   - **Discord 작업 전체 30초** (`DISCORD_LOCK_HOLD_SECONDS`): 락을 얻은 *이후*의 전체 구간(채널 조회, 삭제, 최종 확인, `discord_deleted_at` 기록)이
-    하나의 예산입니다. 초과하면 중단하고 기록 없이 rollback해 락을 풀며 다음 주기에 재시도합니다. 권한 변경도 같은 예산을 씁니다.
+    하나의 예산입니다. 초과하면 중단하고 기록 없이 rollback해 락을 풀며 다음 주기에 재시도합니다.
   - **서버 안전망 60초** (`idle_in_transaction_session_timeout`): Bot이 비정상 종료되었을 때를 위한 최후 수단입니다.
+- **참여자 권한 동기화는 DB 락 없이 동작합니다**: Discord API를 부르는 동안 `recruits` 행 락이나 전용 DB 연결을 잡지 않습니다.
+  대상 모임과 참여 상태는 조회(`list_participant_states`)에서 이미 걸러지고, 권한을 바꾸기 직전에 공유 연결로 최신 참여 상태를
+  한 번 더 읽어(`participant_status`) 그사이 취소/삭제/모임 변경이 있었다면 쓰지 않습니다. 읽은 직후 취소 같은 아주 짧은 경쟁은
+  다음 동기화(약 10초)가 같은 규칙으로 다시 맞춥니다 (권한 변경은 멱등, 취소한 회원은 다음 동기화에서 회수). Backend가 모임 방식으로
+  허용하는 값은 regular / short뿐이고 둘 다 Bot의 대상이라, 이 락이 막던 "대상에서 빠지는 모임" 경쟁은 현재 정책에서 발생하지 않습니다.
 - **취소(cancel) 안전성**: 락 획득이 worker thread에서 진행되므로, 획득 도중 작업이 취소되어도 세션의 소유권이 한 곳으로만 넘어가도록
   했습니다. 어느 시점에 취소되어도 열린 트랜잭션과 연결이 남지 않습니다.
 - **삭제 기록은 락과 같은 트랜잭션에서만** 합니다 (`mark_deleted`). timeout·취소·오류가 나면 진행 중인 SQL을 서버에서 취소하고
@@ -340,8 +346,9 @@ tzdata 2026.5           (Asia/Seoul 시간대. 일부 리눅스 이미지는 시
 
 운영 DB 계정은 `recruit_discord_channels`와 `recruits`/`posts`/`recruit_members`/`members`를 조회·수정할 수 있어야 하고,
 `recruits`에 대한 `SELECT ... FOR SHARE`(UPDATE 권한)가 필요합니다
-(SUCCESS 확정, 권한 변경, 삭제가 recruit_mode 변경과 엇갈리지 않게 행을 잠그기 위함).
-락 세션마다 DB 연결을 하나 더 사용하므로, 동시에 처리하는 작업 수만큼의 연결 여유가 필요합니다 (순차 처리라 보통 1개).
+(SUCCESS 확정과 삭제가 recruit_mode 변경과 엇갈리지 않게 행을 잠그기 위함).
+채널 삭제의 락 세션은 DB 연결을 하나 더 사용합니다 (삭제는 순차 처리라 동시에 1개). 참여자 권한 동기화는 전용 연결을 열지 않습니다.
+Bot의 동시 DB 연결은 보통 3개입니다: 모임 공유 연결 1, 알림/HOT/취업 공지 연결 1, 삭제 락 연결 1 (삭제 중에만).
 
 ### Discord Bot 준비
 
@@ -421,11 +428,15 @@ DB_SSLMODE=
 # DB ↔ Discord 동기화 주기(초), 기본 10
 PLAYMATE_SYNC_INTERVAL_SECONDS=
 
+# 선택: 한 번의 동기화에서 처리하는 권한 변경 수 상한(기본 20), 로그 폴더(기본 playmate-discord-bot/logs)
+PLAYMATE_SYNC_MAX_CHANGES=
+PLAYMATE_LOG_DIR=
+
 # 선택: 알림 / 공식 채널 기능 (비우면 해당 기능만 꺼짐, 19절)
 PLAYMATE_ADMIN_ROLE_ID=
 PLAYMATE_HOT_CHANNEL_ID=
 PLAYMATE_CAREER_CHANNEL_ID=   # #취업-소식 채널: 취업게시판 신규 글 자동 공지 (매일 18:00)
-PLAYMATE_WEB_BASE_URL=   # 예: https://playmate.example.com (localhost는 PLAYMATE_TEST_MODE=true일 때만)
+PLAYMATE_WEB_BASE_URL=   # 예: https://playmate.example.com (localhost는 PLAYMATE_TEST_MODE=true일 때만). 알림 DM / HOT / 취업 공지의 링크에 쓴다
 ```
 
 ### 중요
@@ -546,7 +557,7 @@ python tests/test_refactor.py
 - 상시 오픈채팅 3개 확인·생성(중복 없음, 보호 목록 등록)
 - 중복 Task 시작 방지
 
-현재 **88개 단언을 통과**한 상태입니다.
+현재 **129개 단언을 통과**한 상태입니다.
 
 ### 알림 / 공식 채널 정책 테스트 (mock)
 
@@ -598,7 +609,10 @@ python tests/test_db_integration.py
 - 7일 경고 / 24시간 삭제 / 활동 시 취소 / 삭제 직전 활동 경쟁 / 경고 전송 실패·전송 중 활동
 - 단일 채널 삭제(다른 채널·카테고리 불변), 주제 표지 불일치·보호 채널 삭제 거부, 예전 카테고리 방식 행 제외
 - 선점 동시성 / 응답 유실 / 저장 실패 정리 / `MANUAL:` · `ABORTED:` 재시도 제외
-- row lock 직렬화(Backend와 두 연결 경쟁), 취소·timeout 시 연결 누수 없음, `mark_deleted`가 락 트랜잭션 안에서만 COMMIT됨
+- 삭제의 row lock 직렬화(Backend와 두 연결 경쟁), 취소·timeout 시 연결 누수 없음, `mark_deleted`가 락 트랜잭션 안에서만 COMMIT됨
+- 잔여 권한 점검(`test_permission_audit.py`): 탈퇴 근거(최근 탈퇴 회원 수) 게이트, 수동 권한/운영진 보호, 후보 수 상한, dry-run 쓰기 0회, 실제 회수, HOST/참여자/Role/관리자/Bot 보호, DB 불완전·조회 실패·컬럼 누락 시 회수 금지, 회수 직전 재확인, Discord 오류, discord.py 호환, 멱등성(95개 단언, 일부는 일회용 PostgreSQL)
+- 참여자 권한 동기화는 락 없이 동시 변경을 견딤: Backend 수정·행 락 중에도 대기 없음, 읽은 직후 취소/삭제/모임 변경 시 쓰기 0회, 새 DB 연결 없음
+- 권한 변경 실패 backoff(30 -> 60 -> 120 -> 240 -> 300초), 다른 회원 무영향, 참여 상태가 바뀌면 즉시 처리, 성공 시 기록 초기화
 
 ---
 
@@ -803,6 +817,70 @@ playmate-discord-bot/
 
 테스트 서버에서 Bot 역할의 Discord 권한을 확인하세요.
 
+권한 변경이 실패하면 `[Discord 동기화] 권한 변경 실패 ... 연속 N회 ... → 30초 후 재시도`처럼 기록되고, 같은
+(채널, 회원, 목표 상태)는 30초, 60초, 120초, 240초, 최대 300초 간격으로만 다시 시도합니다. 다른 회원의 동기화는 계속됩니다.
+참여 상태가 바뀌면(취소, 재참여) 이전 실패 기록과 상관없이 바로 처리하고, 성공하면 기록이 지워집니다.
+한 번의 동기화에서 처리하는 변경은 최대 20건(`PLAYMATE_SYNC_MAX_CHANGES`)이며, 넘는 분량은 다음 동기화에서 이어서 처리합니다.
+이때 **권한 회수(참여 취소)를 새 참여자 부여보다 먼저** 처리하므로, 부여가 몰려도 취소한 회원의 쓰기 권한 회수는 밀리지 않습니다.
+
+### 탈퇴 회원의 잔여 채널 권한 점검 (`services/permission_audit.py`)
+
+회원이 탈퇴하면 백엔드가 `members.discord_id`를 `w<member_id>`로 바꾸고 `member_status`를 `WITHDRAWN`으로 바꿉니다. 그러면 DB에서
+그 회원의 **원래 Discord ID를 더 이상 알 수 없어서**, 채널에 이미 남아 있는 사용자별 Permission Overwrite를 일반 참여자 동기화가
+찾지 못합니다. 그래서 Discord 채널의 실제 사용자 overwrite를 읽어서 DB의 현재 자격자와 비교하는 점검을 따로 둡니다.
+
+**중요한 한계**: 원래 ID가 DB에 남지 않으므로 "이 overwrite의 주인이 탈퇴한 회원"이라고 **개별 사용자 단위로는 확인할 수 없습니다.**
+운영자가 수동으로 권한을 준 운영진도 DB의 자격자 목록에는 없습니다. 그래서 "자격자가 아니다"만으로는 지우지 않고, 아래 근거를 모두 요구합니다.
+
+**회수하려면 (모두 만족)**
+1. 관리 대상 모임 채널일 것: DB에 `SUCCESS`로 등록되고, 텍스트 채널이며, 채널 주제의 모임 표지(`PlayMate 모임 #<recruit_id> `)가 맞을 것.
+2. **그 모임에 최근(기본 7일 이내) 탈퇴한 회원의 참여 기록이 있을 것** (탈퇴 근거). 근거가 없거나 오래됐으면 남은 overwrite는 수동 권한일 수 있어 회수하지 않습니다.
+   (탈퇴 직후에는 점검이 곧바로 정리하므로 정상적으로는 오래 남지 않습니다. 기간은 `PLAYMATE_STRAY_WITHDRAWN_WINDOW_DAYS`.)
+3. **회수 후보 수가 그 모임의 탈퇴 회원 수를 넘지 않을 것.** 넘으면 누가 탈퇴 회원인지 알 수 없어 아무도 지우지 않습니다.
+4. **이 Bot이 부여하는 권한과 정확히 같은 overwrite일 것** (보기/읽기/쓰기만). 다른 권한이 더 있으면 수동 부여로 보고 회수하지 않습니다.
+5. 보호 대상이 아닐 것: Role, 서버 소유자, Bot(자신 포함), **운영 권한 보유자**(관리자, 서버/채널/역할/메시지 관리, 추방, 차단, 타임아웃),
+   **운영진 역할**(`PLAYMATE_STAFF_ROLE_IDS`), **보호 사용자**(`PLAYMATE_PROTECTED_USER_IDS`), HOST 회원, 권한을 확인할 수 없는 멤버.
+6. 그 채널의 모든 후보를 확인할 수 있었을 것: 멤버 확인 실패, backoff 중, 확인 상한 초과 대상이 하나라도 있으면 그 채널은 이번에 아무도 회수하지 않습니다.
+7. DB 정보가 완전하고(자격자가 조회되고, 알 수 없는 상태/ID가 없음), 회수 직전에 DB 자격과 탈퇴 근거를 다시 읽어도 같을 것.
+   DB 조회 실패나 `member_status` / `updated_at` 컬럼 누락 같은 스키마 오류가 나면 점검 전체를 건너뛰고 회수는 0입니다.
+
+**남는 위험**: 운영진이 이 Bot과 똑같은 권한(보기/읽기/쓰기만)을 수동으로 받았고, 같은 모임에서 최근 탈퇴한 회원이 있고, 후보 수가 그 수 이하이며,
+운영 권한도 역할 등록도 없다면 회수될 수 있습니다. 운영진은 `PLAYMATE_STAFF_ROLE_IDS` 또는 `PLAYMATE_PROTECTED_USER_IDS`에 등록해 두세요.
+**먼저 dry-run 로그로 대상이 맞는지 확인한 뒤** 실제 회수를 켜는 것을 권장합니다.
+
+**로그의 판단 근거**
+- 회수 대상: `[권한 점검] (dry-run) 회수 대상 ... 근거: 탈퇴 회원 N명 중 회수 후보 M명, 표준 overwrite` (실제 회수는 `잔여 권한 회수 완료 ... 근거: ...`)
+- 회수하지 않음: `수동 확인 필요 — 회수하지 않음 ...: <사유>` (표준과 다른 overwrite, 탈퇴 근거 없음/기간 지남, 후보가 탈퇴 회원보다 많음, 확인하지 못한 대상이 있음)
+- 보호: `보호 대상이라 회수하지 않음(<사유>)`. 같은 대상의 안내는 1시간에 한 번만 남깁니다.
+
+**동작**
+- 기본은 **dry-run**입니다. 대상만 기록하고 권한은 바꾸지 않습니다(어떤 경로로도 Discord 쓰기 0회, 테스트로 확인).
+  실제 회수는 `PLAYMATE_STRAY_REVOKE_ENABLED=true`(정확히 `true`만)를 명시했을 때만 합니다.
+- 점검은 `PLAYMATE_STRAY_AUDIT_INTERVAL_SECONDS`(기본 300초)마다 실행하므로, **탈퇴한 회원의 잔여 권한은 최대 약 5분 뒤에 회수**됩니다 (실제 회수 모드, 첫 시도가 성공한 경우).
+- DB 락을 잡지 않고 새 DB 연결도 만들지 않습니다(공유 연결의 단순 조회). 한 번의 점검에서 실제 회수는 `PLAYMATE_SYNC_MAX_CHANGES`(기본 20)건까지, 넘는 분량은 다음 점검에서 이어서 처리합니다.
+
+**오류 처리와 재시도**
+- 멤버 확인 실패(Forbidden / HTTP 오류 / 시간 초과)는 그 채널을 보류하고, 권한 제거 실패(Forbidden / NotFound / HTTP 오류)는 해당 사용자만 실패로 기록합니다.
+  둘 다 (채널, 사용자)별로 30초 → 60초 → … 최대 300초 간격으로 다시 시도합니다 (기본 점검 주기가 300초라 보통은 다음 점검에서 재시도).
+- 서버를 떠난 사용자(멤버 조회 NotFound)는 공개 `set_permissions`가 대상 객체(`discord.Object`)를 받지 않아(ValueError) 같은 호출을 하는
+  `HTTPClient.delete_channel_permissions(channel_id, target_id)`로 제거합니다. 설치된 discord.py 2.x의 시그니처와 동작은 테스트로 확인하며, 실제 서버에서의 동작은 확인이 필요합니다.
+- 점검 전체가 실패해도 채널 생성과 일반 권한 동기화는 계속 동작합니다.
+
+### 장애 진단 로그와 DB 연결 확인
+
+- 봇을 `python bot.py`로 실행하면 콘솔 출력과 같은 내용이 `playmate-discord-bot/logs/bot.log`에도 저장됩니다
+  (최대 5MB, 파일 5개: `bot.log` + `bot.log.1`~`.4`). 봇을 종료한 뒤에도 장애 시각의 기록을 확인할 수 있습니다.
+  로그 폴더와 백업 파일은 git에 포함되지 않으며, `PLAYMATE_LOG_DIR`로 위치를 바꿀 수 있습니다.
+- 기록되는 항목: `[DB] 연결 실패 app=... sqlstate=...`(연결 한도 `53300`, 인증 `28P01` 등을 구분), `[DB 락] recruits 행 락 대기 ... 초과`,
+  `권한 변경 실패 ... 연속 N회 ... 후 재시도`, discord.py의 rate limit 경고.
+- 파일 기록이 실패해도(디스크 가득 참, 회전 중 파일 잠김 등) 봇 기능은 멈추지 않습니다. 콘솔에 "[파일 로그] 기록 실패" 안내가 1분에 한 번만
+  나오고, 로그 폴더를 만들 수 없으면 파일 로그 없이 콘솔 출력만으로 시작합니다.
+- discord.py 로그는 줄에 적힌 등급(INFO/WARNING 등)으로 기록하고 색상 코드는 파일에 남기지 않습니다. 그 밖의 stderr(예외 traceback)는 WARNING으로 기록합니다.
+- 비밀번호, 토큰, 접속 URI, 접속 계정/서버 주소는 파일에 쓰기 전에 가립니다. Discord 사용자 ID는 뒤 4자리만 남기고 닉네임은 기록하지 않습니다.
+- DB 연결에는 용도별 `application_name`이 붙습니다 (연결 수는 늘지 않음). DB에서 `SELECT application_name, count(*) FROM pg_stat_activity
+  GROUP BY 1`로 봇 연결을 구분할 수 있습니다: `playmate_bot_meeting`(모임 공유 연결), `playmate_bot_feature`(알림/HOT/취업 공지),
+  `playmate_bot_lock`(채널 삭제 락).
+
 ### 검사 주기가 1분으로 나옴
 
 `.env`에 아래 값이 남아 있는지 확인하세요.
@@ -856,6 +934,33 @@ slash command는 `DISCORD_GUILD_ID` 서버에만 등록됩니다. Bot 초대 sco
   `updated_at`은 DB trigger가 갱신하므로 Bot이 직접 바꾸지 않습니다.
 - 한 알림의 처리·저장 실패는 로그만 남기고 다음 알림과 루프는 계속됩니다.
 - 상수: `config.NOTIFICATION_MAX_ATTEMPTS = 3`, `NOTIFICATION_RETRY_DELAY_SECONDS = 60`, `NOTIFICATION_BATCH_SIZE = 20`.
+
+**댓글·대댓글 DM의 원본 게시글 링크**
+
+COMMENT(내 게시글에 댓글)와 REPLY(내 댓글에 대댓글) DM 끝에 원본 게시글 링크를 한 줄 붙입니다. 문구, 게시글 제목, 보낼 대상, DM 수신 동의,
+재시도와 상태 전이(`SENT` / `SKIPPED` / `FAILED`)는 링크와 무관하게 그대로입니다. 알림의 `post_id`는 두 종류 모두 댓글이 달린 글(`comments.post_id`)입니다.
+
+```text
+(변경 전)                                  (변경 후, 예시 도메인)
+💬 내 게시글에 새 댓글이 달렸어요.          💬 내 게시글에 새 댓글이 달렸어요.
+게시글: 예시 게시글                         게시글: 예시 게시글
+                                            🔗 PlayMate에서 보기: https://playmate.example.test/board/3/posts/10
+```
+
+| 게시글 종류 | 판단 근거 (알림 조회 `claim_pending`의 JOIN) | 주소 (프론트 라우트와 같은 규칙, `services/web_links.py`) |
+| --- | --- | --- |
+| 일반 게시판 | `posts.post_type='BOARD'`, `posts.board_id` | `/board/{board_id}/posts/{post_id}` |
+| 모임 | `post_type='RECRUIT'`, `recruits.post_id`로 찾은 `recruit_id` | `/meetup/{recruit_id}` (post_id가 아님) |
+| 취업 | `post_type='CAREER'`, `career_posts.category_code`가 `reviews`/`talk`/`lounge`/`lab` | `/career/{category}/{post_id}` |
+
+- 웹 주소는 `PLAYMATE_WEB_BASE_URL`에서만 가져옵니다 (코드에 도메인을 고정하지 않음). 비어 있거나 http(s)가 아니면, 운영에서 localhost이면
+  링크만 생략하고 DM은 그대로 보냅니다 (localhost는 `PLAYMATE_TEST_MODE=true`일 때만 허용하는 기존 정책 유지).
+- **종류를 확실히 알 수 없으면 추측하지 않고 링크 없이** 보냅니다: `post_type`과 근거가 다르거나(예: BOARD인데 모임 행도 있음), 근거가 둘 이상이거나,
+  알 수 없는 `post_type`이거나, 상세 화면이 없는 취업 분류(예: `insights`)인 경우. 한 글이 다른 종류의 상세 페이지로 연결되는 일을 막기 위한 것입니다.
+- 삭제되었거나 존재하지 않는 글·댓글은 기존대로 DM 없이 `SKIPPED`(대상 없음)입니다. 링크 생성 중 예외가 나도 DM은 링크 없이 발송됩니다.
+- 로그인 전후: 링크는 로그인 상태와 무관하게 같은 주소입니다. 다만 현재 웹의 Discord 로그인은 완료 후 `/`로 돌아와서(백엔드 콜백이 원래 경로를 보관하지 않음),
+  **로그인하지 않은 상태에서 링크를 열면 로그인 후 원래 글이 아니라 기본 화면으로 이동할 수 있습니다.** 이를 고치려면 백엔드/프론트에 로그인 후 복귀 경로 기능이 필요합니다(이 Bot의 범위 밖).
+- DB 계정에 `recruits`, `career_posts`의 SELECT 권한이 필요합니다 (모임 동기화와 HOT/취업 공지에서 이미 읽는 테이블입니다).
 
 **제한 사항 (MVP에서 허용)**
 

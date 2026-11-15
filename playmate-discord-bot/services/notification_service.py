@@ -12,6 +12,7 @@ import discord
 from discord.ext import tasks
 
 from config import (
+    WEB_BASE_URL,
     NOTIFICATION_BATCH_SIZE,
     NOTIFICATION_MAX_ATTEMPTS,
     NOTIFICATION_POLL_SECONDS,
@@ -19,6 +20,7 @@ from config import (
 )
 from repositories.meeting_repository import call
 from repositories.notification_repository import NotificationRepository, PendingNotification
+from services.web_links import notification_post_url
 
 
 class MemberNotLinked(Exception):
@@ -40,13 +42,20 @@ DM_MESSAGES = {
 }
 
 
-def build_dm_message(notification: PendingNotification) -> str | None:
-    """알림 종류에 맞는 DM 문구. 아직 지원하지 않는 종류(REACTION 등)면 None (SKIPPED 처리)."""
+LINK_LABEL = "🔗 PlayMate에서 보기"
+
+
+def build_dm_message(notification: PendingNotification, url: str | None = None) -> str | None:
+    """알림 종류에 맞는 DM 문구. 아직 지원하지 않는 종류(REACTION 등)면 None (SKIPPED 처리).
+
+    url이 있으면 마지막 줄에 원본 게시글 링크를 붙인다. 제목과 문구, 보낼 대상은 링크와 무관하게 같다.
+    """
     message = DM_MESSAGES.get(notification["notification_type"])
     if message is None:
         return None
     title = (notification.get("post_title") or "").strip()
-    return f"{message}\n게시글: {title}" if title else message
+    text = f"{message}\n게시글: {title}" if title else message
+    return f"{text}\n{LINK_LABEL}: {url}" if url else text
 
 
 def _to_int(value) -> int | None:
@@ -58,9 +67,11 @@ def _to_int(value) -> int | None:
 
 
 class NotificationService:
-    def __init__(self, client: discord.Client, repository: NotificationRepository):
+    def __init__(self, client: discord.Client, repository: NotificationRepository,
+                 base_url: str | None = WEB_BASE_URL):
         self.client = client
         self.repository = repository
+        self.base_url = base_url  # PLAYMATE_WEB_BASE_URL. 없으면 링크 없이 DM만 보낸다.
         self._reported: set[str] = set()
 
     def _report_once(self, key: str, message: str) -> None:
@@ -109,6 +120,20 @@ class NotificationService:
             except Exception as error:
                 print(f"[알림] 처리 실패 notification_id={notification.get('notification_id')}: {error!r}")
 
+    def post_link(self, notification: PendingNotification) -> str | None:
+        """원본 게시글 링크. 만들 수 없으면 None이며, 어떤 이유로든 DM 발송은 막지 않는다."""
+        if not self.base_url:
+            self._report_once("no_base_url", "[알림] PLAYMATE_WEB_BASE_URL이 없거나 사용할 수 없어 DM에 원본 링크를 붙이지 않습니다.")
+            return None
+        try:
+            url = notification_post_url(self.base_url, notification)
+        except Exception as error:  # 링크 생성 오류가 알림 전송을 막으면 안 된다
+            print(f"[알림] 링크 생성 실패 notification_id={notification.get('notification_id')}: {type(error).__name__}")
+            return None
+        if url is None:
+            print(f"[알림] 게시글 종류를 확인할 수 없어 링크 없이 보냅니다 notification_id={notification.get('notification_id')}")
+        return url
+
     @staticmethod
     def skip_reason(notification: PendingNotification) -> str | None:
         """DM을 보내지 않아야 하는 이유. 보내야 하면 None."""
@@ -140,7 +165,7 @@ class NotificationService:
         except Exception as error:
             return await self._record_failure(notification_id, f"Discord 사용자 조회 실패: {error!r}")
         try:
-            await user.send(build_dm_message(notification))
+            await user.send(build_dm_message(notification, self.post_link(notification)))
         except discord.Forbidden:
             return await self._record_failure(notification_id, "DM 수신 차단 (403)")
         except Exception as error:

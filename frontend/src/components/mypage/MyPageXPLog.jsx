@@ -1,34 +1,13 @@
 import { useEffect, useState } from 'react'
 import { getMyXPHistoryPage } from '../../services/mypageApi'
+import { xpActivityLabel } from '../../utils/xpLabels'
+import { formatKstDateTime } from '../../utils/scrapTime'
 
 const PAGE_SIZE = 10
 
-const LABELS = {
-  ATTEND: '일일 출석',
-  ATTEND_7: '7일 연속 출석',
-  ATTEND_30: '30일 연속 출석',
-  ATTEND_STREAK_7: '7일 연속 출석',
-  ATTEND_STREAK_30: '30일 연속 출석',
-  POST: '게시글 작성',
-  COMMENT: '댓글 작성',
-  REPLY: '대댓글 작성',
-  POST_LIKE: '게시글 좋아요 받음',
-  CAREER_DOCUMENT: '취업 서류 후기',
-  CAREER_INTERVIEW: '면접 후기',
-  CAREER_SUCCESS: '취업 성공 후기',
-  CAREER_ADJUST: '취업 후기 XP 정산',
-  CAREER_SPEC_PUBLIC: '취업 스펙 최초 공개',
-  MEETUP_PARTICIPATION: '모임 참여 인증',
-  MEETUP_STUDY_WEEKLY: '스터디 주간 인증',
-  MEETUP_PROJECT_INTERIM: '프로젝트 중간 결과물',
-  MEETUP_STUDY_COMPLETE: '스터디 완료',
-  MEETUP_PROJECT_COMPLETE: '프로젝트 완료',
-  MEETUP_REVIEW: '모임 후기',
-  MEETUP_PROJECT_LEADER: '프로젝트 팀장 보상',
-}
-
+// XP 이력 시각(timestamptz)을 한국 시간으로 표시한다.
 function formatDate(date) {
-  return date ? String(date).replace('T', ' ').slice(0, 16) : '날짜 정보 없음'
+  return formatKstDateTime(date)
 }
 
 // 페이지가 많을 때도 페이지 버튼을 최대 7개만 표시합니다.
@@ -99,7 +78,7 @@ export default function MyPageXPLog() {
         <ul className="mypage-xplog-list">
           {history.map((item) => {
             const amount = Number(item.xp_change) || 0
-            const label = LABELS[item.activity_type] || item.activity_type || '기타 활동'
+            const label = xpActivityLabel(item.activity_type)
             return (
               <li key={item.history_id}>
                 <div>

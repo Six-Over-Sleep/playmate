@@ -78,6 +78,7 @@ DB_POOL_WAIT_SECONDS=2
 | `GET /` | 서버 응답 |
 | `GET /health` | 서비스 상태 |
 | `GET /health/db` | DB 연결 상태 |
+| `GET /health/schema` | 기동 시 1회 실행한 필수 스키마·XP 정책 검사 결과 |
 | `/docs` | Swagger (development/test 환경만 노출) |
 | `GET /auth/me` | 로그인/회원 상태 |
 
@@ -147,7 +148,11 @@ uv run --with pytest pytest backend/tests/test_auth_flow.py -q
 ## 9. 베타 배포 체크
 
 - [ ] `APP_ENV=production`, HTTPS, 정확한 `FRONTEND_ORIGINS`·`FRONTEND_URL`
-- [ ] `020_member_withdrawal.sql`, `021_recruit_skills.sql` 등 필요한 마이그레이션 적용
+- [ ] `020_member_withdrawal.sql`, `021_recruit_skills.sql`, `023`→`024`→`025`→`027` 등 필요한 마이그레이션 적용
+  - 번호가 같은 파일이 있다: `012_member_dm_default_on`·`012_recruit_programs`, `013_career_discord_announcements`·`013_member_activity`,
+    develop의 `020_member_withdrawal`·`020_saramin_job_postings`. 같은 번호끼리는 서로 의존하지 않으므로
+    `database/sql`을 파일 이름순으로 실행하면 된다. 이미 적용한 DB가 있어 파일 이름은 바꾸지 않는다.
+- [ ] 새 버전 기동 전 `python -m backend.scripts.check_deploy_schema` 종료 코드 0 확인(앱도 기동 시 1회 검사, 운영 기본 strict)
 - [ ] DB 연결 한도 및 동시 요청 점검
 - [ ] 업로드 크기 제한·요청 속도 제한을 프록시에서 구성
 - [ ] 개발 헤더 무시, Swagger 비공개, CSRF 위험 평가

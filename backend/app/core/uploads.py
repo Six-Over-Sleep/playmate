@@ -2,9 +2,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 UPLOAD_DIR = PROJECT_ROOT / "uploads" / "posts"
+MAX_POST_IMAGES = 3
 MAX_IMAGE_SIZE = 5 * 1024 * 1024
 ALLOWED = {
     "image/jpeg": ".jpg",
@@ -12,6 +14,29 @@ ALLOWED = {
     "image/gif": ".gif",
     "image/webp": ".webp",
 }
+
+
+class LocalPostImageStorage:
+    def _path(self, key: str) -> Path:
+        path = (PROJECT_ROOT / "uploads" / key).resolve()
+        root = UPLOAD_DIR.resolve()
+        if path == root or not path.is_relative_to(root):
+            raise ValueError("Invalid post image key")
+        return path
+
+    def save(self, key: str, data: bytes, content_type: str) -> None:
+        path = self._path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+    def public_url(self, key: str) -> str:
+        return f"/uploads/{key}"
+
+    def delete(self, key: str) -> None:
+        self._path(key).unlink(missing_ok=True)
+
+
+post_image_storage = LocalPostImageStorage()
 
 
 def _valid_signature(content_type: str, data: bytes) -> bool:
@@ -24,63 +49,54 @@ def _valid_signature(content_type: str, data: bytes) -> bool:
     }.get(content_type, False)
 
 
-async def save_images(files: list[UploadFile]) -> list[dict]:
-    """최대 3개 업로드의 크기·시그니처를 검증하고 UUID 파일로 저장한다.
+async def validate_images(files: list[UploadFile]) -> list[tuple[dict, bytes]]:
+    """첨부를 읽고 검증한 뒤 저장용 메타데이터와 바이트를 반환한다."""
+    if len(files) > MAX_POST_IMAGES:
+        raise HTTPException(422, f"이미지는 최대 {MAX_POST_IMAGES}장까지 첨부할 수 있습니다.")
 
-    반환값은 DB 메타데이터와 정리용 경로이다. 검증·쓰기 실패 시 이번 요청이
-    만든 파일만 삭제한다. 부분 쓰기 실패도 정리하도록 쓰기 전에 경로를 기록한다.
-    """
-    if len(files) > 3:
-        raise HTTPException(
-            status_code=422, detail="이미지는 최대 3장까지 첨부할 수 있습니다."
-        )
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    validated = []
+    for file in files:
+        content_type = (file.content_type or "").lower()
+        if content_type not in ALLOWED:
+            raise HTTPException(422, "JPG, PNG, GIF, WEBP 이미지만 첨부할 수 있습니다.")
+        data = await file.read(MAX_IMAGE_SIZE + 1)
+        if len(data) > MAX_IMAGE_SIZE:
+            raise HTTPException(422, "이미지 한 장은 5MB를 넘을 수 없습니다.")
+        if not _valid_signature(content_type, data):
+            raise HTTPException(422, "이미지 파일 내용과 형식이 일치하지 않습니다.")
+        validated.append((
+            {
+                "stored_name": f"posts/{uuid4().hex}{ALLOWED[content_type]}",
+                "original_name": Path(file.filename or "image").name[:255],
+                "content_type": content_type,
+                "file_size": len(data),
+            },
+            data,
+        ))
+    return validated
+
+
+def store_validated_images(images: list[tuple[dict, bytes]]) -> list[dict]:
     saved = []
     try:
-        for file in files:
-            content_type = (file.content_type or "").lower()
-            if content_type not in ALLOWED:
-                raise HTTPException(
-                    status_code=422,
-                    detail="JPG, PNG, GIF, WEBP 이미지만 첨부할 수 있습니다.",
-                )
-            data = await file.read(MAX_IMAGE_SIZE + 1)
-            if len(data) > MAX_IMAGE_SIZE:
-                raise HTTPException(
-                    status_code=422, detail="이미지 한 장은 5MB를 넘을 수 없습니다."
-                )
-            if not _valid_signature(content_type, data):
-                raise HTTPException(
-                    status_code=422,
-                    detail="이미지 파일 내용과 형식이 일치하지 않습니다.",
-                )
-            stored_name = f"posts/{uuid4().hex}{ALLOWED[content_type]}"
-            path = PROJECT_ROOT / "uploads" / stored_name
-            saved.append(
-                {
-                    "stored_name": stored_name.replace("\\", "/"),
-                    "original_name": Path(file.filename or "image").name[:255],
-                    "content_type": content_type,
-                    "file_size": len(data),
-                    "path": path,
-                }
-            )
-            path.write_bytes(data)
-        return saved
+        for image, data in images:
+            saved.append(image)
+            post_image_storage.save(image["stored_name"], data, image["content_type"])
     except Exception:
         remove_saved_images(saved)
         raise
+    return saved
+
+
+async def save_images(files: list[UploadFile]) -> list[dict]:
+    """검증은 이벤트 루프에서, 저장소 쓰기는 워커 스레드에서 실행한다."""
+    return await run_in_threadpool(store_validated_images, await validate_images(files))
 
 
 def remove_saved_images(images: list[dict]) -> None:
-    """이번 요청의 저장 경로 중 업로드 디렉터리 내부 파일만 삭제한다."""
+    """이번 요청에서 생성한 이미지 키를 정리한다."""
     for image in images:
-        path = image.get("path")
-        if path is None:
-            continue
-        path = Path(path).resolve()
-        if path.is_relative_to(UPLOAD_DIR.resolve()):
-            path.unlink(missing_ok=True)
+        post_image_storage.delete(image["stored_name"])
 
 
 # 프로필 이미지 업로드

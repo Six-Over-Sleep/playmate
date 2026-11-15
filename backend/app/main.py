@@ -17,9 +17,11 @@ PlayMate FastAPI 메인 서버
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -50,7 +52,8 @@ if str(PROJECT_ROOT_PATH) not in sys.path:
 from backend.app.core.config import SESSION_SECRET_KEY  # noqa: E402
 
 # DB 연결
-from app.core.db_connect import db_cursor  # noqa: E402
+from app.core.db_connect import close_pool, db_cursor  # noqa: E402
+from backend.app.core.schema_check import startup_check  # noqa: E402
 
 # 이미지 업로드 경로
 from backend.app.core.uploads import PROJECT_ROOT  # noqa: E402
@@ -100,6 +103,19 @@ logger = logging.getLogger(__name__)
 APP_ENV = os.getenv("APP_ENV", "production").lower()
 IS_DEV_ENV = APP_ENV in {"development", "test"}
 
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """트래픽을 받기 전 1회 필수 스키마·XP 정책을 검사한다(core/schema_check.py).
+
+    운영 기본(strict)은 누락 시 기동을 중단한다. 요청마다 다시 검사하지 않는다.
+    """
+    application.state.schema_check = await run_in_threadpool(startup_check)
+    try:
+        yield
+    finally:
+        await run_in_threadpool(close_pool)
+
+
 # 운영에서는 /docs, /redoc, /openapi.json을 공개하지 않는다.
 app = FastAPI(
     title="PlayMate API",
@@ -107,6 +123,7 @@ app = FastAPI(
     docs_url="/docs" if IS_DEV_ENV else None,
     redoc_url="/redoc" if IS_DEV_ENV else None,
     openapi_url="/openapi.json" if IS_DEV_ENV else None,
+    lifespan=lifespan,
 )
 
 
@@ -275,3 +292,12 @@ def database_health():
     return {
         "status": "ok",
     }
+
+
+# 기동 시 1회 실행한 필수 스키마·XP 정책 검사 결과(요청마다 재검사하지 않음).
+# 누락 항목 이름은 응답하지 않고 서버 로그와 check_deploy_schema 스크립트로 확인한다.
+@app.get("/health/schema", tags=["health"])
+def schema_health():
+    result = getattr(app.state, "schema_check", {"status": "skipped"})
+    status_code = 503 if result.get("status") in {"error", "unavailable"} else 200
+    return JSONResponse(result, status_code=status_code)

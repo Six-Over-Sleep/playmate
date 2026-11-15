@@ -54,8 +54,18 @@ export const boardApi = {
     return request(`/boards/${boardId}/posts`, { method: 'POST', body: form })
   },
 
-  /** 기존 API가 지원하는 제목·본문만 수정하며 이미지 수정 기능은 추가하지 않는다. */
+  /** 이미지 변경을 포함한 수정은 multipart로 전송한다. */
   updatePost(boardId, postId, payload) {
+    if (payload.imageEdit) {
+      const form = new FormData()
+      form.append('title', payload.title)
+      form.append('body', payload.body)
+      form.append('is_anonymous', String(Boolean(payload.is_anonymous)))
+      payload.imageEdit.originalIds.forEach((id) => form.append('original_image_ids', id))
+      payload.imageEdit.keepIds.forEach((id) => form.append('keep_image_ids', id))
+      payload.images.forEach((image) => form.append('images', image))
+      return request(`/boards/${boardId}/posts/${postId}/images`, { method: 'PATCH', body: form })
+    }
     return request(`/boards/${boardId}/posts/${postId}`, {
       method: 'PATCH',
       body: JSON.stringify({ title: payload.title, body: payload.body, is_anonymous: payload.is_anonymous }),

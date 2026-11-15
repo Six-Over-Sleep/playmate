@@ -24,6 +24,10 @@ for name, value in {
     "DB_USER": "test",
     "DB_PASSWORD": "test",
     "DB_NAME": "test",
+    # 배포 전 스키마 검사(core/schema_check.py)는 기동 시 실제 DB에 접속한다.
+    # 테스트는 운영 모드(APP_ENV=production)로 앱을 띄우는 경우도 있어 기본으로 끈다.
+    # 검사 자체는 test_schema_check.py가 모드를 직접 지정해 확인한다.
+    "PLAYMATE_SCHEMA_CHECK": "off",
 }.items():
     os.environ[name] = value
 

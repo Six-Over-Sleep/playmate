@@ -12,15 +12,19 @@ from fastapi import File, UploadFile
 from backend.app.core.uploads import save_profile_image
 
 from backend.app.schemas.mypage import MyLevelResponse
-from backend.app.services.xp_service import calculate_level
+from backend.app.services.xp_service import (
+    calculate_level,
+    level_progress,
+    read_level_thresholds,
+    read_xp_amount,
+)
 from backend.app.schemas.mypage import MyXPHistoryResponse
 from backend.app.services.xp_service import grant_xp
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from backend.app.schemas.mypage import MyAttendanceResponse
-from backend.app.services.xp_service import calculate_attendance_streak
 from backend.app.schemas.mypage import MySkillResponse
 from backend.app.schemas.mypage import MySkillTopicResponse
 from backend.app.schemas.mypage import MySkillAccuracyResponse
@@ -242,61 +246,17 @@ def get_my_level(
 
         result = cursor.fetchone()
 
-    if result is None:
-        raise HTTPException(
-            status_code=404,
-            detail="회원 정보를 찾을 수 없습니다."
-        )
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail="회원 정보를 찾을 수 없습니다."
+            )
+
+        # 레벨 기준은 level_policies(OVERALL)에서 읽음
+        thresholds = read_level_thresholds(cursor, "OVERALL")
 
     total_xp = result["total_xp"]
-    level = calculate_level(total_xp)
-
-    # 다음 레벨에 필요한 누적 XP
-    level_requirements = {
-        1: 100,
-        2: 500,
-        3: 1500,
-        4: None
-    }
-
-    next_level_xp = level_requirements[level]
-
-    # 다음 레벨까지 남은 XP
-    remaining_xp = (
-        max(0, next_level_xp - total_xp)
-        if next_level_xp is not None
-        else 0
-    )
-
-    
-    # 현재 레벨의 시작 경험치
-    level_start_xp = {
-        1: 0,
-        2: 100,
-        3: 500,
-        4: 1500
-    }
-
-    # 경험치 진행률 계산
-    if level == 4:
-        progress_percent = 100.0
-    else:
-        start_xp = level_start_xp[level]
-        required_xp = next_level_xp - start_xp
-
-        progress_percent = round(
-            (total_xp - start_xp) / required_xp * 100,
-            1
-        )
-
-
-    return {
-        "level": level,
-        "total_xp": total_xp,
-        "next_level_xp": next_level_xp,
-        "remaining_xp": remaining_xp,
-        "progress_percent": progress_percent
-    }
+    return {"total_xp": total_xp, **level_progress(thresholds, total_xp)}
 
 
 # 내 경험치 획득 및 회수 내역 조회
@@ -344,30 +304,33 @@ def get_my_attendance(
     with db_cursor(read_only=True) as cursor:
         cursor.execute(
             """
-            SELECT activity_date
-            FROM member_xp_history
-            WHERE member_id = %s
-                AND activity_type = 'ATTEND'
-                AND xp_change > 0
-                AND activity_date BETWEEN %s AND %s
+            WITH RECURSIVE streak(day) AS (
+                SELECT max(activity_date)
+                FROM member_xp_history
+                WHERE member_id = %(member_id)s
+                  AND activity_type = 'ATTEND'
+                  AND xp_change > 0
+                  AND activity_date BETWEEN %(today)s - 1 AND %(today)s
+                UNION ALL
+                SELECT streak.day - 1 FROM streak
+                WHERE EXISTS (
+                    SELECT 1 FROM member_xp_history
+                    WHERE member_id = %(member_id)s
+                      AND activity_type = 'ATTEND'
+                      AND xp_change > 0
+                      AND activity_date = streak.day - 1
+                )
+            )
+            SELECT count(day) AS streak_days,
+                   COALESCE(bool_or(day = %(today)s), false) AS attended_today
+            FROM streak
             """,
-            (member_id, today - timedelta(days=30), today)
+            {"member_id": member_id, "today": today},
         )
+        summary = cursor.fetchone()
 
-        dates = {row["activity_date"] for row in cursor.fetchall()}
-
-    # 오늘 출석 여부
-    attended_today = today in dates
-
-    # 오늘 출석 전이면 어제까지의 연속 출석 계산
-    reference_date = (
-        today if attended_today
-        else today - timedelta(days=1)
-    )
-
-    streak_days = calculate_attendance_streak(
-        dates, reference_date
-    )
+    attended_today = summary["attended_today"]
+    streak_days = summary["streak_days"]
 
     return {
         "attended_today": attended_today,
@@ -418,50 +381,12 @@ def get_my_skills(
 
         skills = cursor.fetchall()
 
+        # 레벨 기준은 level_policies(SKILL)에서 읽음
+        thresholds = read_level_thresholds(cursor, "SKILL")
 
-    # 레벨별 시작 경험치
-    level_start_xp = {
-        1: 0,
-        2: 50,
-        3: 150,
-        4: 300,
-        5: 500
-    }
-
-    # 다음 레벨에 필요한 누적 경험치
-    next_level_requirements = {
-        1: 50,
-        2: 150,
-        3: 300,
-        4: 500,
-        5: None
-    }
-
+    # 저장된 레벨 대신 누적 XP와 현재 기준으로 계산해 기준 변경 후에도 일치시킴
     for skill in skills:
-        level = skill["level"]
-        total_xp = skill["total_xp"]
-
-        next_level_xp = next_level_requirements[level]
-
-        if next_level_xp is None:
-            remaining_xp = 0
-            progress_percent = 100.0
-        else:
-            start_xp = level_start_xp[level]
-
-            remaining_xp = max(
-                0, next_level_xp - total_xp
-            )
-
-            progress_percent = round(
-                (total_xp - start_xp)
-                / (next_level_xp - start_xp) * 100,
-                1
-            )
-
-        skill["next_level_xp"] = next_level_xp
-        skill["remaining_xp"] = remaining_xp
-        skill["progress_percent"] = progress_percent
+        skill.update(level_progress(thresholds, skill["total_xp"]))
 
     return skills
 
@@ -585,7 +510,7 @@ def get_my_posts(
                     ELSE '기타 게시글'
                 END AS board_name,
                 COALESCE(p.title, '제목 없음') AS title,
-                p.created_at
+                p.created_at::timestamptz AS created_at
             FROM posts p
             LEFT JOIN boards b
                 ON p.board_id = b.board_id
@@ -667,7 +592,7 @@ def get_my_comments(
                 COALESCE(p.title, '제목 없음') AS post_title,
                 c.body,
                 c.parent_comment_id,
-                c.created_at
+                c.created_at::timestamptz AS created_at
             FROM comments c
             JOIN posts p ON c.post_id = p.post_id
             LEFT JOIN boards b ON b.board_id = p.board_id
@@ -735,7 +660,7 @@ def get_my_scraps(
                     ELSE COALESCE(b.board_name, '기타 게시글')
                 END AS board_name,
                 COALESCE(p.title, '제목 없음') AS title,
-                s.created_at AS scrapped_at
+                s.created_at::timestamptz AS scrapped_at
             FROM post_scraps s
             JOIN posts p ON s.post_id = p.post_id
             LEFT JOIN boards b ON b.board_id = p.board_id
@@ -789,7 +714,7 @@ def get_my_meetups(
                 r.category,
                 r.recruit_mode,
                 r.state,
-                r.created_at
+                r.created_at::timestamptz AS created_at
             FROM recruit_members rm
             JOIN recruits r ON rm.recruit_id = r.recruit_id
             JOIN posts p ON r.post_id = p.post_id
@@ -1007,8 +932,9 @@ def update_career_spec_visibility(
 
             total_xp = cursor.fetchone()["total_xp"]
 
-            # 최초 공개 보상 이력 저장
+            # 최초 공개 보상 이력 저장 (지급량은 xp_award_policies 기준)
             event_key = f"CAREER_SPEC_PUBLIC:{member_id}"
+            reward_xp = read_xp_amount(cursor, "CAREER_SPEC_PUBLIC")
 
             today = datetime.now(
                 ZoneInfo("Asia/Seoul")
@@ -1027,7 +953,7 @@ def update_career_spec_visibility(
                     %s,
                     'CAREER_SPEC_PUBLIC',
                     %s,
-                    50,
+                    %s,
                     %s
                 )
                 ON CONFLICT (member_id, event_key)
@@ -1037,6 +963,7 @@ def update_career_spec_visibility(
                 (
                     member_id,
                     event_key,
+                    reward_xp,
                     today,
                 ),
             )
@@ -1044,7 +971,7 @@ def update_career_spec_visibility(
             # 중복 지급이 아닌 경우에만 XP 반영
             if cursor.fetchone() is not None:
 
-                new_total = total_xp + 50
+                new_total = total_xp + reward_xp
 
                 cursor.execute(
                     """
@@ -1057,12 +984,12 @@ def update_career_spec_visibility(
                     """,
                     (
                         new_total,
-                        calculate_level(new_total),
+                        calculate_level(cursor, new_total),
                         member_id,
                     ),
                 )
 
-                xp_awarded = 50
+                xp_awarded = reward_xp
 
     return {
         "is_public": updated["is_public"],
@@ -1160,7 +1087,7 @@ def get_my_liked_posts_dashboard_v1(
                     WHEN p.post_type = 'RECRUIT' THEN '모임'
                     ELSE COALESCE(b.board_name, '기타 게시판')
                 END AS board_name,
-                l.created_at AS liked_at
+                l.created_at::timestamptz AS liked_at
             FROM post_likes l
             JOIN posts p ON p.post_id = l.post_id
             LEFT JOIN career_posts cp ON cp.post_id = p.post_id

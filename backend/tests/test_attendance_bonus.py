@@ -6,12 +6,49 @@ import나 직접 실행만으로는 DB에 접속하지 않는다.
 """
 
 from datetime import datetime, timedelta
+from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from backend.app.services.xp_service import grant_attendance_bonus
 from backend.tests.local_test_db import require_local_test_db_url, skip_unless_tables
+
+
+def test_first_attendance_has_no_streak_bonus():
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    cursor = Mock()
+    # 1) STREAK_<일수> 정책 2) 출석 이력
+    cursor.fetchall.side_effect = [[("STREAK_7", 5), ("STREAK_30", 20)], [(today,)]]
+
+    assert grant_attendance_bonus(cursor, 1, today) == 0
+    assert cursor.execute.call_count == 2
+
+
+def test_no_streak_policy_means_no_bonus_and_no_history_query():
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    cursor = Mock()
+    cursor.fetchall.return_value = []
+
+    assert grant_attendance_bonus(cursor, 1, today) == 0
+    assert cursor.execute.call_count == 1
+
+
+def test_streak_threshold_comes_from_policy_rows():
+    """STREAK_3 행을 추가하면 코드 수정 없이 3일째 보너스가 지급되고 조회 구간도 늘어난다."""
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    cursor = Mock()
+    cursor.fetchall.side_effect = [
+        [("STREAK_3", 2), ("STREAK_100", 50), ("STREAK_X", 9)],
+        [(today - timedelta(days=i),) for i in range(3)],
+    ]
+    cursor.fetchone.return_value = (2,)
+
+    assert grant_attendance_bonus(cursor, 1, today) == 2
+    history_params = cursor.execute.call_args_list[1].args[1]
+    assert history_params[1] == today - timedelta(days=100)
+    insert_params = cursor.execute.call_args_list[2].args[1]
+    assert insert_params[1:4] == ("STREAK_3", f"STREAK:3:{today}", 2)
 
 
 @pytest.mark.parametrize("days,expected_xp", [(7, 5), (30, 20)])
@@ -34,6 +71,15 @@ def test_attendance_bonus_granted_once(days, expected_xp):
                 """
             )
             cursor.execute("SET LOCAL search_path TO pg_temp, public")
+
+            cursor.execute(
+                "CREATE TEMP TABLE xp_award_policies "
+                "(activity_type TEXT PRIMARY KEY, xp_amount INTEGER)"
+            )
+            cursor.execute(
+                "INSERT INTO xp_award_policies VALUES (%s, %s)",
+                (f"STREAK_{days}", expected_xp),
+            )
 
             # 연속 출석 기록 생성
             for i in range(days):

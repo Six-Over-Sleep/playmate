@@ -19,9 +19,9 @@ from fastapi.concurrency import run_in_threadpool
 # 로그인한 회원 ID를 확인하는 인증 함수
 from app.core.auth import get_current_member_id
 # DB 커밋 결과가 불확실한 경우의 예외와 연결 풀 종료 함수
-from app.core.db_connect import CommitOutcomeUnknownError, close_pool
+from app.core.db_connect import CommitOutcomeUnknownError
 # 업로드 이미지 저장 및 저장한 파일 삭제 함수
-from app.core.uploads import remove_saved_images, save_images
+from app.core.uploads import remove_saved_images, store_validated_images, validate_images
 # API 요청과 응답 데이터 형식을 정의하는 Pydantic 스키마
 from app.schemas.board import (
     BoardCreate,
@@ -39,9 +39,6 @@ from app.services import board_service
 # prefix="/api" : 이 Router의 모든 API 주소 앞에 /api를 붙임.
 # tags=["boards"] : FastAPI 자동 API 문서에서 boards 그룹으로 표시함.
 router = APIRouter(prefix="/api", tags=["boards"])
-
-# 애플리케이션 종료 시 DB 연결 풀을 정리하도록 종료 이벤트 등록
-router.add_event_handler("shutdown", close_pool)
 
 
 # =========================================================
@@ -125,8 +122,10 @@ async def create_post(
     if not title or not body:
         raise HTTPException(status_code=422, detail="제목과 내용은 공백일 수 없습니다.")
 
-    # 이미지를 먼저 저장하고 파일 메타데이터를 확보함.
-    saved = await save_images(images)
+    # 첨부를 읽고 검증한 뒤(개수·크기·형식), 저장소 쓰기는 워커 스레드에서 실행해
+    # 디스크(추후 S3) 쓰기가 이벤트 루프를 막지 않게 함. 수정 API와 같은 방식.
+    validated = await validate_images(images)
+    saved = await run_in_threadpool(store_validated_images, validated)
     try:
         # 동기 Service 함수를 스레드 풀에서 실행하여 이벤트 루프 차단을 줄임.
         # 게시글·이미지 정보를 DB에 저장하고 게시글 응답을 반환함.
@@ -138,8 +137,8 @@ async def create_post(
         # 실제 커밋되었다면 DB에서 해당 파일을 참조할 수 있기 때문임.
         raise
     except Exception:
-        # 커밋 결과가 불확실한 경우를 제외한 오류 발생 시 저장된 이미지를 정리함.
-        remove_saved_images(saved)
+        # 커밋 결과가 불확실한 경우를 제외한 오류 발생 시 저장된 이미지를 정리함(워커 스레드).
+        await run_in_threadpool(remove_saved_images, saved)
         raise
 
 
@@ -168,6 +167,32 @@ def update_post(
     # 수정 권한과 실제 DB 변경 처리는 Service에서 담당함.
     return board_service.update_post(
         board_id, post_id, payload.title, payload.body, member_id, payload.is_anonymous
+    )
+
+
+@router.patch("/boards/{board_id}/posts/{post_id}/images", response_model=PostResponse)
+async def update_post_with_images(
+    board_id: int,
+    post_id: int,
+    title: str = Form(min_length=1, max_length=100),
+    body: str = Form(min_length=1, max_length=20000),
+    is_anonymous: bool | None = Form(default=None),
+    original_image_ids: list[int] = Form(default=[]),
+    keep_image_ids: list[int] = Form(default=[]),
+    images: list[UploadFile] = File(default=[]),
+    member_id: int = Depends(get_current_member_id),
+):
+    title, body = title.strip(), body.strip()
+    if not title or not body:
+        raise HTTPException(422, "제목과 내용은 공백일 수 없습니다.")
+
+    validated = await validate_images(images)
+    return await run_in_threadpool(
+        board_service.update_post,
+        board_id, post_id, title, body, member_id, is_anonymous,
+        original_image_ids=original_image_ids,
+        keep_image_ids=keep_image_ids,
+        new_images=validated,
     )
 
 

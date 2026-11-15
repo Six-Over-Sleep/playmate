@@ -5,7 +5,35 @@
 """게시판 SQL과 결과 매핑. 연결·권한·트랜잭션은 Service에서 관리한다."""
 
 # Any : 게시글/댓글 조회 결과에 여러 데이터 타입이 들어올 수 있음을 나타냄
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from psycopg2.errors import UndefinedTable
+
+from app.core import uploads
+
+
+def _session_timezone(cursor):
+    """comments 시각(TIMESTAMP)은 DB 세션 시간대 값이다. 알 수 없으면 공용 DB 기본값 UTC."""
+    try:
+        name = cursor.connection.get_parameter_status("TimeZone")
+        return ZoneInfo(name) if name else timezone.utc
+    except Exception:
+        return timezone.utc
+
+
+def _with_timezone(cursor, row):
+    """시간대 없는 게시글·댓글 시각에 세션 시간대를 붙여 브라우저가 현지 시각으로 오해하지 않게 한다."""
+    if row is None:
+        return row
+    tz = None
+    for key in ("created_at", "updated_at"):
+        value = row.get(key)
+        if isinstance(value, datetime) and value.tzinfo is None:
+            tz = tz or _session_timezone(cursor)
+            row[key] = value.replace(tzinfo=tz)
+    return row
 
 
 # 게시글 여러 개에 첨부된 이미지를 한 번의 SQL 조회로 가져오는 함수
@@ -29,7 +57,7 @@ def images_by_post(cursor, post_ids: list[int]) -> dict[int, list[dict[str, Any]
         SELECT
             post_id,
             image_id AS id,
-            '/uploads/' || stored_name AS url,
+            stored_name,
             original_name
         FROM post_images
         WHERE post_id = ANY(%s)
@@ -41,6 +69,7 @@ def images_by_post(cursor, post_ids: list[int]) -> dict[int, list[dict[str, Any]
     # pop("post_id") : 내부 매핑에만 쓰는 ID를 이미지 응답에서 제거함
     for image in cursor.fetchall():
         post_id = image.pop("post_id")
+        image["url"] = uploads.post_image_storage.public_url(image.pop("stored_name"))
         images[post_id].append(image)
     return images
 
@@ -67,25 +96,32 @@ def _board_post_guard(alias: str = "p") -> str:
 
 
 # 전체 게시판 목록 조회
-def list_boards(cursor) -> list[dict[str, Any]]:
+def list_boards(cursor, member_id: int | None = None) -> list[dict[str, Any]]:
     """기본 게시판 우선·생성 시간·ID 순으로 게시판 응답 목록을 조회한다."""
-    # is_default가 True인 기본 게시판을 먼저 표시하고 이후 생성 시간순 정렬함
-    cursor.execute("""
-        SELECT
-            board_id AS id,
-            board_name AS name,
-            description,
-            course_code,
-            cohort,
-            created_at
-        FROM boards
-        ORDER BY
-            CASE WHEN board_name = '공지사항' THEN 0 ELSE 1 END,
-            is_default DESC,
-            created_at,
-            board_id
-        """)
-    return list(cursor.fetchall())
+    def query(personalized):
+        join = (
+            "LEFT JOIN member_board_visits AS v "
+            "ON v.board_id = b.board_id AND v.member_id = %s"
+            if personalized else ""
+        )
+        order = "COALESCE(v.visit_count, 0) DESC," if personalized else ""
+        cursor.execute(f"""
+            SELECT b.board_id AS id, b.board_name AS name, b.description,
+                   b.course_code, b.cohort, b.created_at::timestamptz AS created_at
+            FROM boards AS b
+            {join}
+            ORDER BY CASE WHEN b.board_name = '공지사항' THEN 0 ELSE 1 END,
+                     {order} b.is_default DESC, b.created_at, b.board_id
+        """, (member_id,) if personalized else ())
+        return list(cursor.fetchall())
+
+    try:
+        return query(member_id is not None)
+    except UndefinedTable as exc:
+        # The list uses an autocommit read cursor, so a failed SELECT can be retried.
+        if 'relation "member_board_visits"' not in exc.diag.message_primary:
+            raise
+        return query(False)
 
 
 # 새 게시판을 등록하고 생성된 게시판 ID를 반환함
@@ -127,7 +163,7 @@ def get_board(cursor, board_id: int) -> dict[str, Any] | None:
             description,
             course_code,
             cohort,
-            created_at
+            created_at::timestamptz AS created_at
         FROM boards
         WHERE board_id = %s
         """,
@@ -212,7 +248,7 @@ def list_posts(
         params,
     )
     # 게시글 전체 조회 후, N번 조회하지 않도록 이미지 목록을 일괄 조회함
-    rows = list(cursor.fetchall())
+    rows = [_with_timezone(cursor, row) for row in cursor.fetchall()]
     images = images_by_post(cursor, [row["id"] for row in rows])
     # 게시글 한 건마다 해당 이미지 목록(images)을 붙여 반환함
     for row in rows:
@@ -247,9 +283,17 @@ def create_post(
     )
     # INSERT 결과로 생성된 게시글 번호를 가져옴
     post_id = cursor.fetchone()["post_id"]
-    # 이미지는 파일 자체가 아닌 저장 이름·파일 크기 등의 정보를 DB에 기록함
-    # enumerate() : 첨부 순서(display_order)를 0부터 지정함
-    for order, image in enumerate(images or []):
+    insert_post_images(cursor, post_id, images or [])
+    return post_id
+
+
+def insert_post_images(cursor, post_id, images, start_order=0):
+    """이미지 메타데이터를 표시 순서대로 저장한다(최대 3장, 장마다 1회 실행).
+
+    execute_values는 psycopg2 실제 커서의 connection.encoding에 의존해 저장소 계층
+    테스트 대역과 맞지 않아 일반 execute를 사용한다.
+    """
+    for order, image in enumerate(images or [], start_order):
         cursor.execute(
             """
             INSERT INTO post_images (
@@ -259,15 +303,41 @@ def create_post(
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
             (
-                post_id,
-                image["stored_name"],
-                image["original_name"],
-                image["content_type"],
-                image["file_size"],
-                order,
+                post_id, image["stored_name"], image["original_name"],
+                image["content_type"], image["file_size"], order,
             ),
         )
-    return post_id
+
+
+def post_image_ids(cursor, post_id):
+    cursor.execute("SELECT image_id FROM post_images WHERE post_id = %s", (post_id,))
+    return {row["image_id"] for row in cursor.fetchall()}
+
+
+def remove_post_images(cursor, post_id, keep_ids):
+    cursor.execute(
+        """
+        DELETE FROM post_images
+        WHERE post_id = %s AND NOT (image_id = ANY(%s))
+        RETURNING stored_name
+        """,
+        (post_id, keep_ids),
+    )
+    removed = cursor.fetchall()
+    cursor.execute(
+        """
+        WITH ordered AS (
+            SELECT image_id, row_number() OVER (ORDER BY display_order, image_id) - 1 AS position
+            FROM post_images WHERE post_id = %s
+        )
+        UPDATE post_images AS image
+        SET display_order = ordered.position
+        FROM ordered
+        WHERE image.image_id = ordered.image_id AND image.display_order <> ordered.position
+        """,
+        (post_id,),
+    )
+    return removed
 
 
 # 단일 게시글의 내용, 작성자, 댓글 수, 첨부 이미지를 조회함
@@ -322,7 +392,7 @@ def get_post(
         (member_id, member_id, member_id, board_id, post_id),
     )
     # 조회한 글이 있을 때만 이미지 정보를 함께 추가함
-    row = cursor.fetchone()
+    row = _with_timezone(cursor, cursor.fetchone())
     if row is not None:
         row["images"] = images_by_post(cursor, [post_id])[post_id]
     return row
@@ -560,7 +630,7 @@ def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
         (member_id, post_id),
     )
 
-    return list(cursor.fetchall())
+    return [_with_timezone(cursor, row) for row in cursor.fetchall()]
 
 
 # 댓글 및 대댓글 저장
@@ -660,7 +730,7 @@ def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | Non
         (member_id, comment_id),
     )
 
-    return cursor.fetchone()
+    return _with_timezone(cursor, cursor.fetchone())
 
 
 # 댓글 작성자만 본문을 수정할 수 있도록 처리함
@@ -796,7 +866,7 @@ def list_featured_posts(
         """,
         params,
     )
-    rows = list(cursor.fetchall())
+    rows = [_with_timezone(cursor, row) for row in cursor.fetchall()]
     images = images_by_post(cursor, [row["id"] for row in rows])
     for row in rows:
         row["images"] = images[row["id"]]

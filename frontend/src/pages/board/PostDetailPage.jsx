@@ -59,9 +59,15 @@ export default function PostDetailPage({
         <div className="post-body">{post.body}</div>
         {!!post.images?.length && (
           <div className="post-images">
-            {post.images.map((image) => (
-              <img key={image.id} src={mediaUrl(image.url)} alt={image.original_name} />
-            ))}
+            {post.images.map((image) => {
+              const url = mediaUrl(image.url)
+              return (
+                <a key={image.id} href={url} target="_blank" rel="noopener noreferrer"
+                  aria-label={`${image.original_name} 원본을 새 탭에서 열기`}>
+                  <img src={url} alt={image.original_name} />
+                </a>
+              )
+            })}
           </div>
         )}
         {/* 표시 값은 서버 응답(like_count·liked_by_me·scrapped_by_me)을 그대로 사용한다. */}

@@ -235,6 +235,16 @@ export function deleteCareerLounge(postId) {
 
 const LAB_URL = '/api/career/labs'
 
+let guideAwardRequest
+
+export function fetchGuideAward() {
+    if (!guideAwardRequest) {
+        guideAwardRequest = request('/api/career/policies/guide-award')
+            .finally(() => { guideAwardRequest = undefined })
+    }
+    return guideAwardRequest
+}
+
 
 // 6-1. 게시글 목록 조회
 export function getCareerLabs(params = {}) {

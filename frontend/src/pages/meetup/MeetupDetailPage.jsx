@@ -4,6 +4,7 @@ import MeetupApplicationModal from '../../components/meetup/MeetupApplicationMod
 import MeetupCommentList from '../../components/meetup/MeetupCommentList'
 import MeetupExtensionModal from '../../components/meetup/MeetupExtensionModal'
 import MeetupMemberList from '../../components/meetup/MeetupMemberList'
+import MeetupActivityList from '../../components/meetup/MeetupActivityList'
 import useMeetupApplication from '../../hooks/meetup/useMeetupApplication'
 import useMeetupExtension from '../../hooks/meetup/useMeetupExtension'
 import {
@@ -922,6 +923,15 @@ export default function MeetupDetailPage({
           requiredSkills={requiredSkills}
         />
 
+        {/* 프로젝트·스터디는 시작 후 활동 기록을 표시함 (목록 조회 API 연결) */}
+        {meetup.lifecycle_status &&
+          ['IN_PROGRESS', 'COMPLETED', 'ABORTED'].includes(meetup.lifecycle_status) && (
+          <MeetupActivityList
+            recruitId={meetup.recruit_id}
+            members={members}
+            reloadKey={meetup}
+          />
+        )}
 
 
 

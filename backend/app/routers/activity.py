@@ -1,6 +1,7 @@
 """회원 활동 기록과 관리자 전용 통계 API입니다."""
 
 from datetime import date
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -16,6 +17,7 @@ class BoardVisit(BaseModel):
     """게시판 진입을 기록하기 위한 요청 형식입니다."""
 
     board_key: str = Field(min_length=1, max_length=40)
+    visit_id: UUID | None = None
 
 
 def require_admin(member_id: int = Depends(get_current_member_id)) -> int:
@@ -35,7 +37,7 @@ def record_board_visit(
     member_id: int = Depends(get_current_member_id),
 ):
     """로그인한 회원의 게시판 진입 한 건을 집계합니다."""
-    return activity_service.visit_board(member_id, payload.board_key)
+    return activity_service.visit_board(member_id, payload.board_key, payload.visit_id)
 
 
 @router.get("/admin/usage")

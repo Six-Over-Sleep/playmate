@@ -66,6 +66,12 @@ router = APIRouter(
 )
 
 
+@router.get("/policies/guide-award")
+async def guide_award(response: Response, member_id: int = Depends(get_current_member_id)):
+    response.headers["Cache-Control"] = "no-store"
+    return {"xp_amount": await run_in_threadpool(career_service.read_guide_award)}
+
+
 # =========================================
 # 취준 도감 - 후기 등록
 # =========================================

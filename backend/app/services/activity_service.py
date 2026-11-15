@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
+from psycopg2.errors import UndefinedTable
 
 from app.core.db_connect import db_cursor
 from app.repositories import activity_repository as repository
@@ -24,8 +25,8 @@ def ping(member_id: int) -> dict:
     return {"recorded_seconds": seconds}
 
 
-def visit_board(member_id: int, board_key: str) -> dict:
-    """게시판 진입 횟수를 일별로 기록합니다. 회원별 방문 이력은 저장하지 않습니다."""
+def visit_board(member_id: int, board_key: str, visit_id=None) -> dict:
+    """게시판 진입 횟수를 일별로 기록합니다. 일반 게시판은 회원별 횟수도 기록합니다."""
     if member_id <= 0:
         return {"recorded": False}
 
@@ -38,13 +39,30 @@ def visit_board(member_id: int, board_key: str) -> dict:
         if board_id <= 0:
             raise HTTPException(status_code=422, detail="게시판 번호가 올바르지 않습니다.")
 
-        with db_cursor(commit=True) as cursor:
-            if not repository.board_exists(cursor, board_id):
-                raise HTTPException(status_code=404, detail="게시판을 찾을 수 없습니다.")
-            repository.record_board_view(cursor, str(board_id))
+        board_key = str(board_id)
     else:
-        with db_cursor(commit=True) as cursor:
-            repository.record_board_view(cursor, board_key)
+        board_id = None
+
+    if visit_id is not None:
+        try:
+            with db_cursor(commit=True) as cursor:
+                result = repository.record_tracked_board_view(
+                    cursor, member_id, visit_id, board_key, board_id
+                )
+                if not result["board_found"]:
+                    raise HTTPException(status_code=404, detail="게시판을 찾을 수 없습니다.")
+                return {"recorded": result["recorded"]}
+        except UndefinedTable as exc:
+            if not any(
+                f'relation "{table}"' in exc.diag.message_primary
+                for table in ("member_board_visits", "member_board_visit_events")
+            ):
+                raise
+
+    with db_cursor(commit=True) as cursor:
+        if board_id is not None and not repository.board_exists(cursor, board_id):
+            raise HTTPException(status_code=404, detail="게시판을 찾을 수 없습니다.")
+        repository.record_board_view(cursor, board_key)
 
     return {"recorded": True}
 

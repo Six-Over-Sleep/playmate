@@ -3,7 +3,7 @@
 일회용 DB 주소를 PLAYMATE_CAREER_NEWS_TEST_DB_URL로 줄 때만 실행한다. (공용 DB 사용 금지, localhost만 허용)
 예) PLAYMATE_CAREER_NEWS_TEST_DB_URL=postgresql://postgres:test@127.0.0.1:55437/pm
 DB_* 환경변수를 이 주소로 바꾸고 PGOPTIONS로 전용 스키마(career_news_api_test)만 보게 한 뒤,
-실제 인증(X-Dev-Member-ID → members 확인)·db_cursor·SQL을 거쳐 API를 호출한다. 끝나면 스키마를 지운다.
+실제 인증(서명된 세션 쿠키 → members의 discord_id·member_status 확인)·db_cursor·SQL을 거쳐 API를 호출한다. 끝나면 스키마를 지운다.
 뉴스 데이터는 1차 가져오기 스크립트(import_articles)로 넣어 수집 → API 흐름을 그대로 확인한다.
 """
 import importlib.util
@@ -16,6 +16,8 @@ from fastapi.testclient import TestClient
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import pytest
+
+from backend.tests.session_auth import session_headers
 
 
 DB_URL = os.getenv("PLAYMATE_CAREER_NEWS_TEST_DB_URL")
@@ -67,8 +69,9 @@ def api(monkeypatch):
         cursor.execute(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")
         cursor.execute(f"CREATE SCHEMA {SCHEMA}")
         cursor.execute(f"SET search_path = {SCHEMA}")
-        cursor.execute("CREATE TABLE members (member_id BIGINT PRIMARY KEY, discord_id VARCHAR(30), nickname VARCHAR(50))")
-        cursor.execute("INSERT INTO members VALUES (1, '1001', '민혁'), (2, '1002', '효원')")
+        cursor.execute("CREATE TABLE members (member_id BIGINT PRIMARY KEY, discord_id VARCHAR(30), nickname VARCHAR(50), "
+                       "member_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE')")
+        cursor.execute("INSERT INTO members (member_id, discord_id, nickname) VALUES (1, '1001', '민혁'), (2, '1002', '효원')")
         cursor.execute(MIGRATION.read_text(encoding="utf-8"))
         with conn.cursor(cursor_factory=RealDictCursor) as dict_cursor:
             dict_cursor.execute(f"SET search_path = {SCHEMA}")
@@ -96,7 +99,10 @@ def api(monkeypatch):
 
 
 def call(client, method, path, member=1):
-    return getattr(client, method)(path, headers={"X-Dev-Member-ID": str(member)})
+    # 회원 n의 discord_id는 1000 + n (위 members 시드).
+    # 앞 응답이 남긴 세션 쿠키가 다른 회원 요청에 섞이지 않게 비운다.
+    client.cookies.clear()
+    return getattr(client, method)(path, headers=session_headers(member, 1000 + member))
 
 
 def titles(response):

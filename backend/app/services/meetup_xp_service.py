@@ -7,28 +7,35 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from backend.app.domain.recruit_program import PolicyError
 from backend.app.models.recruit_program import RecognitionRecord
-from backend.app.services.xp_service import calculate_level
+from fastapi import HTTPException
+
+from backend.app.services.xp_service import (
+    LEVEL_POLICY_UNAVAILABLE,
+    level_for_xp,
+    validate_level_thresholds,
+)
 
 KST = ZoneInfo('Asia/Seoul')
 
 # 공식 2.3 기준. 우수 프로젝트는 선정 기준 미정으로 자동 지급하지 않는다.
-MEETUP_XP_RULES = {
-    'PARTICIPATION': 10,
-    'STUDY_WEEKLY': 15,
-    'PROJECT_INTERIM': 15,
-    'STUDY_COMPLETE': 30,
-    'PROJECT_COMPLETE': 50,
-    'REVIEW': 10,
-    'PROJECT_LEADER': 20,
+MEETUP_REWARD_TYPES = {
+    'PARTICIPATION',
+    'STUDY_WEEKLY',
+    'PROJECT_INTERIM',
+    'STUDY_COMPLETE',
+    'PROJECT_COMPLETE',
+    'REVIEW',
+    'PROJECT_LEADER',
 }
 
 
 def _identity(program, activity, member_id, reward_type, week=None):
     """스코프별 중복방지 키를 만들며 인원·증빙·종료 조건을 확인한다."""
-    if reward_type not in MEETUP_XP_RULES:
+    if reward_type not in MEETUP_REWARD_TYPES:
         raise PolicyError('지원하지 않거나 선정 기준이 확정되지 않은 모임 보상입니다.', 422)
 
     application = next(
@@ -128,6 +135,22 @@ class MeetupXPService:
         self.repository = program_service.repository
         self.session = self.repository.session
 
+    def _level_thresholds(self):
+        """같은 트랜잭션에서 종합 레벨 기준을 읽는다. 없거나 잘못되면 503."""
+        try:
+            rows = self.session.execute(text(
+                "SELECT level, min_xp FROM level_policies "
+                "WHERE level_type = 'OVERALL'"
+            )).all()
+        except ProgrammingError as exc:
+            if getattr(exc.orig, "sqlstate", None) != "42P01":
+                raise
+            raise PolicyError(LEVEL_POLICY_UNAVAILABLE, 503) from exc
+        try:
+            return validate_level_thresholds(rows)
+        except HTTPException as exc:
+            raise PolicyError(exc.detail, 503) from exc
+
     def approve(self, reviewer_id, recruit_id, activity_id, member_id, reward_type, week=None):
         if any(not isinstance(v, int) or isinstance(v, bool) or v <= 0
                for v in (reviewer_id, recruit_id, activity_id, member_id)):
@@ -150,7 +173,21 @@ class MeetupXPService:
                     'event_key': event_key,
                 }
 
-            xp = MEETUP_XP_RULES[reward_type]
+            try:
+                xp = self.session.execute(
+                    text(
+                        "SELECT xp_amount FROM xp_award_policies "
+                        "WHERE activity_type = :activity_type"
+                    ),
+                    {"activity_type": f"MEETUP_{reward_type}"},
+                ).scalar_one_or_none()
+            except ProgrammingError as exc:
+                if getattr(exc.orig, "sqlstate", None) != "42P01":
+                    raise
+                raise PolicyError("XP 정책을 사용할 수 없습니다.", 503) from exc
+            if xp is None:
+                raise PolicyError("모임 XP 지급 정책이 없습니다.", 503)
+            levels = self._level_thresholds()
             self.session.execute(text("""
                 INSERT INTO member_levels (member_id) VALUES (:member_id)
                 ON CONFLICT (member_id) DO NOTHING
@@ -184,7 +221,7 @@ class MeetupXPService:
                     updated_at = CURRENT_TIMESTAMP
                 WHERE member_id = :member_id
             """), {'member_id': member_id, 'xp': new_total,
-                   'level': calculate_level(new_total)})
+                   'level': level_for_xp(levels, new_total)})
             self.repository.save_recognition(
                 recognition_key, recruit_id, member_id, activity_id,
                 {
@@ -198,7 +235,7 @@ class MeetupXPService:
             )
             return {
                 'awarded': True, 'earned_xp': xp, 'event_key': event_key,
-                'total_xp': new_total, 'level': calculate_level(new_total),
+                'total_xp': new_total, 'level': level_for_xp(levels, new_total),
             }
 
     def revoke(self, reviewer_id, recruit_id, member_id, reward_type, reason, week=None):
@@ -219,7 +256,7 @@ class MeetupXPService:
                      else {'PARTICIPATION': 'ONCE', 'PROJECT_INTERIM': 'INTERIM',
                            'STUDY_COMPLETE': 'COMPLETE', 'PROJECT_COMPLETE': 'COMPLETE',
                            'REVIEW': 'REVIEW', 'PROJECT_LEADER': 'LEADER'}.get(reward_type))
-            if reward_type not in MEETUP_XP_RULES or scope is None:
+            if reward_type not in MEETUP_REWARD_TYPES or scope is None:
                 raise PolicyError('회수 대상 XP 유형 또는 주차가 올바르지 않습니다.', 422)
             if reward_type != 'STUDY_WEEKLY' and week is not None:
                 raise PolicyError('해당 보상에는 주차를 지정할 수 없습니다.', 422)
@@ -249,6 +286,7 @@ class MeetupXPService:
             new_total = total - xp
             if new_total < 0:
                 raise PolicyError('잔여 XP가 부족해 회수할 수 없습니다. 원장 점검이 필요합니다.', 409)
+            levels = self._level_thresholds()
             revoke_key = f'REVOKE:{event_key}'
             created = self.session.execute(text("""
                 INSERT INTO member_xp_history
@@ -271,11 +309,11 @@ class MeetupXPService:
                     updated_at = CURRENT_TIMESTAMP
                 WHERE member_id = :member_id
             """), {'member_id': member_id, 'xp': new_total,
-                   'level': calculate_level(new_total)})
+                   'level': level_for_xp(levels, new_total)})
             rec.payload = {
                 **rec.payload, 'status': 'INVALIDATED', 'reward_status': 'REVOKED',
                 'revoked_by_member_id': reviewer_id, 'revoke_reason': reason.strip(),
                 'revoked_at': datetime.now(KST).isoformat(),
             }
             return {'revoked': True, 'xp_change': -xp,
-                    'total_xp': new_total, 'level': calculate_level(new_total)}
+                    'total_xp': new_total, 'level': level_for_xp(levels, new_total)}

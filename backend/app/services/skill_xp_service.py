@@ -1,28 +1,17 @@
 from backend.app.core.database import get_db_connection
+from backend.app.services.xp_service import calculate_level, read_xp_amount
 
-# 스킬 레벨 계산
+# 스킬 레벨 계산 (기준: level_policies의 SKILL 행)
 
-def calculate_skill_level(total_xp: int) -> int:
-    if total_xp < 0:
-        raise ValueError("스킬 XP는 음수일 수 없습니다.")
-
-    if total_xp >= 500:
-        return 5
-    elif total_xp >= 300:
-        return 4
-    elif total_xp >= 150:
-        return 3
-    elif total_xp >= 50:
-        return 2
-    else:
-        return 1
+def calculate_skill_level(cursor, total_xp: int) -> int:
+    return calculate_level(cursor, total_xp, "SKILL")
 
 
-# 학습 활동별 XP 지급 기준
-SKILL_XP_RULES = {
-    "QUIZ": 5,        # 객관식·단답형 정답
-    "PRACTICE": 10,   # 코드 실습 완료
-    "ADVANCED": 20    # 심화 문제 해결
+# 학습 활동 종류. 지급량은 xp_award_policies의 SKILL_<종류> 행에서 읽는다(027).
+SKILL_ACTIVITY_TYPES = {
+    "QUIZ",       # 객관식·단답형 정답
+    "PRACTICE",   # 코드 실습 완료
+    "ADVANCED",   # 심화 문제 해결
 }
 
 # 지원하는 스킬
@@ -46,14 +35,16 @@ def grant_skill_xp(
     if skill_code not in SKILL_CODES:
         raise ValueError("지원하지 않는 스킬입니다.")
 
-    if activity_type not in SKILL_XP_RULES:
+    if activity_type not in SKILL_ACTIVITY_TYPES:
         raise ValueError("지원하지 않는 학습 활동입니다.")
 
-    xp = SKILL_XP_RULES[activity_type]
     event_key = f"PROBLEM:{problem_id}"
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
+
+            # 0. 지급량 정책 (없으면 503, 이후 쓰기 없음)
+            xp = read_xp_amount(cursor, f"SKILL_{activity_type}")
 
             # 1. 회원 스킬 정보가 없으면 생성
             cursor.execute(
@@ -106,7 +97,7 @@ def grant_skill_xp(
 
             # 4. 스킬 XP 및 레벨 갱신
             new_xp = total_xp + xp
-            new_level = calculate_skill_level(new_xp)
+            new_level = calculate_skill_level(cursor, new_xp)
 
             cursor.execute(
                 """

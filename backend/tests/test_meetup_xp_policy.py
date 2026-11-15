@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from backend.app.services.meetup_xp_service import _identity, MEETUP_XP_RULES
+from backend.app.services.meetup_xp_service import _identity
 from backend.app.domain.recruit_program import PolicyError
 
 
@@ -22,11 +22,6 @@ class MeetupXPPolicyTests(unittest.TestCase):
 
     def key(self, reward, week=None):
         return _identity(self.program, self.activity, 1, reward, week)
-
-    def test_values(self):
-        self.assertEqual(MEETUP_XP_RULES['PARTICIPATION'],10)
-        self.assertEqual(MEETUP_XP_RULES['STUDY_WEEKLY'],15)
-        self.assertEqual(MEETUP_XP_RULES['PROJECT_COMPLETE'],50)
 
     def test_week_scoped(self):
         self.assertEqual(self.key('STUDY_WEEKLY',1), self.key('STUDY_WEEKLY'))

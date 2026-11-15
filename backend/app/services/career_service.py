@@ -43,6 +43,7 @@ from app.services.xp_service import (
     grant_career_review_xp,
     revoke_xp,
     reconcile_career_review_xp,
+    get_career_review_activity,
     grant_career_guide_xp,
 )
 
@@ -156,6 +157,15 @@ def list_reviews(
 # 취준 도감 - 후기 수정
 # =========================================
 
+def _eligible_review_activity(review: dict | None) -> str | None:
+    """정산 SQL과 동일하게 본문 양끝의 공백을 제외한 길이를 검사한다."""
+    if review is None or len(review["body"].strip(" ")) < 500:
+        return None
+    return get_career_review_activity(
+        review["subcategory_code"], review["process_stage"], review["process_result"]
+    )
+
+
 def update_review(
     post_id: int,
     payload: CareerReviewUpdate,
@@ -185,6 +195,8 @@ def update_review(
                 detail="작성자만 후기를 수정할 수 있습니다.",
             )
 
+        previous_review = career_repository.get_review(cursor, post_id, member_id)
+
         # 4. 전달된 항목만 추출
         changes = payload.model_dump(exclude_unset=True)
 
@@ -213,12 +225,20 @@ def update_review(
 
         # 8. 수정된 후기 유형을 기준으로 XP 차액 정산
         # 게시글 수정과 XP 정산은 같은 트랜잭션에서 처리됨
-        xp_result = reconcile_career_review_xp(cursor, member_id, post_id)
-        logger.info(
-            "취업 후기 XP 정산: post_id=%s, result=%s",
-            post_id,
-            xp_result,
-        )
+        previous_activity = _eligible_review_activity(previous_review)
+        current_activity = _eligible_review_activity(review)
+        if previous_activity is not None or current_activity is not None:
+            xp_result = reconcile_career_review_xp(
+                cursor,
+                member_id,
+                post_id,
+                preserve_award=previous_activity == current_activity,
+            )
+            logger.info(
+                "취업 후기 XP 정산: post_id=%s, result=%s",
+                post_id,
+                xp_result,
+            )
 
         return response
     

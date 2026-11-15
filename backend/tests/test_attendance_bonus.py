@@ -6,12 +6,22 @@ import나 직접 실행만으로는 DB에 접속하지 않는다.
 """
 
 from datetime import datetime, timedelta
+from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from backend.app.services.xp_service import grant_attendance_bonus
 from backend.tests.local_test_db import require_local_test_db_url, skip_unless_tables
+
+
+def test_first_attendance_has_no_streak_bonus():
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    cursor = Mock()
+    cursor.fetchall.return_value = [(today,)]
+
+    assert grant_attendance_bonus(cursor, 1, today) == 0
+    assert cursor.execute.call_count == 1
 
 
 @pytest.mark.parametrize("days,expected_xp", [(7, 5), (30, 20)])
@@ -34,6 +44,15 @@ def test_attendance_bonus_granted_once(days, expected_xp):
                 """
             )
             cursor.execute("SET LOCAL search_path TO pg_temp, public")
+
+            cursor.execute(
+                "CREATE TEMP TABLE xp_award_policies "
+                "(activity_type TEXT PRIMARY KEY, xp_amount INTEGER)"
+            )
+            cursor.execute(
+                "INSERT INTO xp_award_policies VALUES (%s, %s)",
+                (f"STREAK_{days}", expected_xp),
+            )
 
             # 연속 출석 기록 생성
             for i in range(days):

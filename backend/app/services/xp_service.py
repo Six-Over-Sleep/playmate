@@ -2,44 +2,97 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from uuid import uuid4
 
+from fastapi import HTTPException
+from psycopg.errors import UndefinedTable as PsycopgUndefinedTable
+from psycopg2.errors import UndefinedTable as Psycopg2UndefinedTable
+
 from backend.app.core.database import get_db_connection
 
-# 회원 종합 레벨 계산
+# 레벨 기준은 level_policies 테이블에서 읽는다 (database/sql/025_level_policies.sql)
+LEVEL_POLICY_UNAVAILABLE = "레벨 정책을 사용할 수 없습니다."
 
-def calculate_level(total_xp: int) -> int:
+
+def validate_level_thresholds(rows) -> list[tuple[int, int]]:
+    """(레벨, 시작 XP) 목록이 1레벨 0XP부터 빠짐없이 증가하는지 확인한다."""
+    thresholds = sorted((int(level), int(min_xp)) for level, min_xp in rows)
+    if not thresholds or thresholds[0] != (1, 0) or any(
+        level != index + 1
+        or (index > 0 and min_xp <= thresholds[index - 1][1])
+        for index, (level, min_xp) in enumerate(thresholds)
+    ):
+        raise HTTPException(503, LEVEL_POLICY_UNAVAILABLE)
+    return thresholds
+
+
+def read_level_thresholds(cursor, level_type: str = "OVERALL") -> list[tuple[int, int]]:
+    """호출자의 트랜잭션 안에서 레벨 기준을 읽는다. 없거나 잘못되면 503."""
+    try:
+        cursor.execute(
+            "SELECT level, min_xp FROM level_policies WHERE level_type = %s",
+            (level_type,),
+        )
+    except (PsycopgUndefinedTable, Psycopg2UndefinedTable) as exc:
+        raise HTTPException(503, LEVEL_POLICY_UNAVAILABLE) from exc
+    return validate_level_thresholds(
+        (row["level"], row["min_xp"]) if isinstance(row, dict) else (row[0], row[1])
+        for row in cursor.fetchall()
+    )
+
+
+def level_for_xp(thresholds: list[tuple[int, int]], total_xp: int) -> int:
     if total_xp < 0:
         raise ValueError("XP는 음수일 수 없습니다.")
-
-    if total_xp >= 1500:
-        return 4
-    elif total_xp >= 500:
-        return 3
-    elif total_xp >= 100:
-        return 2
-    else:
-        return 1
+    return max(level for level, min_xp in thresholds if total_xp >= min_xp)
 
 
-# 기본 활동별 XP
-XP_RULES = {
-    "ATTEND": 1,
-    "POST": 5,
-    "COMMENT": 2,
-    "REPLY": 2,
-}
+def level_progress(thresholds: list[tuple[int, int]], total_xp: int) -> dict:
+    """현재 레벨, 다음 레벨 시작 XP, 남은 XP, 현재 구간 진행률을 계산한다."""
+    level = level_for_xp(thresholds, total_xp)
+    start_xp = thresholds[level - 1][1]
+    next_level_xp = thresholds[level][1] if level < len(thresholds) else None
+    if next_level_xp is None:
+        return {"level": level, "next_level_xp": None,
+                "remaining_xp": 0, "progress_percent": 100.0}
+    return {
+        "level": level,
+        "next_level_xp": next_level_xp,
+        "remaining_xp": max(0, next_level_xp - total_xp),
+        "progress_percent": round(
+            (total_xp - start_xp) / (next_level_xp - start_xp) * 100, 1
+        ),
+    }
+
+
+def calculate_level(cursor, total_xp: int, level_type: str = "OVERALL") -> int:
+    """누적 XP에 해당하는 레벨을 DB 기준으로 계산한다."""
+    return level_for_xp(read_level_thresholds(cursor, level_type), total_xp)
+
+
+def read_xp_amount(cursor, activity_type: str) -> int:
+    """Read the policy within the transaction that records the award."""
+    try:
+        cursor.execute(
+            "SELECT xp_amount FROM xp_award_policies WHERE activity_type = %s",
+            (activity_type,),
+        )
+    except (PsycopgUndefinedTable, Psycopg2UndefinedTable) as exc:
+        raise HTTPException(503, "XP 정책을 사용할 수 없습니다.") from exc
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(503, f"XP 지급 정책이 없습니다: {activity_type}")
+    return row["xp_amount"] if isinstance(row, dict) else row[0]
 
 
 def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
     """활동별 XP 지급 및 종합 레벨 갱신"""
 
-    if activity_type not in XP_RULES:
+    if activity_type not in {"ATTEND", "POST", "COMMENT", "REPLY"}:
         raise ValueError("지원하지 않는 XP 활동입니다.")
 
     if activity_type != "ATTEND" and (source_id is None or source_id <= 0):
         raise ValueError("활동 데이터 ID가 필요합니다.")
 
     today = datetime.now(ZoneInfo("Asia/Seoul")).date()
-    xp = XP_RULES[activity_type]
 
     # 동일 활동의 중복 지급 방지
     if activity_type == "ATTEND":
@@ -98,7 +151,8 @@ def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
                     """
                     SELECT
                         author_member_id,
-                        created_at,
+                        -- TIMESTAMP 컬럼은 DB 세션 시간대 값이므로 한국 날짜로 변환해 비교
+                        (created_at::timestamptz AT TIME ZONE 'Asia/Seoul')::date,
                         deleted_at,
                         parent_comment_id
                     FROM comments
@@ -117,8 +171,8 @@ def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
                 if comment[2] is not None:
                     return {"awarded": False, "reason": "DELETED_COMMENT"}
 
-                # 작성 날짜 확인
-                if comment[1] is None or comment[1].date() != today:
+                # 작성 날짜 확인 (한국 날짜 기준)
+                if comment[1] is None or comment[1] != today:
                     return {"awarded": False, "reason": "INVALID_COMMENT_DATE"}
 
                 # 일반 댓글과 대댓글 구분
@@ -183,6 +237,8 @@ def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
                 if cursor.fetchone()[0] >= limit:
                     return {"awarded": False, "reason": "DAILY_LIMIT"}
 
+            xp = read_xp_amount(cursor, activity_type)
+
             # XP 지급 이력 기록
             cursor.execute(
                 """
@@ -207,7 +263,7 @@ def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
 
             # 누적 XP 및 종합 레벨 변경
             new_xp = total_xp + xp + bonus_xp
-            new_level = calculate_level(new_xp)
+            new_level = calculate_level(cursor, new_xp)
 
             cursor.execute(
                 """
@@ -230,23 +286,23 @@ def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
 
 # 취준 도감 후기별 보상 규칙
 # 미정: CODING_ASSIGNMENT, FINAL은 보상 정책이 확정될 때까지 지급하지 않음.
-def get_career_review_reward(
+def get_career_review_activity(
     subcategory: str,
     process_stage: str,
     process_result: str,
-) -> tuple[str, int] | None:
-    """정책이 확정된 후기 유형에 대해서만 (활동 유형, XP)를 반환한다."""
+) -> str | None:
+    """정책이 확정된 후기 유형에 대해서만 활동 유형를 반환한다."""
 
     if subcategory == "DOCUMENT" and process_stage == "DOCUMENT":
         if process_result in ("PASS", "FAIL"):
-            return "CAREER_DOCUMENT", 30
+            return "CAREER_DOCUMENT"
 
     if subcategory == "INTERVIEW" and process_stage == "INTERVIEW":
-        return "CAREER_INTERVIEW", 50
+        return "CAREER_INTERVIEW"
 
     if subcategory == "SUCCESS" and process_stage == "FINAL":
         if process_result == "PASS":
-            return "CAREER_SUCCESS", 50
+            return "CAREER_SUCCESS"
 
     return None
 
@@ -290,7 +346,7 @@ def grant_career_review_xp(member_id: int, post_id: int) -> dict:
             if review[4] < 500:
                 return {"awarded": False, "reason": "BODY_TOO_SHORT"}
 
-            reward = get_career_review_reward(
+            reward = get_career_review_activity(
                 subcategory=review[1],
                 process_stage=review[2],
                 process_result=review[3],
@@ -298,7 +354,7 @@ def grant_career_review_xp(member_id: int, post_id: int) -> dict:
             if reward is None:
                 return {"awarded": False, "reason": "UNSUPPORTED_REVIEW_TYPE"}
 
-            activity_type, xp = reward
+            activity_type = reward
 
             # 회원 레벨 생성 및 동시 지급 요청 직렬화
             cursor.execute(
@@ -323,12 +379,21 @@ def grant_career_review_xp(member_id: int, post_id: int) -> dict:
             cursor.execute(
                 """
                 SELECT 1 FROM member_xp_history
-                WHERE member_id = %s AND event_key = %s
+                WHERE member_id = %s
+                  AND (
+                    event_key = %s
+                    OR (
+                        source_type = 'POST' AND source_id = %s
+                        AND activity_type = 'CAREER_ADJUST'
+                    )
+                  )
                 """,
-                (member_id, event_key),
+                (member_id, event_key, post_id),
             )
             if cursor.fetchone():
                 return {"awarded": False, "reason": "DUPLICATE"}
+
+            xp = read_xp_amount(cursor, activity_type)
 
             cursor.execute(
                 """
@@ -341,7 +406,7 @@ def grant_career_review_xp(member_id: int, post_id: int) -> dict:
             )
 
             new_xp = total_xp + xp
-            new_level = calculate_level(new_xp)
+            new_level = calculate_level(cursor, new_xp)
             cursor.execute(
                 """
                 UPDATE member_levels
@@ -364,7 +429,9 @@ def grant_career_review_xp(member_id: int, post_id: int) -> dict:
 # 후기 수정 시 보상 차액 반영
 # 예: 서류 후기 30XP -> 면접 후기 50XP = +20XP
 # 같은 값을 여러 번 저장해도 추가 XP를 주지 않는다.
-def reconcile_career_review_xp(cursor, member_id: int, post_id: int) -> dict:
+def reconcile_career_review_xp(
+    cursor, member_id: int, post_id: int, *, preserve_award: bool = False
+) -> dict:
     """업데이트된 후기 내용을 기준으로 누적 지급 XP를 정산한다.
 
     career_service.update_review()의 DB 트랜잭션 안에서만 호출한다.
@@ -396,12 +463,11 @@ def reconcile_career_review_xp(cursor, member_id: int, post_id: int) -> dict:
         raise ValueError("XP 정산 대상 후기가 없거나 작성자가 다릅니다.")
 
     # 후기 정책을 충족하지 못하면 목표 보상은 0이다.
-    reward = get_career_review_reward(
+    reward = get_career_review_activity(
         review["subcategory_code"],
         review["process_stage"],
         review["process_result"],
     )
-    target_xp = reward[1] if reward and review["body_length"] >= 500 else 0
 
     # 회원 XP 행을 잠근 뒤 이력 합산 및 레벨 변경을 한 트랜잭션에서 처리한다.
     cursor.execute(
@@ -437,6 +503,11 @@ def reconcile_career_review_xp(cursor, member_id: int, post_id: int) -> dict:
         (member_id, post_id),
     )
     current_xp = int(cursor.fetchone()["review_xp"])
+    if preserve_award and current_xp > 0:
+        return {"adjusted": False, "xp_change": 0, "total_xp": total_xp}
+
+    eligible = reward is not None and review["body_length"] >= 500
+    target_xp = read_xp_amount(cursor, reward) if eligible else 0
     difference = target_xp - current_xp
     if difference == 0:
         return {"adjusted": False, "xp_change": 0, "total_xp": total_xp}
@@ -474,7 +545,7 @@ def reconcile_career_review_xp(cursor, member_id: int, post_id: int) -> dict:
         SET total_xp = %s, level = %s, updated_at = CURRENT_TIMESTAMP
         WHERE member_id = %s
         """,
-        (new_total, calculate_level(new_total), member_id),
+        (new_total, calculate_level(cursor, new_total), member_id),
     )
     return {"adjusted": True, "xp_change": difference, "total_xp": new_total}
 
@@ -549,10 +620,10 @@ def grant_post_like_xp(cursor, post_id: int, liker_member_id: int) -> dict:
     if cursor.fetchone():
         return {"awarded": False, "reason": "DUPLICATE"}
 
-    # 동일 게시글에서 좋아요 보상은 최대 10번까지만 지급한다.
+    # 동일 게시글에 지급한 좋아요 XP를 합산해 남은 한도를 계산한다.
     cursor.execute(
         """
-        SELECT COUNT(*) AS reward_count
+        SELECT COALESCE(SUM(xp_change), 0) AS awarded_xp
         FROM member_xp_history
         WHERE member_id = %s
           AND activity_type = 'POST_LIKE'
@@ -562,21 +633,23 @@ def grant_post_like_xp(cursor, post_id: int, liker_member_id: int) -> dict:
         """,
         (author_id, post_id),
     )
-    if cursor.fetchone()["reward_count"] >= 10:
+    remaining_xp = 10 - cursor.fetchone()["awarded_xp"]
+    if remaining_xp <= 0:
         return {"awarded": False, "reason": "POST_LIKE_LIMIT"}
 
+    xp = min(read_xp_amount(cursor, "POST_LIKE"), remaining_xp)
     today = datetime.now(ZoneInfo("Asia/Seoul")).date()
     cursor.execute(
         """
         INSERT INTO member_xp_history
             (member_id, activity_type, source_type,
              source_id, event_key, xp_change, activity_date)
-        VALUES (%s, 'POST_LIKE', 'POST', %s, %s, 1, %s)
+        VALUES (%s, 'POST_LIKE', 'POST', %s, %s, %s, %s)
         """,
-        (author_id, post_id, event_key, today),
+        (author_id, post_id, event_key, xp, today),
     )
 
-    new_total = total_xp + 1
+    new_total = total_xp + xp
     cursor.execute(
         """
         UPDATE member_levels
@@ -585,11 +658,11 @@ def grant_post_like_xp(cursor, post_id: int, liker_member_id: int) -> dict:
             updated_at = CURRENT_TIMESTAMP
         WHERE member_id = %s
         """,
-        (new_total, calculate_level(new_total), author_id),
+        (new_total, calculate_level(cursor, new_total), author_id),
     )
     return {
         "awarded": True,
-        "earned_xp": 1,
+        "earned_xp": xp,
         "receiver_member_id": author_id,
         "total_xp": new_total,
     }
@@ -676,7 +749,7 @@ def revoke_xp(cursor, member_id: int, source_type: str, source_id: int) -> bool:
         SET total_xp = %s, level = %s, updated_at = CURRENT_TIMESTAMP
         WHERE member_id = %s
         """,
-        (new_total, calculate_level(new_total), member_id),
+        (new_total, calculate_level(cursor, new_total), member_id),
     )
     return True
 
@@ -696,21 +769,10 @@ def calculate_attendance_streak(
     return streak
 
 
-# 연속 출석 보너스 계산
-def calculate_attendance_bonus(streak: int) -> int:
-    if streak == 7:
-        return 5
-
-    if streak == 30:
-        return 20
-
-    return 0
-
-
 # 연속 출석 달성 보너스 지급
 def grant_attendance_bonus(cursor, member_id: int, today: date) -> int:
 
-    # 최근 30일 출석 기록 조회
+    # 30일 달성과 31일 이상 연속 출석을 구분한다.
     cursor.execute(
         """
         SELECT activity_date
@@ -720,17 +782,17 @@ def grant_attendance_bonus(cursor, member_id: int, today: date) -> int:
           AND xp_change > 0
           AND activity_date BETWEEN %s AND %s
         """,
-        (member_id, today - timedelta(days=29), today)
+        (member_id, today - timedelta(days=30), today)
     )
 
     dates = {row[0] for row in cursor.fetchall()}
 
     # 연속 출석 일수 및 보너스 계산
     streak = calculate_attendance_streak(dates, today)
-    bonus = calculate_attendance_bonus(streak)
-
-    if bonus == 0:
+    if streak not in (7, 30):
         return 0
+
+    bonus = read_xp_amount(cursor, f"STREAK_{streak}")
 
     # 보너스 이력 저장 및 중복 지급 방지
     event_key = f"STREAK:{streak}:{today}"
@@ -749,7 +811,7 @@ def grant_attendance_bonus(cursor, member_id: int, today: date) -> int:
     return bonus if cursor.fetchone() else 0
 
 
-# 커리어 가이드 작성 보상 (+50XP)
+# 커리어 가이드 작성 보상
 def grant_career_guide_xp(cursor, member_id: int, post_id: int) -> dict:
 
     # 1. 실제 작성된 GUIDE 게시글인지 확인
@@ -800,6 +862,8 @@ def grant_career_guide_xp(cursor, member_id: int, post_id: int) -> dict:
 
     total_xp = cursor.fetchone()["total_xp"]
 
+    xp = read_xp_amount(cursor, "CAREER_GUIDE")
+
     # 4. 중복 지급 방지
     event_key = f"POST:{post_id}"
 
@@ -810,7 +874,7 @@ def grant_career_guide_xp(cursor, member_id: int, post_id: int) -> dict:
              source_id, event_key, xp_change, activity_date)
         VALUES
             (%s, 'CAREER_GUIDE', 'POST',
-             %s, %s, 50, %s)
+             %s, %s, %s, %s)
         ON CONFLICT (member_id, event_key) DO NOTHING
         RETURNING history_id
         """,
@@ -818,6 +882,7 @@ def grant_career_guide_xp(cursor, member_id: int, post_id: int) -> dict:
             member_id,
             post_id,
             event_key,
+            xp,
             datetime.now(ZoneInfo("Asia/Seoul")).date(),
         ),
     )
@@ -826,8 +891,8 @@ def grant_career_guide_xp(cursor, member_id: int, post_id: int) -> dict:
         return {"awarded": False, "reason": "DUPLICATE"}
 
     # 5. XP 및 레벨 갱신
-    new_xp = total_xp + 50
-    new_level = calculate_level(new_xp)
+    new_xp = total_xp + xp
+    new_level = calculate_level(cursor, new_xp)
 
     cursor.execute(
         """
@@ -842,7 +907,7 @@ def grant_career_guide_xp(cursor, member_id: int, post_id: int) -> dict:
 
     return {
         "awarded": True,
-        "earned_xp": 50,
+        "earned_xp": xp,
         "total_xp": new_xp,
         "level": new_level,
     }

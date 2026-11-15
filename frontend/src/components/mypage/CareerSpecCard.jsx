@@ -112,8 +112,9 @@ export default function CareerSpecCard() {
       const result = await updateCareerSpecVisibility(nextPublic)
       setSpec((current) => ({ ...current, ...result }))
 
-      if (result.xp_awarded === 50) {
-        setMessage('스펙 최초 공개 완료! 종합 경험치 50XP를 획득했습니다.')
+      // 지급량은 서버 정책(xp_award_policies) 값을 그대로 표시합니다.
+      if (result.xp_awarded > 0) {
+        setMessage(`스펙 최초 공개 완료! 종합 경험치 ${result.xp_awarded}XP를 획득했습니다.`)
       } else {
         setMessage(result.is_public ? '스펙을 공개했습니다.' : '스펙을 비공개로 변경했습니다.')
       }

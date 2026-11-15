@@ -9,6 +9,11 @@ const LABELS = {
   ATTEND_30: '30일 연속 출석',
   ATTEND_STREAK_7: '7일 연속 출석',
   ATTEND_STREAK_30: '30일 연속 출석',
+  // 백엔드가 실제로 기록하는 연속 출석·가이드·회수 유형
+  STREAK_7: '7일 연속 출석 보너스',
+  STREAK_30: '30일 연속 출석 보너스',
+  CAREER_GUIDE: '커리어 가이드 작성',
+  REVOKE: 'XP 회수',
   POST: '게시글 작성',
   COMMENT: '댓글 작성',
   REPLY: '대댓글 작성',

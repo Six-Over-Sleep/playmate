@@ -1,21 +1,10 @@
 from backend.app.core.database import get_db_connection
+from backend.app.services.xp_service import calculate_level
 
-# 스킬 레벨 계산
+# 스킬 레벨 계산 (기준: level_policies의 SKILL 행)
 
-def calculate_skill_level(total_xp: int) -> int:
-    if total_xp < 0:
-        raise ValueError("스킬 XP는 음수일 수 없습니다.")
-
-    if total_xp >= 500:
-        return 5
-    elif total_xp >= 300:
-        return 4
-    elif total_xp >= 150:
-        return 3
-    elif total_xp >= 50:
-        return 2
-    else:
-        return 1
+def calculate_skill_level(cursor, total_xp: int) -> int:
+    return calculate_level(cursor, total_xp, "SKILL")
 
 
 # 학습 활동별 XP 지급 기준
@@ -106,7 +95,7 @@ def grant_skill_xp(
 
             # 4. 스킬 XP 및 레벨 갱신
             new_xp = total_xp + xp
-            new_level = calculate_skill_level(new_xp)
+            new_level = calculate_skill_level(cursor, new_xp)
 
             cursor.execute(
                 """

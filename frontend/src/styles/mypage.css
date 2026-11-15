@@ -248,6 +248,25 @@
   color: #8490a2;
 }
 
+/* 출석 체크 */
+.mypage-attendance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.mypage-attendance p {
+  margin: 0;
+}
+
+.mypage-attendance [role='alert'] {
+  width: 100%;
+  color: #d14343;
+}
+
 /* 스킬 레벨 */
 .mypage-skills {
   display: flex;

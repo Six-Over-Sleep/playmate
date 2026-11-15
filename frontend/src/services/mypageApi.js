@@ -54,6 +54,27 @@ export function getMyLevel() {
   })
 }
 
+// 오늘 출석 여부와 연속 출석 일수(KST)를 조회합니다.
+export function getMyAttendance() {
+  return apiRequest('/mypage/attendance', {
+    credentials: 'include',
+    headers: devMemberId
+      ? { 'X-Dev-Member-ID': devMemberId }
+      : {},
+  })
+}
+
+// 오늘 출석을 기록합니다. 같은 날 다시 요청하면 awarded: false를 반환합니다.
+export function checkMyAttendance() {
+  return apiRequest('/mypage/attendance', {
+    method: 'POST',
+    credentials: 'include',
+    headers: devMemberId
+      ? { 'X-Dev-Member-ID': devMemberId }
+      : {},
+  })
+}
+
 export function getMySkills() {
   return apiRequest('/mypage/skills', {
     credentials: 'include',

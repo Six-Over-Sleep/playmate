@@ -17,6 +17,8 @@ function formatDuration(seconds) {
 /** 관리자 전용 회원 활동 시간 통계를 표시합니다. */
 export default function AdminUsagePanel() {
   const [days, setDays] = useState(7)
+  // 서버는 회원별 통계를 10명 단위 페이지로 반환합니다.
+  const [page, setPage] = useState(1)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -29,7 +31,7 @@ export default function AdminUsagePanel() {
       setError('')
 
       try {
-        const result = await apiRequest(`/admin/usage?days=${days}`, {
+        const result = await apiRequest(`/admin/usage?days=${days}&page=${page}`, {
           signal: controller.signal,
           credentials: 'include',
         })
@@ -47,7 +49,7 @@ export default function AdminUsagePanel() {
     loadUsage()
 
     return () => controller.abort()
-  }, [days])
+  }, [days, page])
 
   const maxSeconds = Math.max(1, ...(data?.daily || []).map((day) => day.seconds))
 
@@ -112,7 +114,11 @@ export default function AdminUsagePanel() {
               type="button"
               className={days === value ? 'active' : ''}
               aria-pressed={days === value}
-              onClick={() => setDays(value)}
+              onClick={() => {
+                if (days === value) return
+                setPage(1)
+                setDays(value)
+              }}
             >
               최근 {value}일
             </button>
@@ -197,8 +203,29 @@ export default function AdminUsagePanel() {
             {data.members.length === 0 && (
               <p className="admin-empty">아직 기록된 이용 시간이 없습니다.</p>
             )}
+            {data.members_total_pages > 1 && (
+              <div className="admin-usage-pagination" aria-label="회원 목록 페이지 이동">
+                <button
+                  type="button"
+                  disabled={data.members_page <= 1}
+                  onClick={() => setPage(data.members_page - 1)}
+                >
+                  이전
+                </button>
+                <span>
+                  {data.members_page} / {data.members_total_pages} 페이지
+                </span>
+                <button
+                  type="button"
+                  disabled={data.members_page >= data.members_total_pages}
+                  onClick={() => setPage(data.members_page + 1)}
+                >
+                  다음
+                </button>
+              </div>
+            )}
             <p className="admin-usage-note">
-              최대 100명의 회원을 이용 시간순으로 표시합니다.
+              회원을 이용 시간순으로 {data.members_page_size ?? 10}명씩 표시합니다.
               로그인한 회원의 활성 탭에서 수집한 추정치이며, 기록은 설치 후부터 누적됩니다.
             </p>
           </section>

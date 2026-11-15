@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { adminApi } from '../../services/adminApi'
 import AdminReportsPanel from '../../components/admin/AdminReportsPanel'
 import AdminUsagePanel from '../../components/admin/AdminUsagePanel'
+import AdminMeetupXPPanel from '../../components/admin/AdminMeetupXPPanel'
 import '../../styles/admin.css'
 
 const TABS = [
@@ -11,6 +12,7 @@ const TABS = [
   { key: 'reports', label: '신고 관리', icon: '🚨' },
   { key: 'members', label: '회원 조회', icon: '👥' },
   { key: 'usage', label: '이용 통계', icon: '📈' },
+  { key: 'meetup-xp', label: '모임 XP', icon: '🎖' },
 ]
 
 function date(value) {
@@ -44,7 +46,7 @@ export default function AdminPage() {
         tab === 'notices' ? adminApi.notices()
           : tab === 'posts' ? adminApi.posts(appliedSearch)
           : tab === 'reports' ? []
-          : tab === 'usage' ? [] : adminApi.members(),
+          : tab === 'usage' || tab === 'meetup-xp' ? [] : adminApi.members(),
       ])
       setStats(summary)
       setRows(records)
@@ -261,6 +263,8 @@ export default function AdminPage() {
           {tab === 'reports' && <AdminReportsPanel />}
 
           {tab === 'usage' && <AdminUsagePanel />}
+
+          {tab === 'meetup-xp' && <AdminMeetupXPPanel />}
 
           {tab === 'members' && (
             <>

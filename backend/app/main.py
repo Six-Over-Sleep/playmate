@@ -88,6 +88,7 @@ from backend.app.routers.career import router as career_router  # noqa: E402
 
 # 커리어 브리핑 뉴스
 from backend.app.routers.career_news import router as career_news_router  # noqa: E402
+from backend.app.routers.career_insights import router as career_insights_router  # noqa: E402
 
 
 # =========================================================
@@ -172,6 +173,7 @@ app.include_router(career_router)
 # 커리어 브리핑 뉴스 API
 # 최종 주소: /api/career/news...
 app.include_router(career_news_router)
+app.include_router(career_insights_router)
 
 # 마이페이지 API
 # 최종 주소: /api/mypage/...

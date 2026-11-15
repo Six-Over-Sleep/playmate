@@ -12,12 +12,13 @@ SKILL = [(1, 0), (2, 50), (3, 150), (4, 300), (5, 500)]
 class FakeCursor:
     """information_schema·정책 테이블 조회만 흉내 내는 읽기 전용 커서."""
 
-    def __init__(self, tables, awards=None, limits=None, levels=None, capped=False):
+    def __init__(self, tables, awards=None, limits=None, levels=None, capped=False, missing_column=None):
         self.tables = set(tables)
         self.awards = awards if awards is not None else list(required_award_types())
         self.limits = limits if limits is not None else list(REQUIRED_LIMITS)
         self.levels = levels if levels is not None else {"OVERALL": OVERALL, "SKILL": SKILL}
         self.capped = capped
+        self.missing_column = missing_column
         self.sql = []
         self.result = []
 
@@ -31,7 +32,10 @@ class FakeCursor:
             self.result = [
                 ("member_xp_history", "history_id"), ("member_xp_history", "created_at"),
                 ("comments", "parent_comment_id"),
+                ("boards", "course_code"), ("boards", "cohort"),
             ]
+            if self.missing_column in self.result:
+                self.result.remove(self.missing_column)
         elif "from xp_award_policies" in text:
             self.result = [(a,) for a in self.awards]
         elif "from xp_limit_policies" in text:
@@ -58,6 +62,14 @@ def test_complete_schema_passes_in_order_without_writes():
     report = check_schema(cursor)
     assert report.ok and report.issues == []
     assert report.checked == ["000·001", "023", "024", "025", "027"]
+
+
+@pytest.mark.parametrize("column", ["course_code", "cohort"])
+def test_missing_board_column_points_to_018(column):
+    report = check_schema(FakeCursor(ALL_TABLES, missing_column=("boards", column)))
+    assert not report.ok
+    assert f"boards.{column}" in report.errors[0].message
+    assert "018_course_cohort_boards.sql" in report.errors[0].fix
 
 
 def test_missing_027_table_is_error_with_sql_file():

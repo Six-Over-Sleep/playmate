@@ -19,7 +19,7 @@ from fastapi.concurrency import run_in_threadpool
 # 로그인한 회원 ID를 확인하는 인증 함수
 from app.core.auth import get_current_member_id
 # DB 커밋 결과가 불확실한 경우의 예외와 연결 풀 종료 함수
-from app.core.db_connect import CommitOutcomeUnknownError, close_pool
+from app.core.db_connect import CommitOutcomeUnknownError
 # 업로드 이미지 저장 및 저장한 파일 삭제 함수
 from app.core.uploads import remove_saved_images, store_validated_images, validate_images
 # API 요청과 응답 데이터 형식을 정의하는 Pydantic 스키마
@@ -39,9 +39,6 @@ from app.services import board_service
 # prefix="/api" : 이 Router의 모든 API 주소 앞에 /api를 붙임.
 # tags=["boards"] : FastAPI 자동 API 문서에서 boards 그룹으로 표시함.
 router = APIRouter(prefix="/api", tags=["boards"])
-
-# 애플리케이션 종료 시 DB 연결 풀을 정리하도록 종료 이벤트 등록
-router.add_event_handler("shutdown", close_pool)
 
 
 # =========================================================

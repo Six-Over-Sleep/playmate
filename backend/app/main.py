@@ -52,7 +52,7 @@ if str(PROJECT_ROOT_PATH) not in sys.path:
 from backend.app.core.config import SESSION_SECRET_KEY  # noqa: E402
 
 # DB 연결
-from app.core.db_connect import db_cursor  # noqa: E402
+from app.core.db_connect import close_pool, db_cursor  # noqa: E402
 from backend.app.core.schema_check import startup_check  # noqa: E402
 
 # 이미지 업로드 경로
@@ -110,7 +110,10 @@ async def lifespan(application: FastAPI):
     운영 기본(strict)은 누락 시 기동을 중단한다. 요청마다 다시 검사하지 않는다.
     """
     application.state.schema_check = await run_in_threadpool(startup_check)
-    yield
+    try:
+        yield
+    finally:
+        await run_in_threadpool(close_pool)
 
 
 # 운영에서는 /docs, /redoc, /openapi.json을 공개하지 않는다.

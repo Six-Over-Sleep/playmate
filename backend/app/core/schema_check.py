@@ -100,6 +100,11 @@ def check_schema(cursor) -> Report:
         if table in tables and (table, column) not in columns:
             report.issues.append(Issue("error", "000·001", f"{table}.{column} 컬럼 없음",
                                        "database/sql/000_baseline_schema.sql·026_baseline_followups.sql 재실행"))
+    if "boards" in tables:
+        for column in ("course_code", "cohort"):
+            if ("boards", column) not in columns:
+                report.issues.append(Issue("error", "018", f"boards.{column} 컬럼 없음",
+                                           "database/sql/018_course_cohort_boards.sql 적용"))
 
     # 2. 023 지급량
     report.checked.append("023")

@@ -243,7 +243,8 @@ def test_scheduler_cli_once_uses_existing_database_configuration(
         "DB_PORT": str(url.port or 5432),
         "DB_NAME": url.database,
         "DB_USER": url.username,
-        "DB_PASSWORD": url.password,
+        # 비밀번호 없는(trust) 로컬 DB면 None이다. 설정은 빈 값을 거부하므로 다른 통합 테스트처럼 "unused".
+        "DB_PASSWORD": url.password or "unused",
         "DB_SSLMODE": "disable",
         "PGOPTIONS": f"-c search_path={schema},pg_catalog",
         "ENABLE_RECRUIT_PROGRAMS": "true",
@@ -287,6 +288,9 @@ def test_scheduler_cli_once_uses_existing_database_configuration(
     assert invalid.returncode == 2
 
 
+TEST_MEMBER_HEADER = "X-Test-Member-ID"
+
+
 def test_main_api_program_flow_on_postgres(postgres, service, payload, monkeypatch):
     """main의 실제 분기/등록과 PostgreSQL 저장을 연결한다. OAuth는 다음 단계 검증이다."""
     import asyncio
@@ -298,10 +302,13 @@ def test_main_api_program_flow_on_postgres(postgres, service, payload, monkeypat
 
     monkeypatch.setenv("ENABLE_RECRUIT_PROGRAMS", "true")
 
-    def authenticated(request, member):
+    # 라우터는 get_current_member_id(request)로 호출한다. 개발용 헤더 인증은 제거되었으므로
+    # 이 테스트에서만 전용 헤더로 회원을 정하는 대역을 쓴다(세션·OAuth는 별도 테스트에서 검증).
+    def authenticated(request):
+        member = request.headers.get(TEST_MEMBER_HEADER)
         if member is None:
             raise HTTPException(401, "로그인 필요")
-        return member
+        return int(member)
 
     monkeypatch.setattr(routes, "get_current_member_id", authenticated)
     with Session(postgres) as session:
@@ -317,38 +324,38 @@ def test_main_api_program_flow_on_postgres(postgres, service, payload, monkeypat
                     for key, value in payload.items()
                 }
                 response = await client.post(
-                    "/api/recruits", json=body, headers={"X-Dev-Member-ID": "1"}
+                    "/api/recruits", json=body, headers={TEST_MEMBER_HEADER: "1"}
                 )
                 assert response.status_code == 201, response.text
                 recruit = response.json()["recruit_id"]
                 anonymous = await client.get(f"/api/recruits/{recruit}")
                 assert anonymous.status_code == 401, anonymous.text
                 public = await client.get(
-                    f"/api/recruits/{recruit}", headers={"X-Dev-Member-ID": "3"}
+                    f"/api/recruits/{recruit}", headers={TEST_MEMBER_HEADER: "3"}
                 )
                 assert public.status_code == 200, public.text
                 assert public.json()["my_application"] is None
                 assert (await client.get(
-                    "/api/recruits", headers={"X-Dev-Member-ID": "3"}
+                    "/api/recruits", headers={TEST_MEMBER_HEADER: "3"}
                 )).json()[0][
                     "recruit_id"
                 ] == recruit
                 response = await client.post(
-                    f"/api/recruits/{recruit}/join", headers={"X-Dev-Member-ID": "2"}
+                    f"/api/recruits/{recruit}/join", headers={TEST_MEMBER_HEADER: "2"}
                 )
                 assert (
                     response.status_code == 200
                     and response.json()["application_status"] == "ACCEPTED"
                 )
                 response = await client.post(
-                    f"/api/recruits/{recruit}/join", headers={"X-Dev-Member-ID": "3"}
+                    f"/api/recruits/{recruit}/join", headers={TEST_MEMBER_HEADER: "3"}
                 )
                 assert (
                     response.status_code == 200
                     and response.json()["application_status"] == "WAITING"
                 )
                 assert (await client.get(
-                    f"/api/recruits/{recruit}/count", headers={"X-Dev-Member-ID": "1"}
+                    f"/api/recruits/{recruit}/count", headers={TEST_MEMBER_HEADER: "1"}
                 )).json()[
                     "waiting_count"
                 ] == 1

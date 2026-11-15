@@ -12,6 +12,8 @@ import psycopg2
 from fastapi.testclient import TestClient
 import pytest
 
+from backend.tests.session_auth import session_headers
+
 
 DB_URL = os.getenv("PLAYMATE_CAREER_NEWS_TEST_DB_URL")
 pytestmark = pytest.mark.skipif(not DB_URL, reason="일회용 PostgreSQL에서만 실행")
@@ -21,7 +23,8 @@ MIGRATION = ROOT / "database" / "sql" / "017_career_news.sql"
 WITH_NEWS, WITHOUT_NEWS = "mypage_summary_news_test", "mypage_summary_nonews_test"
 
 BASE_TABLES = """
-CREATE TABLE members (member_id BIGINT PRIMARY KEY, discord_id VARCHAR(30), nickname VARCHAR(50));
+CREATE TABLE members (member_id BIGINT PRIMARY KEY, discord_id VARCHAR(30), nickname VARCHAR(50),
+                      member_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE');
 CREATE TABLE member_levels (member_id BIGINT PRIMARY KEY REFERENCES members, total_xp INTEGER);
 CREATE TABLE posts (post_id BIGINT PRIMARY KEY, author_member_id BIGINT REFERENCES members, title VARCHAR(100),
                     deleted_at TIMESTAMP);
@@ -34,7 +37,7 @@ CREATE TABLE recruits (recruit_id BIGINT PRIMARY KEY, post_id BIGINT REFERENCES 
 CREATE TABLE recruit_members (recruit_id BIGINT REFERENCES recruits, member_id BIGINT REFERENCES members,
                               status VARCHAR(20));
 -- 회원 1: 게시글 3·댓글 2·받은 좋아요 1·모임 1·XP 50, 회원 2: 다른 회원, 회원 3: 아무 활동 없음
-INSERT INTO members VALUES (1, '1001', 'a'), (2, '1002', 'b'), (3, '1003', 'c');
+INSERT INTO members (member_id, discord_id, nickname) VALUES (1, '1001', 'a'), (2, '1002', 'b'), (3, '1003', 'c');
 INSERT INTO member_levels VALUES (1, 50);
 INSERT INTO posts VALUES (10, 1, 'p10', NULL), (11, 1, 'p11', NULL), (12, 1, 'p12', NULL),
                          (13, 2, 'p13', NULL), (14, 2, 'deleted', now());
@@ -76,7 +79,17 @@ def api(monkeypatch):
                               'GOOGLE_NEWS_RSS', 'news ' || n
                        FROM generate_series(1, 60) AS n""")
 
-    from app.core import db_connect
+    from app.core import db_connect as short_db_connect
+    from backend.app.core import db_connect as full_db_connect
+
+    class db_connect:  # noqa: N801
+        """앱 코드가 app.core·backend.app.core 두 경로로 db_connect를 가져와 풀이 둘이다.
+        마이페이지 라우터는 backend.app.core 풀을 쓰므로 둘 다 닫아야 스키마 전환이 반영된다."""
+
+        @staticmethod
+        def close_pool():
+            short_db_connect.close_pool()
+            full_db_connect.close_pool()
 
     for key, value in {
         "DB_HOST": target.hostname, "DB_PORT": str(target.port or 5432),
@@ -100,7 +113,8 @@ def api(monkeypatch):
 
 
 def summary(client, member):
-    response = client.get("/api/mypage/summary", headers={"X-Dev-Member-ID": str(member)})
+    client.cookies.clear()  # 앞 응답의 세션 쿠키가 다른 회원 요청에 섞이지 않게
+    response = client.get("/api/mypage/summary", headers=session_headers(member, 1000 + member))
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -144,8 +158,9 @@ def test_more_than_50_news_scraps_are_counted_exactly(api):
     scrap_news(1, range(1, 56))  # 55건 (뉴스 스크랩 목록 API 최대 50건과 무관)
     with api(WITH_NEWS) as client:
         assert summary(client, 1)["scraps_count"] == 56
+        client.cookies.clear()
         assert client.get("/api/career/news/scraps?limit=50",
-                          headers={"X-Dev-Member-ID": "1"}).json()["count"] == 50  # 목록은 여전히 최대 50건
+                          headers=session_headers(1, 1001)).json()["count"] == 50  # 목록은 여전히 최대 50건
 
 
 def test_other_members_scraps_are_not_counted(api):
@@ -157,6 +172,7 @@ def test_other_members_scraps_are_not_counted(api):
         assert summary(client, 1)["scraps_count"] == 2
         assert summary(client, 2)["scraps_count"] == 7
         assert summary(client, 3)["scraps_count"] == 0
+        client.cookies.clear()
         assert client.get("/api/mypage/summary").status_code == 401  # 인증 정책 그대로
 
 

@@ -101,15 +101,16 @@ def isolate_legacy_board_crud_from_new_features(monkeypatch):
 @pytest.mark.parametrize("count", [0, 1, 25, 100])
 def test_list_posts_bounded_queries_and_image_mapping(database, count):
     rows = [post_row(index + 1) for index in range(count)]
-    images = [
-        dict(
-            post_id=1, id=8, url="/uploads/posts/first.png", original_name="first.png"
-        ),
-        dict(
-            post_id=1, id=9, url="/uploads/posts/second.png", original_name="second.png"
-        ),
+    # DB는 저장 키(stored_name)를 주고, 공개 URL은 이미지 저장소(로컬 /uploads, 추후 S3)가 만든다.
+    image_rows = [
+        dict(post_id=1, id=8, stored_name="posts/first.png", original_name="first.png"),
+        dict(post_id=1, id=9, stored_name="posts/second.png", original_name="second.png"),
     ]
-    results = [{"id": 1}, rows] + ([images] if count else [])
+    images = [
+        dict(post_id=1, id=8, url="/uploads/posts/first.png", original_name="first.png"),
+        dict(post_id=1, id=9, url="/uploads/posts/second.png", original_name="second.png"),
+    ]
+    results = [{"id": 1}, rows] + ([image_rows] if count else [])
     cursor, connection, factory = database(results)
     response = service.list_posts(1, "  공부' OR 1=1 --  ", "latest", 1)
     assert len(cursor.queries) == (3 if count else 2)

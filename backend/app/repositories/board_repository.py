@@ -10,7 +10,6 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from psycopg2.errors import UndefinedTable
-from psycopg2.extras import execute_values
 
 from app.core import uploads
 
@@ -25,7 +24,7 @@ def _session_timezone(cursor):
 
 
 def _with_timezone(cursor, row):
-    """시간대 없는 댓글 시각에 세션 시간대를 붙여 브라우저가 현지 시각으로 오해하지 않게 한다."""
+    """시간대 없는 게시글·댓글 시각에 세션 시간대를 붙여 브라우저가 현지 시각으로 오해하지 않게 한다."""
     if row is None:
         return row
     tz = None
@@ -249,7 +248,7 @@ def list_posts(
         params,
     )
     # 게시글 전체 조회 후, N번 조회하지 않도록 이미지 목록을 일괄 조회함
-    rows = list(cursor.fetchall())
+    rows = [_with_timezone(cursor, row) for row in cursor.fetchall()]
     images = images_by_post(cursor, [row["id"] for row in rows])
     # 게시글 한 건마다 해당 이미지 목록(images)을 붙여 반환함
     for row in rows:
@@ -289,21 +288,25 @@ def create_post(
 
 
 def insert_post_images(cursor, post_id, images, start_order=0):
-    if not images:
-        return
-    execute_values(
-        cursor,
-        """
-        INSERT INTO post_images
-            (post_id, stored_name, original_name, content_type, file_size, display_order)
-        VALUES %s
-        """,
-        [
-            (post_id, image["stored_name"], image["original_name"],
-             image["content_type"], image["file_size"], order)
-            for order, image in enumerate(images, start_order)
-        ],
-    )
+    """이미지 메타데이터를 표시 순서대로 저장한다(최대 3장, 장마다 1회 실행).
+
+    execute_values는 psycopg2 실제 커서의 connection.encoding에 의존해 저장소 계층
+    테스트 대역과 맞지 않아 일반 execute를 사용한다.
+    """
+    for order, image in enumerate(images or [], start_order):
+        cursor.execute(
+            """
+            INSERT INTO post_images (
+                post_id, stored_name, original_name,
+                content_type, file_size, display_order
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                post_id, image["stored_name"], image["original_name"],
+                image["content_type"], image["file_size"], order,
+            ),
+        )
 
 
 def post_image_ids(cursor, post_id):
@@ -389,7 +392,7 @@ def get_post(
         (member_id, member_id, member_id, board_id, post_id),
     )
     # 조회한 글이 있을 때만 이미지 정보를 함께 추가함
-    row = cursor.fetchone()
+    row = _with_timezone(cursor, cursor.fetchone())
     if row is not None:
         row["images"] = images_by_post(cursor, [post_id])[post_id]
     return row
@@ -863,7 +866,7 @@ def list_featured_posts(
         """,
         params,
     )
-    rows = list(cursor.fetchall())
+    rows = [_with_timezone(cursor, row) for row in cursor.fetchall()]
     images = images_by_post(cursor, [row["id"] for row in rows])
     for row in rows:
         row["images"] = images[row["id"]]

@@ -2,6 +2,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 UPLOAD_DIR = PROJECT_ROOT / "uploads" / "posts"
@@ -88,7 +89,8 @@ def store_validated_images(images: list[tuple[dict, bytes]]) -> list[dict]:
 
 
 async def save_images(files: list[UploadFile]) -> list[dict]:
-    return store_validated_images(await validate_images(files))
+    """검증은 이벤트 루프에서, 저장소 쓰기는 워커 스레드에서 실행한다."""
+    return await run_in_threadpool(store_validated_images, await validate_images(files))
 
 
 def remove_saved_images(images: list[dict]) -> None:

@@ -130,3 +130,118 @@ def test_uploaded_image_static_url(client, upload_root, monkeypatch):
     assert response.status_code == 200
     assert response.content == PNG
     assert response.headers["content-type"] == "image/png"
+
+
+# =========================================================
+# 새 글 등록: 저장소 쓰기·정리를 워커 스레드에서 실행 (PR #125 후속)
+# =========================================================
+
+def _slow_storage(monkeypatch, delay):
+    """저장소 쓰기를 지연시키는 대역. 실제 쓰기 횟수와 실행 스레드를 기록한다."""
+    import threading
+    import time
+
+    real_save = uploads.post_image_storage.save
+    calls = []
+
+    def slow_save(key, data, content_type):
+        calls.append(threading.current_thread() is threading.main_thread())
+        time.sleep(delay)
+        real_save(key, data, content_type)
+
+    monkeypatch.setattr(uploads.post_image_storage, "save", slow_save)
+    return calls
+
+
+def test_create_post_storage_write_does_not_block_event_loop(upload_root, monkeypatch):
+    """저장소 쓰기가 0.6초 걸려도 같은 이벤트 루프의 독립 요청은 바로 응답한다."""
+    import time
+
+    import httpx
+    from app.core.auth import get_current_member_id
+    from app.main import app
+
+    calls = _slow_storage(monkeypatch, 0.6)
+    monkeypatch.setattr(
+        board_service, "create_post",
+        lambda board_id, title, body, member_id, saved, is_anonymous: {
+            "id": 1, "board_id": board_id, "title": title, "body": body,
+            "author_id": member_id, "author_name": "작성자", "is_anonymous": is_anonymous,
+            "created_at": "2026-11-15T00:00:00Z", "updated_at": "2026-11-15T00:00:00Z",
+            "comment_count": 0, "is_owner": True, "like_count": 0, "liked_by_me": False,
+            "scrapped_by_me": False,
+            "images": [{"id": i + 1, "url": f"/uploads/{img['stored_name']}", "original_name": img["original_name"]}
+                       for i, img in enumerate(saved)],
+        },
+    )
+    app.dependency_overrides[get_current_member_id] = lambda: 1
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            upload = asyncio.create_task(client.post(
+                "/api/boards/1/posts",
+                data={"title": "제목", "body": "본문"},
+                files=[("images", ("a.png", PNG, "image/png")), ("images", ("b.png", PNG, "image/png"))],
+            ))
+            await asyncio.sleep(0.15)  # 업로드가 저장소 쓰기에 들어간 뒤
+            started = time.perf_counter()
+            health = await client.get("/health")
+            health_elapsed = time.perf_counter() - started
+            return await upload, health, health_elapsed
+
+    try:
+        created, health, health_elapsed = asyncio.run(scenario())
+    finally:
+        app.dependency_overrides.pop(get_current_member_id, None)
+
+    assert created.status_code == 201
+    assert health.status_code == 200
+    assert health_elapsed < 0.3, f"독립 요청이 {health_elapsed:.2f}초 기다림(이벤트 루프 차단)"
+    assert calls == [False, False]  # 장마다 1회, 모두 워커 스레드에서 쓰기
+    images = created.json()["images"]
+    assert [image["original_name"] for image in images] == ["a.png", "b.png"]  # 표시 순서 유지
+    assert len(list(uploads.UPLOAD_DIR.glob("*"))) == 2
+
+
+def test_create_post_partial_write_failure_cleans_in_worker(client, upload_root, monkeypatch):
+    """두 번째 파일 쓰기 실패 시 이번 요청의 파일(부분 파일 포함)을 모두 정리한다."""
+    real_save = uploads.post_image_storage.save
+    count = {"n": 0}
+
+    def flaky_save(key, data, content_type):
+        count["n"] += 1
+        real_save(key, data[: len(data) // 2], content_type)  # 부분 쓰기
+        if count["n"] == 2:
+            raise OSError("disk full")
+
+    monkeypatch.setattr(uploads.post_image_storage, "save", flaky_save)
+    monkeypatch.setattr(board_service, "create_post", lambda *a: pytest.fail("DB까지 가면 안 됨"))
+    with pytest.raises(OSError):
+        client.post(
+            "/api/boards/1/posts",
+            data={"title": "제목", "body": "본문"},
+            files=[("images", ("a.png", PNG, "image/png")), ("images", ("b.png", PNG, "image/png"))],
+        )
+    assert not list(uploads.UPLOAD_DIR.glob("*"))
+
+
+def test_create_post_commit_outcome_unknown_keeps_files(client, upload_root, monkeypatch):
+    """커밋 결과가 불명확하면 DB가 참조할 수 있으므로 파일을 지우지 않는다."""
+    from app.core.db_connect import CommitOutcomeUnknownError
+
+    removed = []
+    monkeypatch.setattr(uploads.post_image_storage, "delete", lambda key: removed.append(key))
+
+    def unknown(*args):
+        raise CommitOutcomeUnknownError("commit response lost")
+
+    monkeypatch.setattr(board_service, "create_post", unknown)
+    response = client.post(
+        "/api/boards/1/posts",
+        data={"title": "제목", "body": "본문"},
+        files={"images": ("test.png", PNG, "image/png")},
+    )
+    assert response.status_code >= 500
+    assert removed == []
+    assert len(list(uploads.UPLOAD_DIR.glob("*"))) == 1

@@ -152,7 +152,7 @@ def _comment_detail(cursor, comment_id: int, member_id: int) -> dict[str, Any]:
 def list_boards(member_id: int | None = None) -> list[dict[str, Any]]:
     """전체 게시판 조회를 허용하고, 현재 회원의 작성 가능 여부를 표시합니다."""
     with db_cursor(read_only=True) as cursor:
-        boards = repository.list_boards(cursor)
+        boards = repository.list_boards(cursor, member_id)
         if member_id is not None:
             member = _get_board_member(cursor, member_id)
             for board in boards:

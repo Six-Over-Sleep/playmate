@@ -7,6 +7,9 @@
 # Any : 게시글/댓글 조회 결과에 여러 데이터 타입이 들어올 수 있음을 나타냄
 from typing import Any
 
+from psycopg2.errors import UndefinedTable
+
+
 
 # 게시글 여러 개에 첨부된 이미지를 한 번의 SQL 조회로 가져오는 함수
 def images_by_post(cursor, post_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
@@ -67,25 +70,32 @@ def _board_post_guard(alias: str = "p") -> str:
 
 
 # 전체 게시판 목록 조회
-def list_boards(cursor) -> list[dict[str, Any]]:
+def list_boards(cursor, member_id: int | None = None) -> list[dict[str, Any]]:
     """기본 게시판 우선·생성 시간·ID 순으로 게시판 응답 목록을 조회한다."""
-    # is_default가 True인 기본 게시판을 먼저 표시하고 이후 생성 시간순 정렬함
-    cursor.execute("""
-        SELECT
-            board_id AS id,
-            board_name AS name,
-            description,
-            course_code,
-            cohort,
-            created_at
-        FROM boards
-        ORDER BY
-            CASE WHEN board_name = '공지사항' THEN 0 ELSE 1 END,
-            is_default DESC,
-            created_at,
-            board_id
-        """)
-    return list(cursor.fetchall())
+    def query(personalized):
+        join = (
+            "LEFT JOIN member_board_visits AS v "
+            "ON v.board_id = b.board_id AND v.member_id = %s"
+            if personalized else ""
+        )
+        order = "COALESCE(v.visit_count, 0) DESC," if personalized else ""
+        cursor.execute(f"""
+            SELECT b.board_id AS id, b.board_name AS name, b.description,
+                   b.course_code, b.cohort, b.created_at
+            FROM boards AS b
+            {join}
+            ORDER BY CASE WHEN b.board_name = '공지사항' THEN 0 ELSE 1 END,
+                     {order} b.is_default DESC, b.created_at, b.board_id
+        """, (member_id,) if personalized else ())
+        return list(cursor.fetchall())
+
+    try:
+        return query(member_id is not None)
+    except UndefinedTable as exc:
+        # The list uses an autocommit read cursor, so a failed SELECT can be retried.
+        if 'relation "member_board_visits"' not in exc.diag.message_primary:
+            raise
+        return query(False)
 
 
 # 새 게시판을 등록하고 생성된 게시판 ID를 반환함

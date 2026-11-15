@@ -220,3 +220,36 @@ def read_most_visited_board(cursor) -> dict | None:
     row = cursor.fetchone()
     return dict(row) if row else None
 
+
+
+def record_tracked_board_view(cursor, member_id, visit_id, board_key, board_id):
+    """Record an eligible visit and both counters atomically."""
+    cursor.execute(
+        """
+        WITH target AS (
+            SELECT board_id, board_name FROM boards WHERE board_id = %(board_id)s
+        ), claimed AS (
+            INSERT INTO member_board_visit_events (member_id, visit_id)
+            SELECT %(member_id)s, %(visit_id)s
+            WHERE %(board_id)s::bigint IS NULL OR EXISTS (SELECT 1 FROM target)
+            ON CONFLICT DO NOTHING
+            RETURNING visit_id
+        ), personal AS (
+            INSERT INTO member_board_visits (member_id, board_id, visit_count)
+            SELECT %(member_id)s, board_id, 1 FROM target CROSS JOIN claimed
+            WHERE board_name NOT IN ('공지사항', '명예의 전당', 'HOT 게시판', '자유게시판')
+            ON CONFLICT (member_id, board_id) DO UPDATE
+            SET visit_count = member_board_visits.visit_count + 1
+        ), daily AS (
+        INSERT INTO board_daily_visits (board_key, visit_date, visit_count)
+        SELECT %(board_key)s, (NOW() AT TIME ZONE 'Asia/Seoul')::date, 1 FROM claimed
+        ON CONFLICT (board_key, visit_date) DO UPDATE
+        SET visit_count = board_daily_visits.visit_count + 1
+        RETURNING visit_count
+        )
+        SELECT (%(board_id)s::bigint IS NULL OR EXISTS (SELECT 1 FROM target)) AS board_found,
+               EXISTS (SELECT 1 FROM daily) AS recorded
+        """,
+        dict(member_id=member_id, visit_id=str(visit_id), board_key=board_key, board_id=board_id),
+    )
+    return cursor.fetchone()

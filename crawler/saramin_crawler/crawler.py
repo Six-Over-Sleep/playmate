@@ -6,8 +6,8 @@ from urllib.robotparser import RobotFileParser
 import requests
 from bs4 import BeautifulSoup
 from config import CATEGORY_URL, CATEGORY_PARAMS
-from parser import parse_listing, parse_detail, match_terms
-from config import SPECIALTIES, TECH_STACKS
+from parser import parse_listing, inspect_detail
+
 
 LOG = logging.getLogger(__name__)
 USER_AGENT = 'CareerTrendResearchBot/1.0 (educational project; contact: configure-before-use)'
@@ -73,16 +73,19 @@ class SaraminWebCrawler:
             for job in jobs.values():
                 try:
                     html=self._get(job['url'])
-                    job['preferences']=parse_detail(html)
-                    from bs4 import BeautifulSoup
-                    soup=BeautifulSoup(html, 'html.parser')
-                    for node in soup(['script','style','nav','footer']):
-                        node.decompose()
-                    detail_text=soup.get_text(' ',strip=True)
-                    job['tech_stacks']=list(dict.fromkeys(job['tech_stacks'] + match_terms(detail_text, TECH_STACKS)))
-                    job['specialties']=list(dict.fromkeys(job['specialties'] + match_terms(detail_text, SPECIALTIES)))
-                    job['tech_stack_status']='detail_matched' if job['tech_stacks'] else 'not_found_in_detail'
-                    job['detail_status']='parsed' if job['preferences'] else 'no_preference_section'
+                    detail = inspect_detail(html)
+                    job['preferences'] = detail['preferences']
+                    job['tech_stacks'] = list(dict.fromkeys((job.get('tech_stacks') or []) + detail['tech_stacks']))
+                    job['specialties'] = list(dict.fromkeys((job.get('specialties') or []) + detail['specialties']))
+                    job['tech_stack_status'] = ('detail_matched' if detail['tech_stacks']
+                        else 'list_matched' if job['tech_stacks'] else 'not_found_in_detail')
+                    job['detail_status'] = ('parsed' if detail['preferences']
+                        else 'iframe_present_unparsed' if detail['has_iframe']
+                        else 'no_preference_section')
+                    job['detail_iframe_present'] = detail['has_iframe']
+                    job['detail_visible_text_length'] = detail['visible_text_length']
+                    if detail['has_iframe'] and not detail['tech_stacks']:
+                        LOG.info('상세 본문이 iframe 내부에 있을 수 있음 id=%s',job['source_id'])
                 except (requests.RequestException,RuntimeError,PermissionError) as exc:
                     LOG.warning('상세페이지 읽기 실패 id=%s: %s',job['source_id'],exc)
                     job['detail_status']='unavailable'

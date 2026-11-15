@@ -8,8 +8,9 @@ const envDir = fileURLToPath(new URL('../', import.meta.url))
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, envDir, '')
   const target = (env.BACKEND_PROXY_TARGET || '').trim()
+  const previewTarget = env.INSIGHTS_PREVIEW === '1' ? 'http://127.0.0.1:8000' : ''
 
-  if (command === 'serve' && !target) {
+  if (command === 'serve' && !target && !previewTarget) {
     throw new Error('프로젝트 루트 .env에 BACKEND_PROXY_TARGET을 설정해주세요. .env.example을 참고하세요.')
   }
 
@@ -18,10 +19,10 @@ export default defineConfig(({ mode, command }) => {
     envDir,
     server: {
       port: 5173,
-      proxy: target ? {
-        '/api': { target, changeOrigin: true },
-        '/auth': { target, changeOrigin: true },
-        '/uploads': { target, changeOrigin: true },
+      proxy: (target || previewTarget) ? {
+        '/api': { target: target || previewTarget, changeOrigin: true },
+        '/auth': { target: target || previewTarget, changeOrigin: true },
+        '/uploads': { target: target || previewTarget, changeOrigin: true },
       } : undefined,
     },
   }

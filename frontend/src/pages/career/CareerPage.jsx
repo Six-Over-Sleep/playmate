@@ -10,6 +10,7 @@ import CareerLoungeDetailPage from './CareerLoungeDetailPage'
 import CareerLabForm from '../../components/career/CareerLabForm'
 import CareerLabDetailPage from './CareerLabDetailPage'
 import CareerBriefing from '../../components/career/CareerBriefing'
+import CareerInsights from '../../components/career/CareerInsights'
 import CareerReactions from '../../components/career/CareerReactions'
 import {
     createCareerReview,
@@ -40,7 +41,7 @@ import {
 const CATEGORIES = [
     {
         id: 'insights', name: '채용 인사이트', icon: 'chart',
-        description: '데이터 연동 준비 중', menus: [], disabled: true,
+        description: '분기별 채용 데이터 분석', menus: [],
     },
     {
         id: 'reviews', name: '취준 도감', icon: 'book',
@@ -420,7 +421,7 @@ function parseCareerPath(pathname) {
         : 'reviews'
     // 채용 인사이트는 외부 채용 데이터 API 연동 전까지 비활성화합니다.
     // /career, /career/insights로 직접 접근해도 취준 도감으로 진입합니다.
-    const category = requestedCategory === 'insights' ? 'reviews' : requestedCategory
+    const category = requestedCategory
     const isPostCategory = ['reviews', 'talk', 'lounge', 'lab'].includes(category)
     const postId = isPostCategory && /^\d+$/.test(parts[2] || '')
         ? Number(parts[2])
@@ -1306,7 +1307,7 @@ export default function CareerPage() {
                 <section className="career-board" aria-label={`${active.name} 콘텐츠`}>
                     <div className="career-section-head">
                         <div>
-                            <span className="career-eyebrow">{activeId === 'briefing' ? 'CAREER NEWS' : 'CAREER COMMUNITY'}</span>
+                            <span className="career-eyebrow">{activeId === 'briefing' ? 'CAREER NEWS' : activeId === 'insights' ? 'JOB MARKET ANALYTICS' : 'CAREER COMMUNITY'}</span>
                             <h2>{active.name}</h2>
                         </div>
 
@@ -1513,6 +1514,8 @@ export default function CareerPage() {
                                 />
                             )}
                         </CareerLabDetailPage>
+                    ) : activeId === 'insights' ? (
+                        <CareerInsights />
                     ) : activeId === 'briefing' ? (
                         <CareerBriefing menus={active.menus} />
                     ) : (

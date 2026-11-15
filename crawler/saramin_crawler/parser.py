@@ -132,9 +132,18 @@ def _extract_listing_tags(card):
     # Do not match parent .job_sector and children together: creates duplicate text.
     nodes = card.select(
         '.job_sector a, .job_sector span, .job_meta a, .job_meta span, '
-        '.job_keyword a, .job_keyword span, .job_tag a, .job_tag span'
+        '.job_keyword a, .job_keyword span, .job_tag a, .job_tag span, '
+        '.skill a, .skill span, .skills a, .skills span, '
+        '.tech_stack a, .tech_stack span, .stack a, .stack span, '
+        '.job_skill a, .job_skill span, .job_skill, '
+        '[data-skill], [data-tech-stack], [data-skill-name]'
     )
     tags = list(dict.fromkeys(clean(n) for n in nodes if clean(n)))
+    # Some job cards encode stack names only in HTML attributes, not visible spans.
+    for node in nodes:
+        for attr in ('data-skill','data-tech-stack','data-skill-name'):
+            value = node.get(attr)
+            if value and value not in tags: tags.append(value)
     return tags
 
 
@@ -172,7 +181,11 @@ def parse_listing(html: str, crawled_at: datetime | None = None):
             continue
         specialties = match_terms(combined_tags, SPECIALTIES)
         title_specialties = match_terms(title, SPECIALTIES) if not specialties else []
-        stacks = match_terms(' '.join((title, combined_tags)), TECH_STACKS)
+        # Also inspect local job card text (not the entire page) to catch skills
+        # rendered outside sector/tag containers. Avoid page-wide contamination.
+        card_text = clean(card)
+        stack_source = ' '.join((title, combined_tags, card_text if len(card_text)<1800 else ''))
+        stacks = match_terms(stack_source, TECH_STACKS)
         result.append({
             'source':'saramin_web', 'source_id':rec_idx, 'title':title,
             'company':company or None, 'url':link, 'deadline_text':deadline or None,
@@ -214,3 +227,35 @@ def parse_detail(html: str):
         if segment and len(segment) < 2500:
             matches.append(segment)
     return list(dict.fromkeys(matches))
+
+
+def inspect_detail(html: str):
+    """Extract technologies from text actually present in returned HTML.
+
+    HTTP 200 does not mean embedded iframe/image job details were received.
+    No guessed technologies are added.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    frames = [n.get('src') for n in soup.select('iframe[src]') if n.get('src')]
+    for node in soup(['style', 'nav', 'footer']):
+        node.decompose()
+    # Include embedded JSON/JSON-LD visible in HTML for names like Python/SQL.
+    scripts = [n.get_text(' ', strip=True) for n in soup.select('script[type="application/ld+json"]')]
+    selectors = (
+        '.recruitment-template', '.recruitment-view', '.recruitment-content',
+        '.recruitment-detail', '.recruit_content', '.job_description',
+        '.cont_recruit', '.user_content', '#recruit_detail',
+        '.wrap_jv_cont', '.jv_cont', 'main',
+    )
+    sections = [clean(node) for selector in selectors for node in soup.select(selector)]
+    sections = [x for x in sections if x]
+    body_text = ' '.join(sections) if sections else clean(soup.body or soup)
+    text = body_text + ' ' + ' '.join(scripts)
+    return {
+        'tech_stacks':match_terms(text, TECH_STACKS),
+        'specialties':match_terms(text, SPECIALTIES),
+        'preferences':parse_detail(html),
+        'has_iframe':bool(frames),
+        'iframe_sources':frames[:5],
+        'visible_text_length':len(body_text),
+    }

@@ -5,6 +5,7 @@ import {
   getMyAttendance,
   getMyLevel,
 } from '../../services/mypageApi'
+import { notifyMyLevelUpdated } from '../../utils/levelEvents'
 
 export default function OverallLevel() {
   const [levelData, setLevelData] = useState(null)
@@ -42,6 +43,7 @@ export default function OverallLevel() {
       ])
       setLevelData(nextLevel)
       setAttendance(nextAttendance)
+      notifyMyLevelUpdated(nextLevel)
       setAttendanceMessage(
         result?.awarded
           ? `출석 완료! +${(result.earned_xp ?? 0) + (result.bonus_xp ?? 0)} XP`

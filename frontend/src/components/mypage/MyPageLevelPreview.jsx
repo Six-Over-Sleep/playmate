@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getMyLevel } from '../../services/mypageApi'
+import { onMyLevelUpdated } from '../../utils/levelEvents'
 
 // 상단 프로필 오른쪽의 간결한 종합 레벨 미리보기.
 // 전체 상세는 좌측 메뉴의 '나의 레벨'에서 확인합니다.
@@ -14,7 +15,16 @@ export default function MyPageLevelPreview() {
       .then((result) => { if (active) setData(result) })
       .catch((cause) => { if (active) setError(cause.message || '레벨 조회 실패') })
       .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
+    // 출석 체크 등으로 레벨이 바뀌면 새로고침 없이 반영합니다.
+    const unsubscribe = onMyLevelUpdated((level) => {
+      if (!active || !level) return
+      setData(level)
+      setError('')
+    })
+    return () => {
+      active = false
+      unsubscribe()
+    }
   }, [])
 
   if (loading) return <div className="mypage-level-preview"><h2>🏆 종합 레벨</h2><p>레벨 정보를 불러오는 중...</p></div>

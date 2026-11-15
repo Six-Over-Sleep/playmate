@@ -1,0 +1,8 @@
+/* 기존 CareerInsights.css와 함께 로드하도록 만든 확장 스타일 */
+.career-ci-filter-action{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:14px;flex-wrap:wrap}
+.career-ci-filter-action .career-ci-filter-note{margin:0}
+.career-ci-search-button{background:#59438f;color:#fff;border:0;padding:11px 26px;border-radius:10px;font-weight:800;cursor:pointer}
+.career-ci-search-button:disabled{opacity:.5;cursor:wait}
+.career-ci-panel>h3{font-size:17px;color:#30234e;margin:0 0 8px}
+.career-ci-panel>p{color:#8d85a5;font-size:12px;margin:0 0 19px}
+@media(max-width:650px){.career-ci-filter-grid{grid-template-columns:1fr}.career-ci-filter-action{align-items:stretch}.career-ci-search-button{width:100%}}

@@ -9,7 +9,7 @@
 import os
 
 import psycopg
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -19,8 +19,9 @@ from .config import (
     DB_USER,
     DB_PASSWORD,
     DB_NAME,
-    DB_SSLMODE,
 )
+# 운영(development·test 외)에서 DB_SSLMODE=disable을 거부하는 검증을 psycopg2 경로와 공유한다.
+from .db_connect import _sslmode
 
 
 # 기존 직접 연결을 사용하는 다른 API를 위한 호환 함수.
@@ -32,7 +33,7 @@ def get_db_connection():
         user=DB_USER,
         password=DB_PASSWORD,
         dbname=DB_NAME,
-        sslmode=DB_SSLMODE,
+        sslmode=_sslmode(),
         connect_timeout=10,
         application_name=os.getenv("DB_APPLICATION_NAME", "playmate") + "_direct",
     )
@@ -53,7 +54,6 @@ DATABASE_URL = URL.create(
 engine = create_engine(
     DATABASE_URL,
     connect_args={
-        "sslmode": DB_SSLMODE,
         "connect_timeout": 10,
         "application_name": os.getenv("DB_APPLICATION_NAME", "playmate") + "_orm",
     },
@@ -63,6 +63,12 @@ engine = create_engine(
     pool_pre_ping=True,
     pool_recycle=900,
 )
+
+
+# 연결을 만들 때마다 SSL 설정을 검증한다(가져오기 시점이 아니라 실제 접속 시점).
+@event.listens_for(engine, "do_connect")
+def _enforce_sslmode(dialect, conn_rec, cargs, cparams):
+    cparams["sslmode"] = _sslmode()
 
 
 SessionLocal = sessionmaker(

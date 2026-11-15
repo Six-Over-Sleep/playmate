@@ -16,8 +16,9 @@ const TABS = [
   { id: 'meetups', label: '내 모임' },
 ]
 
+// 서버 시각을 한국 시간으로 표시한다. 문자열을 잘라 쓰면 시간대(Z)를 무시해 9시간 이르게 보인다.
 function formatDate(value) {
-  return value ? String(value).replace('T', ' ').slice(0, 16) : '날짜 정보 없음'
+  return formatKstDateTime(value)
 }
 
 function getPostUrl(item) {

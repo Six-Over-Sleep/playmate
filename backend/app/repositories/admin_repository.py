@@ -43,8 +43,8 @@ def list_notices(cursor) -> list[dict]:
     cursor.execute(
         """
         SELECT p.post_id AS id, p.board_id, p.title,
-               COALESCE(p.body, '') AS body, p.created_at,
-               p.updated_at, CASE WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자' ELSE COALESCE(NULLIF(m.nickname, ''), '관리자') END AS author_name
+               COALESCE(p.body, '') AS body, p.created_at::timestamptz AS created_at,
+               p.updated_at::timestamptz AS updated_at, CASE WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자' ELSE COALESCE(NULLIF(m.nickname, ''), '관리자') END AS author_name
         FROM posts AS p
         JOIN boards AS b ON b.board_id = p.board_id
         JOIN members AS m ON m.member_id = p.author_member_id
@@ -62,7 +62,7 @@ def get_notice(cursor, post_id: int) -> dict | None:
     cursor.execute(
         """
         SELECT p.post_id AS id, p.board_id, p.title, COALESCE(p.body, '') AS body,
-               p.created_at, p.updated_at,
+               p.created_at::timestamptz AS created_at, p.updated_at::timestamptz AS updated_at,
                CASE WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자' ELSE COALESCE(NULLIF(m.nickname, ''), '관리자') END AS author_name
         FROM posts AS p
         JOIN boards AS b ON b.board_id = p.board_id
@@ -125,7 +125,7 @@ def list_board_posts(cursor, search: str) -> list[dict]:
         SELECT p.post_id AS id, p.title, p.board_id,
                b.board_name AS board_name,
                CASE WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자' ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
-               p.created_at, p.post_status,
+               p.created_at::timestamptz AS created_at, p.post_status,
                (UPPER(COALESCE(p.post_status, 'PUBLISHED')) = 'HIDDEN') AS hidden
         FROM posts AS p
         JOIN boards AS b ON b.board_id = p.board_id
@@ -165,7 +165,7 @@ def read_board_posts_page(cursor, search: str, page: int, size: int) -> list[dic
         SELECT p.post_id AS id, p.title, p.board_id,
                b.board_name AS board_name,
                CASE WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자' ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
-               p.created_at, p.post_status,
+               p.created_at::timestamptz AS created_at, p.post_status,
                (UPPER(COALESCE(p.post_status, 'PUBLISHED')) = 'HIDDEN') AS hidden
         FROM posts AS p
         JOIN boards AS b ON b.board_id = p.board_id
@@ -198,7 +198,7 @@ def set_post_hidden(cursor, post_id: int, hidden: bool) -> bool:
 def list_members(cursor) -> list[dict]:
     cursor.execute(
         """
-        SELECT member_id, nickname, role_code, created_at
+        SELECT member_id, nickname, role_code, created_at::timestamptz AS created_at
         FROM members
         WHERE member_id > 0
         ORDER BY member_id DESC
@@ -228,7 +228,7 @@ def count_admin_members(cursor, search: str) -> int:
 def read_members_page(cursor, search: str, page: int, size: int) -> list[dict]:
     cursor.execute(
         """
-        SELECT member_id, nickname, role_code, member_status, created_at
+        SELECT member_id, nickname, role_code, member_status, created_at::timestamptz AS created_at
         FROM members
         WHERE member_id > 0
           AND (
@@ -270,7 +270,7 @@ def read_notices_paginated(
         SELECT
             p.post_id AS id, p.board_id, p.title,
             COALESCE(p.body, '') AS body,
-            p.created_at, p.updated_at,
+            p.created_at::timestamptz AS created_at, p.updated_at::timestamptz AS updated_at,
             CASE
                 WHEN m.member_status = 'WITHDRAWN'
                 THEN '\ud0c8\ud1f4\ud55c \uc0ac\uc6a9\uc790'

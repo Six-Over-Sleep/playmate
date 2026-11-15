@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { getMyXPHistoryPage } from '../../services/mypageApi'
 import { xpActivityLabel } from '../../utils/xpLabels'
+import { formatKstDateTime } from '../../utils/scrapTime'
 
 const PAGE_SIZE = 10
 
+// XP 이력 시각(timestamptz)을 한국 시간으로 표시한다.
 function formatDate(date) {
-  return date ? String(date).replace('T', ' ').slice(0, 16) : '날짜 정보 없음'
+  return formatKstDateTime(date)
 }
 
 // 페이지가 많을 때도 페이지 버튼을 최대 7개만 표시합니다.

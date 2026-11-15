@@ -107,7 +107,7 @@ def list_boards(cursor, member_id: int | None = None) -> list[dict[str, Any]]:
         order = "COALESCE(v.visit_count, 0) DESC," if personalized else ""
         cursor.execute(f"""
             SELECT b.board_id AS id, b.board_name AS name, b.description,
-                   b.course_code, b.cohort, b.created_at
+                   b.course_code, b.cohort, b.created_at::timestamptz AS created_at
             FROM boards AS b
             {join}
             ORDER BY CASE WHEN b.board_name = '공지사항' THEN 0 ELSE 1 END,
@@ -163,7 +163,7 @@ def get_board(cursor, board_id: int) -> dict[str, Any] | None:
             description,
             course_code,
             cohort,
-            created_at
+            created_at::timestamptz AS created_at
         FROM boards
         WHERE board_id = %s
         """,

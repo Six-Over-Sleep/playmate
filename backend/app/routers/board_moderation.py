@@ -122,7 +122,7 @@ def list_reported_posts_details(
                 COALESCE(p.post_status, 'PUBLISHED') AS post_status,
                 b.board_name,
                 COALESCE(NULLIF(m.nickname, ''), '탈퇴 회원') AS author_name,
-                p.created_at,
+                p.created_at::timestamptz AS created_at,
                 COUNT(r.report_id)::int AS report_count,
                 MAX(r.created_at)::timestamptz AS last_reported_at
             FROM post_reports AS r
@@ -217,7 +217,7 @@ def _reports_paged(page: int, search: str, state: str) -> dict:
                 COALESCE(p.post_status, 'PUBLISHED') AS post_status,
                 b.board_name,
                 COALESCE(NULLIF(m.nickname, ''), 'Withdrawn member') AS author_name,
-                p.created_at,
+                p.created_at::timestamptz AS created_at,
                 COUNT(r.report_id)::int AS report_count,
                 MAX(r.created_at)::timestamptz AS last_reported_at
             """ + _REPORTS_FILTER_SQL + """

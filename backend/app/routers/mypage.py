@@ -510,7 +510,7 @@ def get_my_posts(
                     ELSE '기타 게시글'
                 END AS board_name,
                 COALESCE(p.title, '제목 없음') AS title,
-                p.created_at
+                p.created_at::timestamptz AS created_at
             FROM posts p
             LEFT JOIN boards b
                 ON p.board_id = b.board_id
@@ -660,7 +660,7 @@ def get_my_scraps(
                     ELSE COALESCE(b.board_name, '기타 게시글')
                 END AS board_name,
                 COALESCE(p.title, '제목 없음') AS title,
-                s.created_at AS scrapped_at
+                s.created_at::timestamptz AS scrapped_at
             FROM post_scraps s
             JOIN posts p ON s.post_id = p.post_id
             LEFT JOIN boards b ON b.board_id = p.board_id
@@ -714,7 +714,7 @@ def get_my_meetups(
                 r.category,
                 r.recruit_mode,
                 r.state,
-                r.created_at
+                r.created_at::timestamptz AS created_at
             FROM recruit_members rm
             JOIN recruits r ON rm.recruit_id = r.recruit_id
             JOIN posts p ON r.post_id = p.post_id
@@ -1087,7 +1087,7 @@ def get_my_liked_posts_dashboard_v1(
                     WHEN p.post_type = 'RECRUIT' THEN '모임'
                     ELSE COALESCE(b.board_name, '기타 게시판')
                 END AS board_name,
-                l.created_at AS liked_at
+                l.created_at::timestamptz AS liked_at
             FROM post_likes l
             JOIN posts p ON p.post_id = l.post_id
             LEFT JOIN career_posts cp ON cp.post_id = p.post_id

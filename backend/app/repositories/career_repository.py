@@ -64,8 +64,8 @@ def get_review(cursor, post_id: int, member_id: int) -> dict | None:
             p.post_id AS id,
             p.title,
             p.body,
-            p.created_at,
-            p.updated_at,
+            p.created_at::timestamptz AS created_at,
+            p.updated_at::timestamptz AS updated_at,
             (p.author_member_id = %s) AS is_owner,
             CASE
                 WHEN cp.is_anonymous THEN '익명'
@@ -199,7 +199,7 @@ def list_reviews(
             p.post_id AS id,
             p.title,
             LEFT(COALESCE(p.body, ''), 150) AS body_preview,
-            p.created_at,
+            p.created_at::timestamptz AS created_at,
 
             (p.author_member_id = %s) AS is_owner,
 
@@ -465,8 +465,8 @@ def get_talk(cursor, post_id: int, member_id: int) -> dict | None:
             p.post_id AS id,
             p.title,
             p.body,
-            p.created_at,
-            p.updated_at,
+            p.created_at::timestamptz AS created_at,
+            p.updated_at::timestamptz AS updated_at,
 
             (p.author_member_id = %s) AS is_owner,
 
@@ -591,7 +591,7 @@ def list_talks(
             p.post_id AS id,
             p.title,
             LEFT(COALESCE(p.body, ''), 150) AS body_preview,
-            p.created_at,
+            p.created_at::timestamptz AS created_at,
 
             (p.author_member_id = %s) AS is_owner,
 
@@ -1122,8 +1122,8 @@ def get_lounge(
             p.post_id AS id,
             p.title,
             p.body,
-            p.created_at,
-            p.updated_at,
+            p.created_at::timestamptz AS created_at,
+            p.updated_at::timestamptz AS updated_at,
 
             (p.author_member_id = %s) AS is_owner,
 
@@ -1264,7 +1264,7 @@ def list_lounges(
                 COALESCE(p.body, ''),
                 150
             ) AS body_preview,
-            p.created_at,
+            p.created_at::timestamptz AS created_at,
 
             (p.author_member_id = %s) AS is_owner,
 
@@ -1610,8 +1610,8 @@ def get_lab(
             p.post_id AS id,
             p.title,
             p.body,
-            p.created_at,
-            p.updated_at,
+            p.created_at::timestamptz AS created_at,
+            p.updated_at::timestamptz AS updated_at,
 
             (p.author_member_id = %s) AS is_owner,
 
@@ -1831,7 +1831,7 @@ def list_labs(
                 150
             ) AS body_preview,
 
-            p.created_at,
+            p.created_at::timestamptz AS created_at,
 
             (p.author_member_id = %s) AS is_owner,
 

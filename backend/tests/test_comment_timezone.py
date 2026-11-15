@@ -106,3 +106,31 @@ def test_comment_and_report_queries_cast_to_timestamptz():
     assert "MAX(r.created_at) AS" not in moderation
     assert moderation.count("MAX(r.created_at)::timestamptz AS last_reported_at") == 3
     assert moderation.count("r.created_at::timestamptz AS created_at") == 2
+
+
+def test_post_member_board_times_are_selected_with_timezone():
+    """커리어 글·마이페이지·관리자·게시판 응답 시각도 시간대 포함(전수 스캔에서 찾은 12개 엔드포인트).
+
+    posts·post_scraps·post_likes·recruits·members·boards의 시각은 시간대 없는 TIMESTAMP다.
+    SELECT 목록에 그대로 두면 브라우저가 한국 시각으로 해석해 9시간 이르게(날짜는 00~09시 글이 하루 전) 보인다.
+    """
+    import re
+
+    # p(posts)·b(boards)·s(post_scraps)·r(recruits)·l(post_likes). member_career_specs(s.updated_at)는 원래 timestamptz.
+    bare = re.compile(
+        r"^\s*(?:p\.(?:created_at|updated_at)|(?:b|s|r|l)\.created_at)(?: AS \w+)?,?\s*$", re.M)
+    for name in ("repositories/career_repository.py", "repositories/admin_repository.py",
+                 "routers/mypage.py", "routers/board_moderation.py"):
+        text = (APP / name).read_text(encoding="utf-8")
+        assert not bare.findall(text), f"{name}: 시간대 없는 시각 SELECT {bare.findall(text)}"
+    career = (APP / "repositories" / "career_repository.py").read_text(encoding="utf-8")
+    assert career.count("p.created_at::timestamptz AS created_at") == 8
+    assert career.count("p.updated_at::timestamptz AS updated_at") == 4
+    mypage = (APP / "routers" / "mypage.py").read_text(encoding="utf-8")
+    for column in ("p.created_at::timestamptz AS created_at", "s.created_at::timestamptz AS scrapped_at",
+                   "r.created_at::timestamptz AS created_at", "l.created_at::timestamptz AS liked_at"):
+        assert column in mypage
+    admin = (APP / "repositories" / "admin_repository.py").read_text(encoding="utf-8")
+    assert admin.count("created_at::timestamptz AS created_at") == 7  # 글 5 + 회원 2
+    board = (APP / "repositories" / "board_repository.py").read_text(encoding="utf-8")
+    assert "b.created_at::timestamptz AS created_at" in board

@@ -32,9 +32,13 @@ def _tables_used_by_code() -> set[str]:
     used = set()
     for path in APP.rglob("*.py"):
         for block in re.findall(r'"""(.*?)"""', path.read_text(encoding="utf-8"), re.S):
-            used.update(name.lower() for name in re.findall(
-                r"\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:public\.)?([a-z_]+)\b", block))
-    return used - NOT_TABLES
+            # 같은 SQL 안에서 정의한 CTE(WITH x AS / WITH RECURSIVE x(..) AS / , x AS)는 테이블이 아니다.
+            ctes = set(re.findall(
+                r"(?:\bWITH(?:\s+RECURSIVE)?|,)\s+([a-z_]+)\s*(?:\([^)]*\))?\s+AS\s*\(", block))
+            names = re.findall(r"\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:public\.)?([a-z_]+)\b", block)
+            used.update(name.lower() for name in names if name not in ctes)
+    # PostgreSQL 시스템 카탈로그(pg_*)는 마이그레이션 대상이 아니다.
+    return {name for name in used if not name.startswith("pg_")} - NOT_TABLES
 
 
 def test_baseline_runs_before_other_migrations():

@@ -24,3 +24,9 @@ SELECT to_regclass('member_board_visits'), to_regclass('member_board_visit_event
 - 종합 레벨(OVERALL) 1~4: 0·100·500·1500 XP, 스킬 레벨(SKILL) 1~5: 0·50·150·300·500 XP (기존 코드 값).
 - 레벨은 1부터 빠짐없이, 1레벨은 0 XP, 높은 레벨일수록 시작 XP가 커야 합니다. 테이블이 없거나 조건이 맞지 않으면 레벨 계산이 필요한 API(레벨·스킬 조회, 출석, XP 지급·회수)는 503을 반환하고 부분 저장하지 않습니다.
 - 기준을 바꾸면 레벨·스킬 조회 API는 즉시 새 기준으로 계산합니다. member_levels·member_skill_levels에 저장된 level은 다음 XP 변동 때 갱신되므로, 즉시 맞추려면 025 파일 하단의 UPDATE 문을 실행합니다.
+
+지급 한도·스킬 학습 지급량은 027_xp_rule_policies.sql로 저장합니다(xp_limit_policies: POST_DAILY_COUNT 3, COMMENT_DAILY_COUNT 10, POST_LIKE_XP_PER_POST 10 / xp_award_policies: SKILL_QUIZ·PRACTICE·ADVANCED).
+- 027이 없으면 글·댓글은 201로 저장되지만 XP가 빠지고(서버 로그에만 기록), 좋아요는 503이며 저장되지 않습니다.
+- 배포 순서: 023 → 024 → 025 → 027 적용 후 `python -m backend.scripts.check_deploy_schema`가 종료 코드 0인지 확인합니다. 누락 시 필요한 SQL 파일·정책 행을 출력합니다.
+- 앱은 기동 시 같은 검사를 한 번 실행하며, 운영 기본(strict)에서는 누락 시 기동하지 않습니다. 결과는 GET /health/schema로 확인합니다.
+- 연속 출석 보너스 기준일은 xp_award_policies의 STREAK_<일수> 행으로 정합니다.

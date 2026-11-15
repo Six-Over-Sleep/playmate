@@ -63,6 +63,19 @@
       **미적용 시 로그인한 회원의 모든 인증 요청이 실패한다.**
 - [ ] `database/sql/021_recruit_skills.sql` 적용 여부 확인 (프로젝트 모임 기술 사전)
       미적용 시 프로젝트 모임의 기술 선택을 사용할 수 없다.
+- [ ] XP·레벨 정책: `023_xp_award_policies.sql` → `024_member_board_visits.sql` → `025_level_policies.sql`
+      → `027_xp_rule_policies.sql` 순서로 적용한다. 모두 재실행해도 설정한 값은 유지되고 빠진 행만 추가된다.
+- [ ] **새 버전을 띄우기 전에** 대상 DB에 배포 검사를 실행하고 종료 코드 0을 확인한다(읽기 전용).
+      ```bash
+      python -m backend.scripts.check_deploy_schema
+      ```
+      기본 스키마(000·001) → 023 → 024 → 025 → 027 순서로 확인하고, 누락 시 필요한 SQL 파일이나
+      정책 행(예: `지급 한도 행 POST_LIKE_XP_PER_POST 없음`)을 출력하며 종료 코드 1로 끝난다.
+      024만 없으면 경고이며 기존 기본 게시판 정렬·전체 방문 통계로 동작한다.
+      **027이 없으면 글·댓글은 201로 저장되지만 XP가 빠지고, 좋아요는 503이다.**
+- [ ] 앱은 기동 시 같은 검사를 한 번 실행한다(`PLAYMATE_SCHEMA_CHECK`, 운영 기본 `strict`).
+      strict에서 누락이 있으면 `Application startup failed`로 기동하지 않아 트래픽을 받지 않는다.
+      요청마다 다시 검사하지 않는다. 기동 결과는 `GET /health/schema`(200 `ok` / 503 `error`)로 확인한다.
 
 ## 5. 배포 직후 확인 (운영 주소에서)
 
@@ -73,6 +86,8 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "X-Dev-Member-ID: 1" https://<운영
 curl -s -o /dev/null -w "%{http_code}\n" https://<운영 API>/docs
 # DB 상태는 내부 정보 없이 {"status":"ok"}
 curl -s https://<운영 API>/health/db
+# 기동 시 1회 실행한 필수 스키마·XP 정책 검사 → {"status":"ok","errors":0,...}
+curl -s https://<운영 API>/health/schema
 # 로그인 시작 응답의 쿠키에 Secure; HttpOnly; SameSite=Lax 포함
 curl -s -D - -o /dev/null https://<운영 API>/auth/discord/login | grep -i set-cookie
 # 비로그인 상태의 기존 모임 수정·삭제 거부 → 401 (테스트용 모임 ID 사용, 거부되므로 데이터는 바뀌지 않는다)

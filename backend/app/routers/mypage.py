@@ -590,7 +590,7 @@ def get_my_comments(
                 COALESCE(p.title, '제목 없음') AS post_title,
                 c.body,
                 c.parent_comment_id,
-                c.created_at
+                c.created_at::timestamptz AS created_at
             FROM comments c
             JOIN posts p ON c.post_id = p.post_id
             LEFT JOIN boards b ON b.board_id = p.board_id

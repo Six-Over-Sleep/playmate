@@ -5,10 +5,33 @@
 """게시판 SQL과 결과 매핑. 연결·권한·트랜잭션은 Service에서 관리한다."""
 
 # Any : 게시글/댓글 조회 결과에 여러 데이터 타입이 들어올 수 있음을 나타냄
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from psycopg2.errors import UndefinedTable
 
+
+def _session_timezone(cursor):
+    """comments 시각(TIMESTAMP)은 DB 세션 시간대 값이다. 알 수 없으면 공용 DB 기본값 UTC."""
+    try:
+        name = cursor.connection.get_parameter_status("TimeZone")
+        return ZoneInfo(name) if name else timezone.utc
+    except Exception:
+        return timezone.utc
+
+
+def _with_timezone(cursor, row):
+    """시간대 없는 댓글 시각에 세션 시간대를 붙여 브라우저가 현지 시각으로 오해하지 않게 한다."""
+    if row is None:
+        return row
+    tz = None
+    for key in ("created_at", "updated_at"):
+        value = row.get(key)
+        if isinstance(value, datetime) and value.tzinfo is None:
+            tz = tz or _session_timezone(cursor)
+            row[key] = value.replace(tzinfo=tz)
+    return row
 
 
 # 게시글 여러 개에 첨부된 이미지를 한 번의 SQL 조회로 가져오는 함수
@@ -570,7 +593,7 @@ def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
         (member_id, post_id),
     )
 
-    return list(cursor.fetchall())
+    return [_with_timezone(cursor, row) for row in cursor.fetchall()]
 
 
 # 댓글 및 대댓글 저장
@@ -670,7 +693,7 @@ def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | Non
         (member_id, comment_id),
     )
 
-    return cursor.fetchone()
+    return _with_timezone(cursor, cursor.fetchone())
 
 
 # 댓글 작성자만 본문을 수정할 수 있도록 처리함

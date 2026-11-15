@@ -5,10 +5,12 @@
 있으면 부모를 "삭제된 댓글" 자리표시로 남겨 대댓글이 고아가 되지 않게 함.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from backend.app.models.comment import Comment
@@ -21,7 +23,22 @@ from backend.app.services.notification_writer import save_comment_notification
 logger = logging.getLogger(__name__)
 
 
-def _serialize_comment(comment: Comment, nickname: str | None, member_id: int | None):
+def _db_timezone(db: Session):
+    """comments의 시간 컬럼은 시간대 없는 TIMESTAMP이며 DB 세션 시간대(CURRENT_TIMESTAMP)로 기록된다."""
+    try:
+        if db.get_bind().dialect.name != "postgresql":
+            return timezone.utc
+        return ZoneInfo(db.execute(text("SHOW TIME ZONE")).scalar())
+    except Exception:
+        return timezone.utc
+
+
+def _aware(value, tz):
+    """응답에 시간대를 붙여 브라우저가 서버 시각을 현지 시각으로 오해하지 않게 함."""
+    return value.replace(tzinfo=tz) if isinstance(value, datetime) and value.tzinfo is None else value
+
+
+def _serialize_comment(comment: Comment, nickname: str | None, member_id: int | None, tz=timezone.utc):
     """댓글 ORM 객체를 응답 형태로 바꿈. 삭제된 댓글은 본문·작성자를 숨김."""
     deleted = comment.deleted_at is not None
     return {
@@ -30,8 +47,8 @@ def _serialize_comment(comment: Comment, nickname: str | None, member_id: int | 
         "body": "" if deleted else comment.body,
         "author_id": None if deleted else comment.author_member_id,
         "author_name": "" if deleted else (nickname or "익명"),
-        "created_at": comment.created_at,
-        "updated_at": comment.updated_at,
+        "created_at": _aware(comment.created_at, tz),
+        "updated_at": _aware(comment.updated_at, tz),
         "is_owner": not deleted and comment.author_member_id == member_id,
         "is_deleted": deleted,
     }
@@ -58,14 +75,15 @@ def get_comments(db: Session, recruit_id: int, member_id: int | None = None):
                 (comment, nickname)
             )
 
+    tz = _db_timezone(db)
     result = []
     for comment, nickname in parents:
         replies = replies_by_parent.get(comment.comment_id, [])
         if comment.deleted_at is not None and not replies:
             continue
-        result.append(_serialize_comment(comment, nickname, member_id))
+        result.append(_serialize_comment(comment, nickname, member_id, tz))
         result.extend(
-            _serialize_comment(reply, reply_nickname, member_id)
+            _serialize_comment(reply, reply_nickname, member_id, tz)
             for reply, reply_nickname in replies
         )
     return result
@@ -109,7 +127,7 @@ def create_comment(
 
         # commit 후 ORM 객체가 만료되기 전에 응답과 알림에 쓸 값을 만듦.
         nickname = recruit_repo.get_member_nickname(db, member_id)
-        result = _serialize_comment(comment, nickname, member_id)
+        result = _serialize_comment(comment, nickname, member_id, _db_timezone(db))
         post_id, comment_id = post.post_id, comment.comment_id
 
         db.commit()
@@ -157,10 +175,13 @@ def update_comment(
         comment = _get_owned_comment(db, post.post_id, comment_id, member_id)
 
         comment.body = data.body
-        comment.updated_at = datetime.now()
+        # 작성 시각(DB 기본값)과 같은 DB 시계로 기록함. 서버 로컬 시각을 섞지 않음.
+        comment.updated_at = func.now()
+        db.flush()
+        db.refresh(comment)
 
         nickname = recruit_repo.get_member_nickname(db, member_id)
-        result = _serialize_comment(comment, nickname, member_id)
+        result = _serialize_comment(comment, nickname, member_id, _db_timezone(db))
 
         db.commit()
         return result
@@ -176,8 +197,8 @@ def delete_comment(db: Session, recruit_id: int, comment_id: int, member_id: int
         post = get_recruit_post(db, recruit_id)
         comment = _get_owned_comment(db, post.post_id, comment_id, member_id)
 
-        comment.deleted_at = datetime.now()
-        comment.updated_at = comment.deleted_at
+        comment.deleted_at = func.now()
+        comment.updated_at = func.now()
 
         db.commit()
         return {"message": "댓글 삭제 완료"}

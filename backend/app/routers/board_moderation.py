@@ -90,7 +90,7 @@ def list_reported_posts(member_id: int = Depends(get_current_member_id)):
             """
             SELECT p.post_id, p.board_id, p.title, p.post_status,
                    COUNT(r.report_id)::int AS report_count,
-                   MAX(r.created_at) AS last_reported_at
+                   MAX(r.created_at)::timestamptz AS last_reported_at
             FROM post_reports r
             JOIN posts p ON p.post_id = r.post_id
             GROUP BY p.post_id, p.board_id, p.title, p.post_status
@@ -117,7 +117,7 @@ def list_reported_posts_details(member_id: int = Depends(get_current_member_id))
                 COALESCE(NULLIF(m.nickname, ''), '탈퇴 회원') AS author_name,
                 p.created_at,
                 COUNT(r.report_id)::int AS report_count,
-                MAX(r.created_at) AS last_reported_at
+                MAX(r.created_at)::timestamptz AS last_reported_at
             FROM post_reports AS r
             JOIN posts AS p ON p.post_id = r.post_id
             JOIN boards AS b ON b.board_id = p.board_id
@@ -136,7 +136,7 @@ def list_reported_posts_details(member_id: int = Depends(get_current_member_id))
         ids = [post['post_id'] for post in posts]
         cursor.execute(
             """
-            SELECT r.post_id, r.report_id, r.reason, r.details, r.created_at,
+            SELECT r.post_id, r.report_id, r.reason, r.details, r.created_at::timestamptz AS created_at,
                    COALESCE(NULLIF(m.nickname, ''), '탈퇴 회원') AS reporter_name
             FROM post_reports AS r
             LEFT JOIN members AS m ON m.member_id = r.reporter_member_id

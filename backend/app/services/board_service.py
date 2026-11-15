@@ -65,15 +65,121 @@ def _can_write_course_board(board: dict[str, Any], member: dict[str, Any]) -> bo
     )
 
 
-def _require_course_board_writer(cursor, board_id: int, member_id: int) -> None:
-    board = _require_board(cursor, board_id)
-    if board.get("course_code") is None:
+def _verified_enrollments(cursor, member_id: int) -> list[dict[str, Any]]:
+    """현재 유효한 수강생 인증만 권한 판단에 사용합니다."""
+    cursor.execute(
+        """
+        SELECT c.cohort_id, c.program_id, c.institution_id
+        FROM public.member_enrollments AS e
+        JOIN public.cohorts AS c ON c.cohort_id = e.cohort_id
+        WHERE e.member_id = %s
+          AND e.enrollment_status = 'VERIFIED'
+          AND e.verified_at IS NOT NULL
+          AND e.expires_at > NOW()
+        """,
+        (member_id,),
+    )
+    return list(cursor.fetchall())
+
+
+def _can_access_board(
+    board: dict[str, Any],
+    member: dict[str, Any],
+    enrollments: list[dict[str, Any]],
+    *,
+    write: bool,
+) -> bool:
+    """LEGACY 정책은 보존하고 신규 범위는 인증된 소속을 기준으로 확인합니다."""
+    scope = board.get("scope_type", "LEGACY")
+    if scope == "LEGACY":
+        return _can_write_course_board(board, member) if write else True
+
+    if scope not in {"NATIONAL", "INSTITUTION", "PROGRAM", "COHORT"}:
+        return False  # 알 수 없는 범위는 허용하지 않습니다.
+
+    if (member.get("role_code") or "").strip().upper() == "ADMIN":
+        return True
+
+    if write:
+        if board.get("write_policy") != "SCOPE_ONLY":
+            return False  # STAFF_ONLY는 관리자 분기에서만 허용됩니다.
+    elif board.get("read_policy") == "ALL_VERIFIED":
+        return bool(enrollments)
+    elif board.get("read_policy") != "SCOPE_ONLY":
+        return False
+
+    if scope == "NATIONAL":
+        return bool(enrollments)
+
+    key = {
+        "INSTITUTION": "institution_id",
+        "PROGRAM": "program_id",
+        "COHORT": "cohort_id",
+    }[scope]
+    target_id = board.get(key)
+    return (
+        isinstance(target_id, int)
+        and target_id > 0
+        and any(enrollment.get(key) == target_id for enrollment in enrollments)
+    )
+
+
+def _require_board_read_access(
+    cursor, board: dict[str, Any], member_id: int
+) -> None:
+    """이미 조회한 게시판에 대해 추가 조회 없이(LEGACY) 접근 권한을 확인합니다."""
+    if board.get("scope_type", "LEGACY") == "LEGACY":
         return
-    if not _can_write_course_board(board, _get_board_member(cursor, member_id)):
-        raise HTTPException(
-            status_code=403,
-            detail="이 게시판은 해당 과정·기수 수강생만 작성할 수 있습니다.",
-        )
+
+    member = _get_board_member(cursor, member_id)
+    if not _can_access_board(
+        board, member, _verified_enrollments(cursor, member_id), write=False
+    ):
+        raise HTTPException(status_code=403, detail="이 게시판을 열람할 권한이 없습니다.")
+
+
+def _require_board_reader(cursor, board_id: int, member_id: int) -> dict[str, Any]:
+    """게시판 상세·게시글·댓글·반응 조회의 공통 읽기 권한 검사."""
+    board = _require_board(cursor, board_id)
+    _require_board_read_access(cursor, board, member_id)
+    return board
+
+
+def _require_comment_board_reader(cursor, comment_id: int, member_id: int) -> None:
+    """댓글 ID만 전달되는 조회에서도 소속 게시판의 접근 권한을 검사합니다."""
+    cursor.execute(
+        """
+        SELECT p.board_id
+        FROM public.comments AS c
+        JOIN public.posts AS p ON p.post_id = c.post_id
+        WHERE c.comment_id = %s AND c.deleted_at IS NULL
+        """,
+        (comment_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
+    _require_board_reader(cursor, row["board_id"], member_id)
+
+
+def _require_course_board_writer(cursor, board_id: int, member_id: int) -> None:
+    """기존 과정 게시판과 신규 범위 게시판의 쓰기 정책을 일관되게 검사합니다."""
+    board = _require_board(cursor, board_id)
+    if board.get("scope_type", "LEGACY") == "LEGACY":
+        if board.get("course_code") is None:
+            return
+        if not _can_write_course_board(board, _get_board_member(cursor, member_id)):
+            raise HTTPException(
+                status_code=403,
+                detail="이 게시판은 해당 과정·기수 수강생만 작성할 수 있습니다.",
+            )
+        return
+
+    member = _get_board_member(cursor, member_id)
+    if not _can_access_board(
+        board, member, _verified_enrollments(cursor, member_id), write=True
+    ):
+        raise HTTPException(status_code=403, detail="이 게시판에 작성할 권한이 없습니다.")
 
 
 def _require_comment_board_writer(cursor, comment_id: int, member_id: int) -> None:
@@ -151,14 +257,31 @@ def _comment_detail(cursor, comment_id: int, member_id: int) -> dict[str, Any]:
 # 2. 게시판 목록·생성·상세 조회
 # =========================================================
 def list_boards(member_id: int | None = None) -> list[dict[str, Any]]:
-    """전체 게시판 조회를 허용하고, 현재 회원의 작성 가능 여부를 표시합니다."""
+    """읽을 수 있는 게시판만 반환하며 작성 권한을 계산합니다."""
     with db_cursor(read_only=True) as cursor:
         boards = repository.list_boards(cursor, member_id)
-        if member_id is not None:
-            member = _get_board_member(cursor, member_id)
-            for board in boards:
-                board["can_write"] = _can_write_course_board(board, member)
-        return boards
+        if member_id is None:
+            return [b for b in boards if b.get("scope_type", "LEGACY") == "LEGACY"]
+
+        member = _get_board_member(cursor, member_id)
+        needs_enrollment = any(
+            b.get("scope_type", "LEGACY") != "LEGACY" for b in boards
+        )
+        enrollments = _verified_enrollments(cursor, member_id) if needs_enrollment else []
+        visible = []
+        for board in boards:
+            if not _can_access_board(board, member, enrollments, write=False):
+                continue
+            board["can_write"] = _can_access_board(
+                board, member, enrollments, write=True
+            )
+            # 공지사항은 별도의 관리자 전용 작성 정책을 유지합니다.
+            if board.get("name") == "공지사항":
+                board["can_write"] = (
+                    (member.get("role_code") or "").strip().upper() == "ADMIN"
+                )
+            visible.append(board)
+        return visible
 
 
 def create_board(
@@ -188,12 +311,26 @@ def create_board(
 
 
 def get_board(board_id: int, member_id: int | None = None) -> dict[str, Any]:
-    """게시판 상세와 회원별 작성 권한을 반환합니다."""
+    """게시판 상세 조회에서도 권한 검사를 수행합니다."""
     with db_cursor(read_only=True) as cursor:
         board = _require_board(cursor, board_id)
-        if member_id is not None:
-            board["can_write"] = _can_write_course_board(
-                board, _get_board_member(cursor, member_id)
+        if member_id is None:
+            if board.get("scope_type", "LEGACY") != "LEGACY":
+                raise HTTPException(status_code=403, detail="로그인이 필요합니다.")
+            return board
+
+        member = _get_board_member(cursor, member_id)
+        enrollments = (
+            _verified_enrollments(cursor, member_id)
+            if board.get("scope_type", "LEGACY") != "LEGACY"
+            else []
+        )
+        if not _can_access_board(board, member, enrollments, write=False):
+            raise HTTPException(status_code=403, detail="이 게시판을 열람할 권한이 없습니다.")
+        board["can_write"] = _can_access_board(board, member, enrollments, write=True)
+        if board.get("name") == "공지사항":
+            board["can_write"] = (
+                (member.get("role_code") or "").strip().upper() == "ADMIN"
             )
         return board
 
@@ -213,8 +350,9 @@ def list_posts(
     if sort != "latest":
         raise HTTPException(status_code=422, detail="sort는 latest만 지원합니다.")
     with db_cursor(read_only=True) as cursor:
-        # 게시판이 없으면 목록 조회 전에 404 오류를 발생시킴.
-        _require_board(cursor, board_id)
+        # 이미 조회한 게시판을 재사용하여 LEGACY에서 추가 DB 왕복을 피합니다.
+        board = _require_board(cursor, board_id)
+        _require_board_read_access(cursor, board, member_id)
         # 검색어가 없으면 빈 문자열 사용, 있으면 양쪽 공백 제거 후 조회함.
         return repository.list_posts(cursor, board_id, (q or "").strip(), member_id)
 
@@ -224,7 +362,22 @@ def list_featured_posts(kind: str, q: str | None, member_id: int) -> list[dict[s
     if kind not in {"hall-of-fame", "hot"}:
         raise HTTPException(status_code=404, detail="인기 게시판을 찾을 수 없습니다.")
     with db_cursor(read_only=True) as cursor:
-        return repository.list_featured_posts(cursor, kind, (q or "").strip(), member_id)
+        # DB 쿼리의 LIMIT 100 전에 권한으로 게시판을 제한해야
+        # 비공개 게시글이 HOT/명예의 전당에서 노출되거나 랭킹을 밀어내지 않습니다.
+        boards = repository.list_boards(cursor)
+        member = _get_board_member(cursor, member_id)
+        needs_enrollment = any(
+            b.get("scope_type", "LEGACY") != "LEGACY" for b in boards
+        )
+        enrollments = _verified_enrollments(cursor, member_id) if needs_enrollment else []
+        allowed_ids = [
+            b["id"] for b in boards
+            if _can_access_board(b, member, enrollments, write=False)
+        ]
+        return repository.list_featured_posts(
+            cursor, kind, (q or "").strip(), member_id,
+            allowed_board_ids=allowed_ids,
+        )
 
 
 def create_post(
@@ -305,6 +458,7 @@ def create_post(
 def get_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
     """게시판·게시글 ID의 상세를 반환한다. 삭제·모임 게시글은 404이다."""
     with db_cursor(read_only=True) as cursor:
+        _require_board_reader(cursor, board_id, member_id)
         # Repository의 게시글 조회 조건으로 삭제·모임 게시글을 제외함.
         return _post_detail(cursor, board_id, post_id, member_id)
 
@@ -401,6 +555,7 @@ def like_post(
 
     with db_cursor(commit=True) as cursor:
 
+        _require_board_reader(cursor, board_id, member_id)
         # 1. 게시글 존재 여부 확인
         _require_post(cursor, board_id, post_id)
 
@@ -426,6 +581,7 @@ def like_post(
 def unlike_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
     """게시글 확인 후 좋아요를 취소하고 응답을 조회한다. 좋아요가 없어도 성공한다."""
     with db_cursor(commit=True) as cursor:
+        _require_board_reader(cursor, board_id, member_id)
         _require_post(cursor, board_id, post_id)
         repository.unlike_post(cursor, post_id, member_id)
         return repository.get_post_like(cursor, post_id, member_id)
@@ -438,6 +594,7 @@ def scrap_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
     삭제·모임 게시글은 404이다.
     """
     with db_cursor(commit=True) as cursor:
+        _require_board_reader(cursor, board_id, member_id)
         _require_post(cursor, board_id, post_id)
         repository.scrap_post(cursor, post_id, member_id)
         return repository.get_post_scrap(cursor, post_id, member_id)
@@ -446,6 +603,7 @@ def scrap_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
 def unscrap_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
     """게시글 확인 후 스크랩을 취소하고 응답을 조회한다. 스크랩이 없어도 성공한다."""
     with db_cursor(commit=True) as cursor:
+        _require_board_reader(cursor, board_id, member_id)
         _require_post(cursor, board_id, post_id)
         repository.unscrap_post(cursor, post_id, member_id)
         return repository.get_post_scrap(cursor, post_id, member_id)
@@ -458,6 +616,7 @@ def unscrap_post(board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
 def list_comments(board_id: int, post_id: int, member_id: int) -> list[dict[str, Any]]:
     """게시글 확인 후 댓글을 반환한다. 불필요한 상세·이미지 조회를 생략한다."""
     with db_cursor(read_only=True) as cursor:
+        _require_board_reader(cursor, board_id, member_id)
         # 댓글이 속한 게시글이 실제로 존재하는지 확인함.
         _require_post(cursor, board_id, post_id)
         # 삭제되지 않은 댓글 목록을 조회함.
@@ -548,8 +707,9 @@ def create_comment(
 
 
 def get_comment(comment_id: int, member_id: int) -> dict[str, Any]:
-    """댓글 상세를 반환한다. 없거나 삭제된 댓글은 404이다."""
+    """댓글 상세를 반환한다. 없거나 접근 불가한 댓글은 조회하지 않습니다."""
     with db_cursor(read_only=True) as cursor:
+        _require_comment_board_reader(cursor, comment_id, member_id)
         return _comment_detail(cursor, comment_id, member_id)
 
 

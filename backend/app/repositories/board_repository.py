@@ -805,7 +805,11 @@ def comment_exists(cursor, comment_id: int) -> bool:
 # 명예의 전당·HOT: 실제 게시글을 복사하지 않고 post_likes 집계로 조회
 # 두 목록에 동시에 선정될 수 있으며 원래 board_id를 그대로 반환한다.
 def list_featured_posts(
-    cursor, kind: str, search: str, member_id: int
+    cursor,
+    kind: str,
+    search: str,
+    member_id: int,
+    allowed_board_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """누적 101개 이상(명예) / 최근 7일 10개 이상(HOT) 조회."""
     filters = {
@@ -819,7 +823,15 @@ def list_featured_posts(
     if kind not in filters:
         raise ValueError("지원하지 않는 인기 게시판입니다.")
 
+    # 빈 허용 목록은 곧바로 반환하여 제한된 게시판을 실수로 공개하지 않습니다.
+    if allowed_board_ids is not None and not allowed_board_ids:
+        return []
+
     params: list[Any] = [member_id, member_id]
+    access_sql = ""
+    if allowed_board_ids is not None:
+        access_sql = "AND p.board_id = ANY(%s)"
+        params.append(allowed_board_ids)
     search_sql = ""
     if search:
         search_sql = "AND (p.title ILIKE %s OR p.body ILIKE %s)"
@@ -869,6 +881,7 @@ def list_featured_posts(
           AND b.board_name <> '공지사항'
           AND {_board_post_guard()}
           AND {filters[kind]}
+          {access_sql}
           {search_sql}
         ORDER BY {orders[kind]}, p.created_at DESC, p.post_id DESC
         LIMIT 100

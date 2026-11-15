@@ -65,13 +65,13 @@ class RecordingCursor:
         return self.rows
 
 
-def test_verified_scope_query_excludes_pending_and_expired():
+def test_active_or_completed_scope_query_ignores_graduation_expiry():
     cursor = RecordingCursor(VERIFIED)
     assert service._verified_enrollments(cursor, 8) == VERIFIED
     sql, params = cursor.queries[0]
-    assert "e.enrollment_status = 'VERIFIED'" in sql
-    assert "e.verified_at IS NOT NULL" in sql
-    assert "e.expires_at > NOW()" in sql
+    assert "e.enrollment_status IN ('ACTIVE', 'COMPLETED')" in sql
+    assert "e.verified_at" not in sql
+    assert "e.expires_at" not in sql
     assert params == (8,)
 
 

@@ -1,11 +1,15 @@
-# PLAYMATE_COMMENT_AVATAR_V1
-# PLAYMATE_BOARD_REPORTS_V1
-"""Discord 회원 조회·가입과 과정/기수별 게시판 자동 생성."""
+"""Discord 회원 조회·가입과 전국 교육기관 소속 등록."""
+
+import logging
+
+from fastapi import HTTPException
 
 from app.core.db_connect import db_cursor
 from app.schemas.member import MemberSignup
 
+logger = logging.getLogger(__name__)
 
+# 기존 코드의 고정 과정명은 레거시 게시판 유지에만 사용합니다.
 COURSE_NAMES = {
     "family-ai": "패밀리 AI",
     "multi-agent": "멀티 에이전트",
@@ -15,21 +19,13 @@ COURSE_NAMES = {
 
 
 def get_member(discord_id: str) -> dict | None:
-    """Discord ID에 해당하는 PLAYMATE 회원을 조회합니다."""
     with db_cursor(read_only=True) as cursor:
         cursor.execute(
             """
-            SELECT
-                member_id,
-                discord_id,
-                nickname,
-                course,
-                cohort,
-                role_code,
-                profile_image_url
-            FROM members
-            WHERE discord_id = %s
-              AND member_status = 'ACTIVE'
+            SELECT member_id, discord_id, nickname, course, cohort,
+                   role_code, profile_image_url
+            FROM public.members
+            WHERE discord_id = %s AND member_status = 'ACTIVE'
             """,
             (discord_id,),
         )
@@ -37,12 +33,31 @@ def get_member(discord_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+def get_education_options() -> list[dict]:
+    """현재 등록 가능한 학교/과정/기수를 한 번에 조회합니다."""
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT c.cohort_id, c.cohort_no,
+                   i.institution_id, i.institution_name,
+                   p.program_id, p.program_name,
+                   campus.campus_name
+            FROM public.cohorts AS c
+            JOIN public.programs AS p ON p.program_id = c.program_id
+            JOIN public.institutions AS i ON i.institution_id = c.institution_id
+            LEFT JOIN public.campuses AS campus ON campus.campus_id = c.campus_id
+            WHERE i.status = 'ACTIVE' AND p.status = 'ACTIVE'
+            ORDER BY i.institution_name, p.program_name, c.cohort_no, c.cohort_id
+            """
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
 def sync_member_avatar(member_id: int, avatar_url: str | None) -> None:
-    """로그인한 회원의 Discord 아바타 URL만 저장합니다."""
     with db_cursor(commit=True) as cursor:
         cursor.execute(
             """
-            UPDATE members
+            UPDATE public.members
             SET profile_image_url = %s
             WHERE member_id = %s
               AND profile_image_url IS DISTINCT FROM %s
@@ -51,175 +66,162 @@ def sync_member_avatar(member_id: int, avatar_url: str | None) -> None:
         )
 
 
-def ensure_course_board(cursor, course: str, cohort: int) -> None:
-    """과정·기수 조합에 해당하는 게시판을 한 번만 만듭니다.
-
-    회원가입과 동일한 트랜잭션에서 실행해 데이터 불일치를 방지합니다.
-    이미 존재하는 게시판은 수정하거나 덮어쓰지 않습니다.
-    """
-    course_name = COURSE_NAMES.get(course)
-    if course_name is None or cohort < 1:
-        raise ValueError("올바르지 않은 과정 또는 기수입니다.")
-
-    board_name = f"{course_name} {cohort}기"
+def _lookup_cohort(cursor, cohort_id: int) -> dict:
+    """클라이언트가 넘긴 숫자를 신뢰하지 않고 실제 등록된 기수인지 검사합니다."""
     cursor.execute(
         """
-        INSERT INTO boards (
-            board_name, description, creation_reason, created_by,
-            course_code, cohort, is_default
-        )
-        VALUES (%s, %s, %s, NULL, %s, %s, FALSE)
-        ON CONFLICT DO NOTHING
+        SELECT c.cohort_id, c.cohort_no, c.campus_id,
+               p.program_id, p.program_code, p.program_name,
+               i.institution_id, i.institution_code, i.institution_name,
+               campus.campus_name
+        FROM public.cohorts AS c
+        JOIN public.programs AS p ON p.program_id = c.program_id
+        JOIN public.institutions AS i ON i.institution_id = c.institution_id
+        LEFT JOIN public.campuses AS campus ON campus.campus_id = c.campus_id
+        WHERE c.cohort_id = %s
+          AND i.status = 'ACTIVE'
+          AND p.status = 'ACTIVE'
         """,
-        (
-            board_name,
-            "같은 과정·기수 수강생을 위한 게시판입니다. 다른 과정에서는 열람만 가능합니다.",
-            "회원 과정·기수 기준 자동 생성",
-            course,
-            cohort,
-        ),
+        (cohort_id,),
     )
-    # 기존 일반 게시판과 이름이 겹치면 ON CONFLICT로 생성되지 않을 수 있습니다.
-    # 가입만 성공하고 게시판이 없는 상태를 막기 위해 실제 연결을 확인합니다.
-    cursor.execute(
-        """
-        SELECT board_id FROM boards
-        WHERE course_code = %s AND cohort = %s
-        """,
-        (course, cohort),
-    )
-    if cursor.fetchone() is None:
-        raise RuntimeError(
-            "과정 게시판 생성에 실패했습니다. 동일한 이름의 기존 게시판을 확인해주세요."
-        )
-
-
-
-def announce_course_board(cursor, course: str, cohort: int) -> None:
-    """신규 과정 게시판 공지를 한번만 생성합니다. 잠금으로 중복 생성 방지."""
-    # 게시판 행 자체를 잠그면 동시 가입도 공지 중복 없이 직렬화됩니다.
-    cursor.execute(
-        "SELECT board_id, board_name, description FROM boards "
-        "WHERE course_code = %s AND cohort = %s FOR UPDATE",
-        (course, cohort),
-    )
-    board = cursor.fetchone()
-    if board is None:
-        raise RuntimeError("과정 게시판을 찾을 수 없습니다.")
-    cursor.execute("SELECT 1 FROM board_notice_posts WHERE board_id = %s", (board["board_id"],))
-    if cursor.fetchone() is not None:
-        return
-
-    cursor.execute("SELECT board_id FROM boards WHERE board_name = '공지사항' LIMIT 1")
-    notice = cursor.fetchone()
-    cursor.execute(
-        "SELECT member_id FROM members WHERE UPPER(TRIM(COALESCE(role_code, ''))) = 'ADMIN' "
-        "ORDER BY member_id LIMIT 1"
-    )
-    admin = cursor.fetchone()
-    if notice is None or admin is None:
-        # 게시판 개설을 막지 않습니다. 누락 공지는 019 SQL 재실행으로 보충할 수 있습니다.
-        import logging
-        logging.getLogger(__name__).warning("과정 공지를 생성하지 못함: 공지사항 또는 ADMIN 없음")
-        return
-
-    cursor.execute(
-        """
-        INSERT INTO posts (
-            board_id, author_member_id, post_type, title, body,
-            source_type, post_status, published_at, is_anonymous
-        ) VALUES (%s, %s, 'BOARD', %s, %s, 'SYSTEM', 'PUBLISHED', CURRENT_TIMESTAMP, FALSE)
-        RETURNING post_id
-        """,
-        (
-            notice["board_id"], admin["member_id"],
-            f'[게시판 안내] {board["board_name"]}',
-            f'{board["board_name"]} 게시판이 개설되었습니다.\n\n'
-            f'{board["description"] or ""}\n\n'
-            '열람은 모든 회원에게 열려 있으며 글과 댓글은 해당 과정·기수 회원만 작성할 수 있습니다.',
-        ),
-    )
-    post_id = cursor.fetchone()["post_id"]
-    cursor.execute(
-        "INSERT INTO board_notice_posts (board_id, post_id) VALUES (%s, %s)",
-        (board["board_id"], post_id),
-    )
-
-def register_member(discord_id: str, signup_data: MemberSignup) -> dict:
-    """회원 가입 시 같은 과정·기수의 게시판도 자동 생성합니다.
-
-    Discord DM 알림(external_dm_opt_in)은 기본 ON으로 저장합니다.
-    """
-    with db_cursor(commit=True) as cursor:
-        cursor.execute(
-            """
-            INSERT INTO members (
-                discord_id,
-                nickname,
-                course,
-                cohort,
-                role_code,
-                external_dm_opt_in
-            )
-            VALUES (%s, %s, %s, %s, %s, TRUE)
-            RETURNING
-                member_id,
-                discord_id,
-                nickname,
-                course,
-                cohort,
-                role_code
-            """,
-            (
-                discord_id,
-                signup_data.nickname,
-                signup_data.track,
-                signup_data.cohort,
-                "USER",
-            ),
-        )
-        row = cursor.fetchone()
-        ensure_course_board(cursor, row["course"], row["cohort"])
-        announce_course_board(cursor, row["course"], row["cohort"])
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(422, "가입할 수 없는 교육과정 또는 기수입니다.")
     return dict(row)
 
 
-# PLAYMATE_85_AUTO_FIX
+def _legacy_family_ai_board(info: dict) -> bool:
+    """기존 36기 게시판 8번은 권한 전환(031) 전까지 그대로 둡니다."""
+    return (
+        info["institution_code"] == "playdata"
+        and info["program_code"] == "family-ai"
+        and info["cohort_no"] == 36
+        and info["campus_id"] is None
+    )
+
+
+def _ensure_cohort_board(cursor, info: dict) -> None:
+    """기수 행 잠금을 이용해 동시 가입에서도 게시판을 한 번만 만듭니다."""
+    cursor.execute(
+        "SELECT cohort_id FROM public.cohorts WHERE cohort_id = %s FOR UPDATE",
+        (info["cohort_id"],),
+    )
+    if cursor.fetchone() is None:
+        raise HTTPException(422, "가입할 수 없는 교육과정 또는 기수입니다.")
+
+    cursor.execute(
+        "SELECT board_id FROM public.boards WHERE scope_type = 'COHORT' AND cohort_id = %s",
+        (info["cohort_id"],),
+    )
+    if cursor.fetchone():
+        return
+
+    if _legacy_family_ai_board(info):
+        # 기존 36기 게시판이 이미 운영 중이므로 그대로 연결합니다.
+        cursor.execute(
+            """
+            SELECT board_id FROM public.boards
+            WHERE board_id = 8 AND course_code = 'family-ai' AND cohort = 36
+            """
+        )
+        if cursor.fetchone() is None:
+            raise RuntimeError("기존 Family AI 36기 게시판이 없습니다. 운영 데이터를 확인해주세요.")
+        return
+
+    # 신규 과정은 LEGACY course_code를 사용하지 않아 기관 간 쓰기 권한 충돌을 방지합니다.
+    campus_suffix = f" {info['campus_name']}" if info.get("campus_name") else ""
+    # boards.board_name은 VARCHAR(40). 기수 ID를 접미사로 넣어 충돌을 방지합니다.
+    tail = f" {info['cohort_no']}기 #{info['cohort_id']}"
+    prefix = f"{info['institution_name']} {info['program_name']}{campus_suffix}"
+    board_name = prefix[:40 - len(tail)] + tail
+    if len(board_name) > 40 or len(tail) >= 40:
+        raise HTTPException(422, "교육과정 식별자가 너무 길어 게시판을 생성할 수 없습니다.")
+    cursor.execute(
+        """
+        INSERT INTO public.boards (
+            board_name, description, creation_reason, created_by,
+            scope_type, cohort_id, read_policy, write_policy, is_default
+        )
+        VALUES (%s, %s, '회원가입 시 기수별 자동 생성', NULL,
+                'COHORT', %s, 'ALL_VERIFIED', 'SCOPE_ONLY', FALSE)
+        """,
+        (
+            board_name,
+            "가입한 기수는 글·댓글을 작성할 수 있고 다른 등록 회원도 열람할 수 있습니다.",
+            info["cohort_id"],
+        ),
+    )
+
+
+def register_member(discord_id: str, signup_data: MemberSignup) -> dict:
+    """회원+소속+게시판을 단일 트랜잭션으로 저장합니다. 관리자 승인 절차는 없습니다."""
+    with db_cursor(commit=True) as cursor:
+        info = _lookup_cohort(cursor, signup_data.cohort_id)
+        # 종전 과정 문자열은 기존 API 호환용입니다. 타 기관의 코드 충돌을 차단합니다.
+        legacy_code = (
+            info["program_code"] if _legacy_family_ai_board(info)
+            else f"program:{info['program_id']}"
+        )
+        cursor.execute(
+            """
+            INSERT INTO public.members (
+                discord_id, nickname, course, cohort, role_code, external_dm_opt_in
+            ) VALUES (%s, %s, %s, %s, 'USER', TRUE)
+            RETURNING member_id, discord_id, nickname, course, cohort, role_code
+            """,
+            (discord_id, signup_data.nickname, legacy_code, info["cohort_no"]),
+        )
+        member = dict(cursor.fetchone())
+        cursor.execute(
+            """
+            INSERT INTO public.member_enrollments (
+                member_id, cohort_id, enrollment_status
+            ) VALUES (%s, %s, 'ACTIVE')
+            """,
+            (member["member_id"], info["cohort_id"]),
+        )
+        _ensure_cohort_board(cursor, info)
+    return member
+
 
 def withdraw_member(member_id: int, discord_id: str) -> bool:
-    """회원 식별정보를 비식별화하고 게시글/댓글의 회원 FK를 보존한다.
-
-    동일한 DB 트랜잭션에서 처리되므로 일부 처리만 반영되지 않습니다.
-    """
+    """탈퇴 시 기존 비식별화에 더해 새 교육기관 소속 정보를 정리합니다."""
     with db_cursor(commit=True) as cursor:
         cursor.execute(
             """
-            UPDATE members
+            UPDATE public.members
             SET discord_id = 'w' || member_id::text,
                 nickname = substring(md5('withdrawn:' || member_id::text), 1, 20),
-                member_status = 'WITHDRAWN',
-                role_code = 'USER',
-                course = 'withdrawn',
-                cohort = 0,
-                profile_image_url = NULL,
-                external_dm_opt_in = FALSE,
+                member_status = 'WITHDRAWN', role_code = 'USER',
+                course = 'withdrawn', cohort = 0,
+                profile_image_url = NULL, external_dm_opt_in = FALSE,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE member_id = %s
-              AND discord_id = %s
-              AND member_status = 'ACTIVE'
+            WHERE member_id = %s AND discord_id = %s AND member_status = 'ACTIVE'
             RETURNING member_id
             """,
             (member_id, discord_id),
         )
         if cursor.fetchone() is None:
             return False
-
-        # 개인 프로필 데이터 및 다른 사람에게 남긴 반응/스크랩 제거.
-        cursor.execute("DELETE FROM member_career_specs WHERE member_id = %s", (member_id,))
+        # 기존 FK의 기본 정책이 RESTRICT이므로 검증 이력부터 삭제합니다.
         cursor.execute(
-            "DELETE FROM notifications WHERE receiver_member_id = %s OR actor_member_id = %s",
+            """
+            DELETE FROM public.enrollment_verifications
+            WHERE enrollment_id IN (
+                SELECT enrollment_id FROM public.member_enrollments WHERE member_id = %s
+            )
+            """,
+            (member_id,),
+        )
+        cursor.execute(
+            "DELETE FROM public.member_enrollments WHERE member_id = %s",
+            (member_id,),
+        )
+        cursor.execute("DELETE FROM public.member_career_specs WHERE member_id = %s", (member_id,))
+        cursor.execute(
+            "DELETE FROM public.notifications WHERE receiver_member_id = %s OR actor_member_id = %s",
             (member_id, member_id),
         )
-        cursor.execute("DELETE FROM post_likes WHERE member_id = %s", (member_id,))
-        cursor.execute("DELETE FROM post_scraps WHERE member_id = %s", (member_id,))
+        cursor.execute("DELETE FROM public.post_likes WHERE member_id = %s", (member_id,))
+        cursor.execute("DELETE FROM public.post_scraps WHERE member_id = %s", (member_id,))
     return True

@@ -66,16 +66,14 @@ def _can_write_course_board(board: dict[str, Any], member: dict[str, Any]) -> bo
 
 
 def _verified_enrollments(cursor, member_id: int) -> list[dict[str, Any]]:
-    """현재 유효한 수강생 인증만 권한 판단에 사용합니다."""
+    """활성 소속과 수료 소속을 조회합니다. 교육 종료일에는 접근을 제한하지 않습니다."""
     cursor.execute(
         """
         SELECT c.cohort_id, c.program_id, c.institution_id
         FROM public.member_enrollments AS e
         JOIN public.cohorts AS c ON c.cohort_id = e.cohort_id
         WHERE e.member_id = %s
-          AND e.enrollment_status = 'VERIFIED'
-          AND e.verified_at IS NOT NULL
-          AND e.expires_at > NOW()
+          AND e.enrollment_status IN ('ACTIVE', 'COMPLETED')
         """,
         (member_id,),
     )
@@ -89,7 +87,7 @@ def _can_access_board(
     *,
     write: bool,
 ) -> bool:
-    """LEGACY 정책은 보존하고 신규 범위는 인증된 소속을 기준으로 확인합니다."""
+    """LEGACY 정책은 유지하고 신규 범위는 활성/수료 소속을 기준으로 확인합니다."""
     scope = board.get("scope_type", "LEGACY")
     if scope == "LEGACY":
         return _can_write_course_board(board, member) if write else True

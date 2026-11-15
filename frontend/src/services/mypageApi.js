@@ -2,12 +2,23 @@
 
 import { apiRequest } from './apiClient'
 
+const pendingReads = new Map()
+
+function readMyPage(path) {
+  const pending = pendingReads.get(path)
+  if (pending) return pending
+
+  const request = apiRequest(path, { credentials: 'include' }).finally(() => {
+    if (pendingReads.get(path) === request) pendingReads.delete(path)
+  })
+  pendingReads.set(path, request)
+  return request
+}
+
 
 // 내 프로필 조회
 export function getMyProfile() {
-  return apiRequest('/mypage/profile', {
-    credentials: 'include',
-  })
+  return readMyPage('/mypage/profile')
 }
 
 
@@ -16,6 +27,9 @@ export function updateMyNickname(nickname) {
     method: 'PATCH',
     credentials: 'include',
     body: JSON.stringify({ nickname }),
+  }).then((result) => {
+    pendingReads.delete('/mypage/profile')
+    return result
   })
 }
 
@@ -28,21 +42,20 @@ export function uploadMyProfileImage(file) {
     method: 'POST',
     credentials: 'include',
     body: formData,
+  }).then((result) => {
+    pendingReads.delete('/mypage/profile')
+    return result
   })
 }
 
 
 export function getMyLevel() {
-  return apiRequest('/mypage/level', {
-    credentials: 'include',
-  })
+  return readMyPage('/mypage/level')
 }
 
 // 오늘 출석 여부와 연속 출석 일수(KST)를 조회합니다.
 export function getMyAttendance() {
-  return apiRequest('/mypage/attendance', {
-    credentials: 'include',
-  })
+  return readMyPage('/mypage/attendance')
 }
 
 // 오늘 출석을 기록합니다. 같은 날 다시 요청하면 awarded: false를 반환합니다.
@@ -50,6 +63,10 @@ export function checkMyAttendance() {
   return apiRequest('/mypage/attendance', {
     method: 'POST',
     credentials: 'include',
+  }).then((result) => {
+    pendingReads.delete('/mypage/attendance')
+    pendingReads.delete('/mypage/level')
+    return result
   })
 }
 

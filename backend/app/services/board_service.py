@@ -13,7 +13,8 @@ from fastapi import HTTPException
 from psycopg2 import errors
 
 # db_cursor : DB 커서를 생성하고 조회/저장 트랜잭션을 관리함.
-from app.core.db_connect import db_cursor
+from app.core.db_connect import CommitOutcomeUnknownError, db_cursor
+from app.core.uploads import MAX_POST_IMAGES, remove_saved_images, store_validated_images
 # repository : 게시판·게시글·댓글에 대한 실제 SQL 실행을 담당함.
 from backend.app.repositories import board_repository as repository
 import logging
@@ -324,21 +325,54 @@ def _raise_post_permission(cursor, board_id: int, post_id: int) -> None:
 def update_post(
     board_id: int, post_id: int, title: str, body: str, member_id: int,
     is_anonymous: bool | None = None,
+    *,
+    original_image_ids: list[int] | None = None,
+    keep_image_ids: list[int] | None = None,
+    new_images: list[tuple[dict, bytes]] | None = None,
 ) -> dict[str, Any]:
     """작성자 조건으로 수정 후 응답을 조회한다. 실패 시 전체 롤백한다."""
-    with db_cursor(commit=True) as cursor:
-        _require_notice_admin(cursor, board_id, member_id)
-        _require_course_board_writer(cursor, board_id, member_id)
-        if is_anonymous and _require_board(cursor, board_id)["name"] == "공지사항":
-            raise HTTPException(status_code=422, detail="공지사항은 익명으로 작성할 수 없습니다.")
-        # Repository에서 작성자 ID와 게시글 상태를 조건으로 수정함.
-        # 수정된 행이 없으면 권한 부족(403) 또는 글 없음(404)을 판별함.
-        if not repository.update_post(
-            cursor, board_id, post_id, title, body, member_id, is_anonymous
-        ):
-            _raise_post_permission(cursor, board_id, post_id)
-        # 수정된 게시글을 다시 조회하여 응답으로 반환함.
-        return _post_detail(cursor, board_id, post_id, member_id)
+    removed = []
+    saved = []
+    try:
+        with db_cursor(commit=True) as cursor:
+            _require_notice_admin(cursor, board_id, member_id)
+            _require_course_board_writer(cursor, board_id, member_id)
+            if is_anonymous and _require_board(cursor, board_id)["name"] == "공지사항":
+                raise HTTPException(status_code=422, detail="공지사항은 익명으로 작성할 수 없습니다.")
+            # Repository에서 작성자 ID와 게시글 상태를 조건으로 수정함.
+            # 수정된 행이 없으면 권한 부족(403) 또는 글 없음(404)을 판별함.
+            if not repository.update_post(
+                cursor, board_id, post_id, title, body, member_id, is_anonymous
+            ):
+                _raise_post_permission(cursor, board_id, post_id)
+            if original_image_ids is not None:
+                current_ids = repository.post_image_ids(cursor, post_id)
+                keep = keep_image_ids or []
+                if len(set(keep)) != len(keep) or not set(keep) <= set(original_image_ids):
+                    raise HTTPException(422, "유지할 이미지 정보가 올바르지 않습니다.")
+                if set(original_image_ids) != current_ids:
+                    raise HTTPException(409, "첨부 이미지가 변경되었습니다. 새로고침 후 다시 수정해 주세요.")
+                added = new_images or []
+                if len(keep) + len(added) > MAX_POST_IMAGES:
+                    raise HTTPException(422, f"이미지는 최대 {MAX_POST_IMAGES}장까지 첨부할 수 있습니다.")
+                removed = repository.remove_post_images(cursor, post_id, keep)
+                saved = store_validated_images(added)
+                repository.insert_post_images(cursor, post_id, saved, start_order=len(keep))
+            result = _post_detail(cursor, board_id, post_id, member_id)
+    except CommitOutcomeUnknownError:
+        raise
+    except Exception:
+        try:
+            remove_saved_images(saved)
+        except Exception:
+            logger.exception("수정 실패 후 새 이미지 정리 실패: post_id=%s", post_id)
+        raise
+
+    try:
+        remove_saved_images(removed)
+    except Exception:
+        logger.exception("수정 커밋 후 기존 이미지 정리 실패: post_id=%s", post_id)
+    return result
 
 
 

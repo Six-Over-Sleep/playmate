@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { fetchGuideAward } from '../../services/careerApi'
 import '../../styles/CareerLabForm.css'
 
 // 기존 커리어 연구소 하위 메뉴를 그대로 사용합니다.
@@ -34,7 +35,7 @@ const POST_TYPES = [
     {
         value: 'GUIDE',
         label: '커리어 가이드',
-        description: '취업 준비 경험과 실질적인 조언을 공유하면 +50XP!',
+        description: '취업 준비 경험과 실질적인 조언을 공유해 주세요.',
     },
 ]
 
@@ -53,6 +54,20 @@ export default function CareerLabForm({
         initial?.post_type || (defaultMenu === '직무 비교' ? 'DISCUSSION' : 'QUESTION')
     )
     
+    const [guideAward, setGuideAward] = useState(undefined)
+    const showGuideAward = postType === 'GUIDE' && !editing
+
+    useEffect(() => {
+        if (!showGuideAward) return
+        let active = true
+        setGuideAward(undefined)
+        fetchGuideAward().then(
+            ({ xp_amount }) => { if (active) setGuideAward(xp_amount) },
+            () => { if (active) setGuideAward(null) },
+        )
+        return () => { active = false }
+    }, [showGuideAward])
+
     // 게시글 본문
     const [body, setBody] = useState(initial?.body || '')
 
@@ -181,7 +196,11 @@ export default function CareerLabForm({
                     <div className="career-lab-input-note">
                         <strong>커리어 가이드 작성</strong>
                         <span>
-                            경험과 노하우를 공유하고 50XP를 획득하세요.
+                            {showGuideAward && (guideAward === undefined
+                            ? '지급 XP를 확인하고 있어요.'
+                            : guideAward === null
+                                ? '지급 XP를 확인할 수 없어요.'
+                                : `작성 보상 +${guideAward}XP`)}
                         </span>
                     </div>
 

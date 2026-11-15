@@ -40,6 +40,8 @@ from app.schemas.career import (
 import logging
 
 from app.services.xp_service import (
+    CAREER_GUIDE_POLICY,
+    read_xp_amount,
     grant_career_review_xp,
     revoke_xp,
     reconcile_career_review_xp,
@@ -758,6 +760,11 @@ def delete_lounge(
 # =========================================================
 
 # 커리어 연구소 게시글 작성
+def read_guide_award() -> int:
+    with db_cursor(read_only=True) as cursor:
+        return read_xp_amount(cursor, CAREER_GUIDE_POLICY)
+
+
 def create_lab(
     payload: CareerLabCreate,
     member_id: int,
@@ -791,7 +798,7 @@ def create_lab(
         # 4. 응답 데이터 검증
         response = CareerLabResponse.model_validate(lab)
 
-        # 5. GUIDE 게시글에만 +50XP 지급
+        # 5. GUIDE 게시글에만 현재 지급 정책 적용
         if payload.post_type == "GUIDE":
 
             grant_career_guide_xp(

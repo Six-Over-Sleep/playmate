@@ -2,6 +2,12 @@
 // PLAYMATE_BOARD_ANONYMOUS_V1
 import { useEffect, useRef, useState } from 'react'
 
+export const postImageLimits = {
+  count: 3,
+  sizeMb: 5,
+  mimeTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+}
+
 /** 입력을 성공 후에만 비우며 같은 렌더 사이의 연속 제출도 ref 잠금으로 막는다. */
 export function useCommentForm(busy, onSubmit) {
   const [body, setBody] = useState('')
@@ -106,6 +112,7 @@ export function usePostForm(initial, busy, onSubmit) {
   const [body, setBody] = useState(initial?.body || '')
   const [isAnonymous, setIsAnonymous] = useState(Boolean(initial?.is_anonymous))
   const [images, setImages] = useState([])
+  const [existingImages, setExistingImages] = useState(initial?.images || [])
   const [previews, setPreviews] = useState([])
   const submitting = useRef(false)
 
@@ -121,17 +128,16 @@ export function usePostForm(initial, busy, onSubmit) {
     // 잘못된 파일도 같은 파일로 재선택할 수 있도록 매번 input 값을 초기화한다.
     event.target.value = ''
     if (busy) return
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-    if (files.some((file) => !allowedTypes.includes(file.type))) {
+    if (files.some((file) => !postImageLimits.mimeTypes.includes(file.type))) {
       window.alert('JPG, PNG, GIF, WEBP 이미지만 첨부할 수 있습니다.')
       return
     }
-    if (files.some((file) => file.size > 5 * 1024 * 1024)) {
-      window.alert('이미지 한 장은 5MB를 넘을 수 없습니다.')
+    if (files.some((file) => file.size > postImageLimits.sizeMb * 1024 * 1024)) {
+      window.alert(`이미지 한 장은 ${postImageLimits.sizeMb}MB를 넘을 수 없습니다.`)
       return
     }
-    if (images.length + files.length > 3) {
-      window.alert('이미지는 최대 3장까지 첨부할 수 있습니다.')
+    if (existingImages.length + images.length + files.length > postImageLimits.count) {
+      window.alert(`이미지는 최대 ${postImageLimits.count}장까지 첨부할 수 있습니다.`)
       return
     }
     setImages((current) => [...current, ...files])
@@ -142,17 +148,25 @@ export function usePostForm(initial, busy, onSubmit) {
     if (!busy) setImages((current) => current.filter((_, itemIndex) => itemIndex !== index))
   }
 
+  function removeExistingImage(id) {
+    if (!busy) setExistingImages((current) => current.filter((image) => image.id !== id))
+  }
+
   /** 공백 입력과 연속 제출을 막고 제목·본문·파일을 전달한다. 실패한 입력은 초기화하지 않는다. */
   async function submit(event) {
     event.preventDefault()
     if (busy || submitting.current || !title.trim() || !body.trim()) return
     submitting.current = true
     try {
-      await onSubmit({ title: title.trim(), body: body.trim(), images, is_anonymous: isAnonymous })
+      const original = initial?.images || []
+      const imageEdit = initial && (images.length > 0 || existingImages.length !== original.length)
+        ? { originalIds: original.map((image) => image.id), keepIds: existingImages.map((image) => image.id) }
+        : undefined
+      await onSubmit({ title: title.trim(), body: body.trim(), images, imageEdit, is_anonymous: isAnonymous })
     } finally {
       submitting.current = false
     }
   }
 
-  return { title, setTitle, body, setBody, isAnonymous, setIsAnonymous, previews, chooseImages, removeImage, submit }
+  return { title, setTitle, body, setBody, isAnonymous, setIsAnonymous, previews, existingImages, chooseImages, removeImage, removeExistingImage, submit }
 }

@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from uuid import uuid4
@@ -68,6 +69,9 @@ def calculate_level(cursor, total_xp: int, level_type: str = "OVERALL") -> int:
     return level_for_xp(read_level_thresholds(cursor, level_type), total_xp)
 
 
+CAREER_GUIDE_POLICY = "CAREER_GUIDE"
+
+
 def read_xp_amount(cursor, activity_type: str) -> int:
     """Read the policy within the transaction that records the award."""
     try:
@@ -81,6 +85,42 @@ def read_xp_amount(cursor, activity_type: str) -> int:
     if row is None:
         raise HTTPException(503, f"XP 지급 정책이 없습니다: {activity_type}")
     return row["xp_amount"] if isinstance(row, dict) else row[0]
+
+
+def read_xp_limit(cursor, limit_key: str) -> int:
+    """하루 지급 횟수·게시글당 상한 등 XP 지급 한도를 같은 트랜잭션에서 읽는다(027)."""
+    try:
+        cursor.execute(
+            "SELECT limit_value FROM xp_limit_policies WHERE limit_key = %s",
+            (limit_key,),
+        )
+    except (PsycopgUndefinedTable, Psycopg2UndefinedTable) as exc:
+        raise HTTPException(503, "XP 지급 한도 정책을 사용할 수 없습니다.") from exc
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(503, f"XP 지급 한도 정책이 없습니다: {limit_key}")
+    return row["limit_value"] if isinstance(row, dict) else row[0]
+
+
+STREAK_PATTERN = re.compile(r"^STREAK_([1-9][0-9]*)$")
+
+
+def read_streak_bonuses(cursor) -> dict[int, int]:
+    """연속 출석 보너스 {기준 일수: XP}. xp_award_policies의 'STREAK_<일수>' 행으로 정한다."""
+    try:
+        cursor.execute(
+            "SELECT activity_type, xp_amount FROM xp_award_policies "
+            "WHERE activity_type LIKE 'STREAK\\_%%'"
+        )
+    except (PsycopgUndefinedTable, Psycopg2UndefinedTable) as exc:
+        raise HTTPException(503, "XP 정책을 사용할 수 없습니다.") from exc
+    bonuses = {}
+    for row in cursor.fetchall():
+        name, amount = (row["activity_type"], row["xp_amount"]) if isinstance(row, dict) else row
+        match = STREAK_PATTERN.match(name)
+        if match:
+            bonuses[int(match.group(1))] = int(amount)
+    return bonuses
 
 
 def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
@@ -220,7 +260,10 @@ def grant_xp(member_id: int, activity_type: str, source_id: int | None = None):
             # 하루 지급 횟수 제한
             if activity_type in ("POST", "COMMENT", "REPLY"):
                 types = ["POST"] if activity_type == "POST" else ["COMMENT", "REPLY"]
-                limit = 3 if activity_type == "POST" else 10
+                limit = read_xp_limit(
+                    cursor,
+                    "POST_DAILY_COUNT" if activity_type == "POST" else "COMMENT_DAILY_COUNT",
+                )
 
                 cursor.execute(
                     """
@@ -633,7 +676,8 @@ def grant_post_like_xp(cursor, post_id: int, liker_member_id: int) -> dict:
         """,
         (author_id, post_id),
     )
-    remaining_xp = 10 - cursor.fetchone()["awarded_xp"]
+    awarded_xp = cursor.fetchone()["awarded_xp"]
+    remaining_xp = read_xp_limit(cursor, "POST_LIKE_XP_PER_POST") - awarded_xp
     if remaining_xp <= 0:
         return {"awarded": False, "reason": "POST_LIKE_LIMIT"}
 
@@ -772,7 +816,12 @@ def calculate_attendance_streak(
 # 연속 출석 달성 보너스 지급
 def grant_attendance_bonus(cursor, member_id: int, today: date) -> int:
 
-    # 30일 달성과 31일 이상 연속 출석을 구분한다.
+    # 보너스 기준일·지급량은 xp_award_policies의 STREAK_<일수> 행으로 정한다.
+    bonuses = read_streak_bonuses(cursor)
+    if not bonuses:
+        return 0
+
+    # 가장 긴 기준일 하루 전까지 조회해 기준일 달성과 그 이후 연속 출석을 구분한다.
     cursor.execute(
         """
         SELECT activity_date
@@ -782,17 +831,17 @@ def grant_attendance_bonus(cursor, member_id: int, today: date) -> int:
           AND xp_change > 0
           AND activity_date BETWEEN %s AND %s
         """,
-        (member_id, today - timedelta(days=30), today)
+        (member_id, today - timedelta(days=max(bonuses)), today)
     )
 
     dates = {row[0] for row in cursor.fetchall()}
 
     # 연속 출석 일수 및 보너스 계산
     streak = calculate_attendance_streak(dates, today)
-    if streak not in (7, 30):
+    if streak not in bonuses:
         return 0
 
-    bonus = read_xp_amount(cursor, f"STREAK_{streak}")
+    bonus = bonuses[streak]
 
     # 보너스 이력 저장 및 중복 지급 방지
     event_key = f"STREAK:{streak}:{today}"
@@ -862,7 +911,7 @@ def grant_career_guide_xp(cursor, member_id: int, post_id: int) -> dict:
 
     total_xp = cursor.fetchone()["total_xp"]
 
-    xp = read_xp_amount(cursor, "CAREER_GUIDE")
+    xp = read_xp_amount(cursor, CAREER_GUIDE_POLICY)
 
     # 4. 중복 지급 방지
     event_key = f"POST:{post_id}"

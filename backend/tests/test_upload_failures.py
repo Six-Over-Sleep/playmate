@@ -1,6 +1,7 @@
 """업로드 검증과 부분 파일·DB 실패 정리를 임시 디렉터리에서 확인한다."""
 
 import asyncio
+import re
 from io import BytesIO
 from pathlib import Path
 
@@ -13,6 +14,20 @@ from app.core import uploads
 from app.services import board_service
 
 PNG = b"\x89PNG\r\n\x1a\nexample"
+
+
+def test_post_image_limits_match_frontend_and_schema():
+    root = Path(__file__).resolve().parents[2]
+    frontend = (root / "frontend/src/hooks/board/useBoardForms.js").read_text(encoding="utf-8")
+    limits = frontend.split("export const postImageLimits = {", 1)[1].split("}", 1)[0]
+    assert int(re.search(r"count:\s*(\d+)", limits)[1]) == uploads.MAX_POST_IMAGES
+    assert int(re.search(r"sizeMb:\s*(\d+)", limits)[1]) * 1024**2 == uploads.MAX_IMAGE_SIZE
+    assert set(re.findall(r"'(image/[^']+)'", limits)) == set(uploads.ALLOWED)
+
+    sql = (root / "database/sql/001_board_mvp.sql").read_text(encoding="utf-8")
+    schema = sql.split("CREATE TABLE IF NOT EXISTS post_images", 1)[1]
+    assert int(re.search(r"file_size BETWEEN 1 AND (\d+)", schema)[1]) == uploads.MAX_IMAGE_SIZE
+    assert int(re.search(r"display_order BETWEEN 0 AND (\d+)", schema)[1]) + 1 == uploads.MAX_POST_IMAGES
 
 
 @pytest.fixture
@@ -34,7 +49,7 @@ def test_save_images_unique_names_and_metadata(upload_root):
     saved = asyncio.run(uploads.save_images([image(), image()]))
     assert saved[0]["stored_name"] != saved[1]["stored_name"]
     assert [row["original_name"] for row in saved] == ["test.png", "test.png"]
-    assert all(row["path"].read_bytes() == PNG for row in saved)
+    assert all((upload_root / "uploads" / row["stored_name"]).read_bytes() == PNG for row in saved)
     assert all(row["stored_name"].startswith("posts/") for row in saved)
     uploads.remove_saved_images(saved)
     assert not list(uploads.UPLOAD_DIR.glob("*"))
@@ -78,7 +93,8 @@ def test_partial_write_failure_cleans_file(upload_root, monkeypatch):
 def test_cleanup_does_not_follow_outside_path(upload_root):
     outside = upload_root / "keep.png"
     outside.write_bytes(PNG)
-    uploads.remove_saved_images([{"path": outside}, {}])
+    with pytest.raises(ValueError):
+        uploads.post_image_storage.delete("../keep.png")
     assert outside.exists()
 
 

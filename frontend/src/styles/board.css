@@ -334,14 +334,18 @@ textarea:focus-visible {
 }
 .post-images {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 12px;
   padding: 20px 0;
 }
+.post-images > a:only-child {
+  grid-column: 1 / -1;
+}
 .post-images img {
+  display: block;
   width: 100%;
-  max-height: 360px;
-  object-fit: cover;
+  height: auto;
   border-radius: 16px;
 }
 /* 댓글 목록과 입력 폼 */
@@ -717,6 +721,9 @@ select:focus-visible {
    Mobile
 ========================= */
 @media (max-width: 768px) {
+  .post-images {
+    grid-template-columns: minmax(0, 1fr);
+  }
   /* 전체 좌우 여백: 10px */
   .board-shell,
   .detail-shell,

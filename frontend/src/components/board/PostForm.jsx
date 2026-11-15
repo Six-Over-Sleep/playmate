@@ -1,5 +1,6 @@
 // PLAYMATE_BOARD_ANONYMOUS_V1
-import { usePostForm } from '../../hooks/board/useBoardForms'
+import { mediaUrl } from '../../services/boardApi'
+import { postImageLimits, usePostForm } from '../../hooks/board/useBoardForms'
 
 /** 입력 화면만 구성한다. 업로드 검증·미리보기 수명·제출 잠금은 hook이 담당한다. */
 export default function PostForm({ initial, busy, onCancel, onSubmit, allowAnonymous = true }) {
@@ -28,20 +29,31 @@ export default function PostForm({ initial, busy, onCancel, onSubmit, allowAnony
           placeholder="실명이나 개인 연락처를 포함하지 않고 작성해 주세요."
         />
       </label>
-      {!initial && (
-        <label>
+      <label>
           사진 (선택)
           <span className="upload-box">
-            ▧<strong>사진 추가 · 최대 3장, 각 5MB</strong>
+            ▧<strong>사진 추가 · 최대 {postImageLimits.count}장, 각 {postImageLimits.sizeMb}MB</strong>
             <input
               type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
+              accept={postImageLimits.mimeTypes.join(',')}
               multiple
               disabled={busy}
               onChange={form.chooseImages}
             />
           </span>
-        </label>
+      </label>
+      {!!form.existingImages.length && (
+        <div className="image-previews">
+          {form.existingImages.map((item) => (
+            <figure key={item.id}>
+              <img src={mediaUrl(item.url)} alt={item.original_name} />
+              <button type="button" aria-label={item.original_name + ' 제거'}
+                disabled={busy} onClick={() => form.removeExistingImage(item.id)}>
+                ×
+              </button>
+            </figure>
+          ))}
+        </div>
       )}
       {!!form.previews.length && (
         <div className="image-previews">
@@ -82,7 +94,7 @@ export default function PostForm({ initial, busy, onCancel, onSubmit, allowAnony
           취소
         </button>
         <button className="button purple" disabled={busy || !form.title.trim() || !form.body.trim()}>
-          {busy ? '등록 중…' : '글 등록'}
+          {initial ? (busy ? '저장 중…' : '변경 저장') : (busy ? '등록 중…' : '글 등록')}
         </button>
       </div>
     </form>

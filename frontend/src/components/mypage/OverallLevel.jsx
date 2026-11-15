@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   checkMyAttendance,
   getMyAttendance,
@@ -14,6 +14,7 @@ export default function OverallLevel() {
   const [attendanceError, setAttendanceError] = useState('')
   const [attendanceMessage, setAttendanceMessage] = useState('')
   const [checking, setChecking] = useState(false)
+  const attendancePending = useRef(false)
 
   useEffect(() => {
     getMyLevel()
@@ -28,7 +29,8 @@ export default function OverallLevel() {
   }, [])
 
   const handleAttendance = async () => {
-    if (checking) return
+    if (attendancePending.current) return
+    attendancePending.current = true
     setChecking(true)
     setAttendanceError('')
     setAttendanceMessage('')
@@ -48,6 +50,7 @@ export default function OverallLevel() {
     } catch (err) {
       setAttendanceError(err.message)
     } finally {
+      attendancePending.current = false
       setChecking(false)
     }
   }

@@ -21,11 +21,10 @@ from backend.app.services.xp_service import (
 from backend.app.schemas.mypage import MyXPHistoryResponse
 from backend.app.services.xp_service import grant_xp
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from backend.app.schemas.mypage import MyAttendanceResponse
-from backend.app.services.xp_service import calculate_attendance_streak
 from backend.app.schemas.mypage import MySkillResponse
 from backend.app.schemas.mypage import MySkillTopicResponse
 from backend.app.schemas.mypage import MySkillAccuracyResponse
@@ -305,30 +304,33 @@ def get_my_attendance(
     with db_cursor(read_only=True) as cursor:
         cursor.execute(
             """
-            SELECT activity_date
-            FROM member_xp_history
-            WHERE member_id = %s
-                AND activity_type = 'ATTEND'
-                AND xp_change > 0
-                AND activity_date BETWEEN %s AND %s
+            WITH RECURSIVE streak(day) AS (
+                SELECT max(activity_date)
+                FROM member_xp_history
+                WHERE member_id = %(member_id)s
+                  AND activity_type = 'ATTEND'
+                  AND xp_change > 0
+                  AND activity_date BETWEEN %(today)s - 1 AND %(today)s
+                UNION ALL
+                SELECT streak.day - 1 FROM streak
+                WHERE EXISTS (
+                    SELECT 1 FROM member_xp_history
+                    WHERE member_id = %(member_id)s
+                      AND activity_type = 'ATTEND'
+                      AND xp_change > 0
+                      AND activity_date = streak.day - 1
+                )
+            )
+            SELECT count(day) AS streak_days,
+                   COALESCE(bool_or(day = %(today)s), false) AS attended_today
+            FROM streak
             """,
-            (member_id, today - timedelta(days=30), today)
+            {"member_id": member_id, "today": today},
         )
+        summary = cursor.fetchone()
 
-        dates = {row["activity_date"] for row in cursor.fetchall()}
-
-    # 오늘 출석 여부
-    attended_today = today in dates
-
-    # 오늘 출석 전이면 어제까지의 연속 출석 계산
-    reference_date = (
-        today if attended_today
-        else today - timedelta(days=1)
-    )
-
-    streak_days = calculate_attendance_streak(
-        dates, reference_date
-    )
+    attended_today = summary["attended_today"]
+    streak_days = summary["streak_days"]
 
     return {
         "attended_today": attended_today,

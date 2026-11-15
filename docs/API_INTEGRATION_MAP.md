@@ -116,14 +116,14 @@
 1. `023_xp_award_policies.sql` — 공유 DB에 테이블은 이미 있음. 재실행하면 이번에 추가한 `CAREER_SPEC_PUBLIC` 행만 들어간다.
 2. `024_member_board_visits.sql`
 3. `025_level_policies.sql` — 정책 테이블 생성 + `member_levels` 레벨 상한 제약 완화
-4. (선택) 공유 DB에 빠진 기존 마이그레이션 확인: `003_remove_board_category`, `012_member_dm_default_on`, `022`의 `idx_notifications_comment`
+4. `027_xp_rule_policies.sql` — 023 적용 후 스킬 지급 정책 3개와 XP 지급 한도 3개를 추가한다.
+5. (선택) 공유 DB에 빠진 기존 마이그레이션 확인: `003_remove_board_category`, `012_member_dm_default_on`, `022`의 `idx_notifications_comment`
 
 ## 6. 남은 항목
 
 - 미연결: 모임 커리큘럼, 신청서 커리어 불러오기, 채용 인사이트, 스킬 세부·정확도, 공개 스펙 조회 화면.
 - 시간대 위험(표시 안 됨): `recruit_members.joined_at/canceled_at`, `posts.deleted_at`(모임)을 서버 로컬 `datetime.now()`로 기록.
 - 모임 게시글 `posts.created_at`이 ORM에서 NULL로 저장됨(기존 코드).
-- 커리어 가이드 "+50XP" 안내 문구는 정적 텍스트라 `CAREER_GUIDE` 정책을 바꾸면 어긋난다.
 - 사용하지 않는 중복 파일 `frontend/src/components/admin/AdminUsagePanel (1).jsx`.
 - ORM `Member` 모델의 `public_anonymous_id`는 공유 DB `members`에 없는 컬럼이다. 현재 코드는 필요한 컬럼만 조회해 오류가 나지 않지만, `Member` 전체를 읽는 코드를 추가하면 운영에서 실패한다.
 - 기존 `004_career_posts.sql`, `012_recruit_programs.sql`은 다시 실행하면 오류가 난다(IF NOT EXISTS 없음).

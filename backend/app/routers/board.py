@@ -21,7 +21,7 @@ from app.core.auth import get_current_member_id
 # DB 커밋 결과가 불확실한 경우의 예외와 연결 풀 종료 함수
 from app.core.db_connect import CommitOutcomeUnknownError, close_pool
 # 업로드 이미지 저장 및 저장한 파일 삭제 함수
-from app.core.uploads import remove_saved_images, save_images
+from app.core.uploads import remove_saved_images, save_images, validate_images
 # API 요청과 응답 데이터 형식을 정의하는 Pydantic 스키마
 from app.schemas.board import (
     BoardCreate,
@@ -168,6 +168,32 @@ def update_post(
     # 수정 권한과 실제 DB 변경 처리는 Service에서 담당함.
     return board_service.update_post(
         board_id, post_id, payload.title, payload.body, member_id, payload.is_anonymous
+    )
+
+
+@router.patch("/boards/{board_id}/posts/{post_id}/images", response_model=PostResponse)
+async def update_post_with_images(
+    board_id: int,
+    post_id: int,
+    title: str = Form(min_length=1, max_length=100),
+    body: str = Form(min_length=1, max_length=20000),
+    is_anonymous: bool | None = Form(default=None),
+    original_image_ids: list[int] = Form(default=[]),
+    keep_image_ids: list[int] = Form(default=[]),
+    images: list[UploadFile] = File(default=[]),
+    member_id: int = Depends(get_current_member_id),
+):
+    title, body = title.strip(), body.strip()
+    if not title or not body:
+        raise HTTPException(422, "제목과 내용은 공백일 수 없습니다.")
+
+    validated = await validate_images(images)
+    return await run_in_threadpool(
+        board_service.update_post,
+        board_id, post_id, title, body, member_id, is_anonymous,
+        original_image_ids=original_image_ids,
+        keep_image_ids=keep_image_ids,
+        new_images=validated,
     )
 
 

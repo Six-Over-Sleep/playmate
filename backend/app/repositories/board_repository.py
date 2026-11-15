@@ -10,6 +10,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from psycopg2.errors import UndefinedTable
+from psycopg2.extras import execute_values
+
+from app.core import uploads
 
 
 def _session_timezone(cursor):
@@ -55,7 +58,7 @@ def images_by_post(cursor, post_ids: list[int]) -> dict[int, list[dict[str, Any]
         SELECT
             post_id,
             image_id AS id,
-            '/uploads/' || stored_name AS url,
+            stored_name,
             original_name
         FROM post_images
         WHERE post_id = ANY(%s)
@@ -67,6 +70,7 @@ def images_by_post(cursor, post_ids: list[int]) -> dict[int, list[dict[str, Any]
     # pop("post_id") : 내부 매핑에만 쓰는 ID를 이미지 응답에서 제거함
     for image in cursor.fetchall():
         post_id = image.pop("post_id")
+        image["url"] = uploads.post_image_storage.public_url(image.pop("stored_name"))
         images[post_id].append(image)
     return images
 
@@ -280,27 +284,57 @@ def create_post(
     )
     # INSERT 결과로 생성된 게시글 번호를 가져옴
     post_id = cursor.fetchone()["post_id"]
-    # 이미지는 파일 자체가 아닌 저장 이름·파일 크기 등의 정보를 DB에 기록함
-    # enumerate() : 첨부 순서(display_order)를 0부터 지정함
-    for order, image in enumerate(images or []):
-        cursor.execute(
-            """
-            INSERT INTO post_images (
-                post_id, stored_name, original_name,
-                content_type, file_size, display_order
-            )
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """,
-            (
-                post_id,
-                image["stored_name"],
-                image["original_name"],
-                image["content_type"],
-                image["file_size"],
-                order,
-            ),
-        )
+    insert_post_images(cursor, post_id, images or [])
     return post_id
+
+
+def insert_post_images(cursor, post_id, images, start_order=0):
+    if not images:
+        return
+    execute_values(
+        cursor,
+        """
+        INSERT INTO post_images
+            (post_id, stored_name, original_name, content_type, file_size, display_order)
+        VALUES %s
+        """,
+        [
+            (post_id, image["stored_name"], image["original_name"],
+             image["content_type"], image["file_size"], order)
+            for order, image in enumerate(images, start_order)
+        ],
+    )
+
+
+def post_image_ids(cursor, post_id):
+    cursor.execute("SELECT image_id FROM post_images WHERE post_id = %s", (post_id,))
+    return {row["image_id"] for row in cursor.fetchall()}
+
+
+def remove_post_images(cursor, post_id, keep_ids):
+    cursor.execute(
+        """
+        DELETE FROM post_images
+        WHERE post_id = %s AND NOT (image_id = ANY(%s))
+        RETURNING stored_name
+        """,
+        (post_id, keep_ids),
+    )
+    removed = cursor.fetchall()
+    cursor.execute(
+        """
+        WITH ordered AS (
+            SELECT image_id, row_number() OVER (ORDER BY display_order, image_id) - 1 AS position
+            FROM post_images WHERE post_id = %s
+        )
+        UPDATE post_images AS image
+        SET display_order = ordered.position
+        FROM ordered
+        WHERE image.image_id = ordered.image_id AND image.display_order <> ordered.position
+        """,
+        (post_id,),
+    )
+    return removed
 
 
 # 단일 게시글의 내용, 작성자, 댓글 수, 첨부 이미지를 조회함

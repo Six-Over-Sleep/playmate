@@ -89,6 +89,8 @@ def isolate_legacy_board_crud_from_new_features(monkeypatch):
     test_course_board_permissions.py and other dedicated tests. Never stub
     permissions in production code. XP/DM delivery likewise has its own tests.
     """
+    monkeypatch.setattr(service, "_require_board_reader", lambda *_args: None)
+    monkeypatch.setattr(service, "_require_comment_board_reader", lambda *_args: None)
     monkeypatch.setattr(service, "_require_course_board_writer", lambda *_: None)
     monkeypatch.setattr(service, "_require_comment_board_writer", lambda *_: None)
     monkeypatch.setattr(service, "_require_notice_admin", lambda *_: None)

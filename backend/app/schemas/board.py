@@ -3,6 +3,7 @@
 # PLAYMATE_BOARD_ANONYMOUS_V1
 # 게시판, 게시글, 댓글의 API 요청 및 응답 데이터 형식을 정의하는 Pydantic Schema
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -35,6 +36,14 @@ class BoardResponse(BaseModel):
     description: str | None = None
     course_code: str | None = None
     cohort: int | None = None
+    scope_type: Literal[
+        "LEGACY", "NATIONAL", "INSTITUTION", "PROGRAM", "COHORT"
+    ] = "LEGACY"
+    institution_id: int | None = None
+    program_id: int | None = None
+    cohort_id: int | None = None
+    read_policy: Literal["SCOPE_ONLY", "ALL_VERIFIED"] = "SCOPE_ONLY"
+    write_policy: Literal["SCOPE_ONLY", "STAFF_ONLY"] = "SCOPE_ONLY"
     can_write: bool = True
     created_at: datetime
 

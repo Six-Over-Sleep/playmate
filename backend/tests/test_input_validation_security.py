@@ -23,7 +23,7 @@ from backend.app.schemas.mypage import MyProfileUpdate
 from backend.app.schemas.recruit import RecruitUpdate, validate_external_url
 
 PNG = b"\x89PNG\r\n\x1a\nexample"
-SIGNUP = {"cohort": 1, "track": "data-ml"}
+SIGNUP = {"cohort_id": 1,}
 
 REJECTED_NICKNAMES = [
     "a",  # 2자 미만

@@ -1,4 +1,3 @@
-# PLAYMATE_COMMENT_AVATAR_V1
 """Discord OAuth2 로그인, 회원 상태, 로그아웃, 추가 회원가입 API."""
 
 import logging
@@ -11,25 +10,24 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse
 
-from app.core.config import (
-    DISCORD_CLIENT_ID,
-    DISCORD_REDIRECT_URI,
-    FRONTEND_URL,
-)
+from app.core.config import DISCORD_CLIENT_ID, DISCORD_REDIRECT_URI, FRONTEND_URL
 from app.schemas.member import MemberSignup
 from app.services.auth_service import exchange_code_for_token, get_discord_user
-from app.services.member_service import get_member, register_member, sync_member_avatar, withdraw_member
+from app.services.member_service import (
+    get_education_options,
+    get_member,
+    register_member,
+    sync_member_avatar,
+    withdraw_member,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
-# db_cursor()는 psycopg2 기반이고 연결 대기 실패는 RuntimeError로 발생한다.
 DB_ERRORS = (psycopg2.Error, RuntimeError)
 
 
 @router.get("/discord/login")
 async def discord_login(request: Request):
-    """Discord OAuth2 인증 페이지로 이동한다."""
     request.session.clear()
     state = secrets.token_urlsafe(32)
     request.session["oauth_state"] = state
@@ -53,14 +51,12 @@ async def discord_callback(
     state: str | None = None,
     error: str | None = None,
 ):
-    """Discord 인증 정보를 확인하고 회원 세션을 발급한다."""
     if error:
         raise HTTPException(status_code=400, detail="Discord 인증이 취소되거나 실패했습니다.")
 
     saved_state = request.session.pop("oauth_state", None)
     if not saved_state or not state or not secrets.compare_digest(saved_state, state):
         raise HTTPException(status_code=400, detail="유효하지 않은 OAuth 인증 요청입니다.")
-
     if not code:
         raise HTTPException(status_code=400, detail="Discord 인증 코드가 없습니다.")
 
@@ -87,13 +83,11 @@ async def discord_callback(
     if member:
         request.session["member_id"] = member["member_id"]
         return RedirectResponse(url=f"{FRONTEND_URL}/?auth=success", status_code=302)
-
     return RedirectResponse(url=f"{FRONTEND_URL}/?signup=required", status_code=302)
 
 
 @router.get("/me")
 async def get_current_user(request: Request):
-    """로그인 상태를 확인하고 Discord 사용자 및 PLAYMATE 회원 정보를 반환한다."""
     discord_user = request.session.get("user")
     if not discord_user:
         raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
@@ -105,7 +99,6 @@ async def get_current_user(request: Request):
         raise HTTPException(status_code=503, detail="회원 정보를 조회하지 못했습니다.") from exc
 
     if member is None:
-        # 가입 전 사용자와 탈퇴한 회원이 가진 예전 세션을 구분한다.
         if request.session.get("member_id") is not None:
             request.session.clear()
             raise HTTPException(status_code=401, detail="로그인 세션이 만료되었습니다.")
@@ -127,9 +120,6 @@ async def get_current_user(request: Request):
             f"{discord_user['discord_id']}/{avatar_hash}.{ext}"
         )
 
-    # 다른 회원의 댓글에도 프로필 사진을 표시할 수 있도록 저장합니다.
-    # 로그인 조회에 이미지 동기화가 필수는 아니므로 실패해도 로그인은 유지합니다.
-    # 테스트용 회원 대역에는 profile_image_url 필드가 없어 기존 인증 테스트에 영향이 없습니다.
     if "profile_image_url" in member and member["profile_image_url"] != avatar_url:
         try:
             await run_in_threadpool(sync_member_avatar, member["member_id"], avatar_url)
@@ -145,21 +135,33 @@ async def get_current_user(request: Request):
     }
 
 
+@router.get("/education-options")
+async def education_options(request: Request):
+    """Discord OAuth 인증 이후 등록된 교육기관/과정/기수만 조회합니다."""
+    user = request.session.get("user")
+    if not isinstance(user, dict) or not user.get("discord_id"):
+        raise HTTPException(status_code=401, detail="Discord 로그인이 필요합니다.")
+    try:
+        cohorts = await run_in_threadpool(get_education_options)
+    except DB_ERRORS as exc:
+        logger.exception("교육과정 목록 조회 실패")
+        raise HTTPException(status_code=503, detail="교육과정 목록을 조회하지 못했습니다.") from exc
+    return {"cohorts": cohorts}
+
+
 @router.post("/logout")
 async def logout(request: Request):
-    """로그인 세션을 종료한다."""
     request.session.clear()
     return {"message": "로그아웃 완료"}
 
 
 @router.post("/signup", status_code=201)
 def signup(request: Request, signup_data: MemberSignup):
-    """Discord 인증을 받은 사용자에게 PLAYMATE 회원 정보를 등록한다."""
     discord_user = request.session.get("user")
-    if not discord_user:
+    if not isinstance(discord_user, dict) or not discord_user.get("discord_id"):
         raise HTTPException(status_code=401, detail="Discord 로그인이 필요합니다.")
 
-    discord_id = discord_user["discord_id"]
+    discord_id = str(discord_user["discord_id"])
     try:
         existing_member = get_member(discord_id)
     except DB_ERRORS as exc:
@@ -173,7 +175,7 @@ def signup(request: Request, signup_data: MemberSignup):
     try:
         member = register_member(discord_id, signup_data)
     except psycopg2.IntegrityError as exc:
-        logger.warning("중복 또는 제약조건 위반으로 회원가입 실패")
+        logger.warning("중복 또는 DB 제약조건 위반으로 회원가입 실패")
         raise HTTPException(
             status_code=409,
             detail="중복 또는 DB 제약조건 위반으로 회원가입에 실패했습니다.",
@@ -183,20 +185,18 @@ def signup(request: Request, signup_data: MemberSignup):
         raise HTTPException(status_code=503, detail="회원정보 저장에 실패했습니다.") from exc
 
     request.session["member_id"] = member["member_id"]
-    return {
-        "message": "회원가입 완료!",
-        "signup_required": False,
-        "member": member,
-    }
+    return {"message": "회원가입 완료!", "signup_required": False, "member": member}
 
 
 @router.delete("/withdraw")
 async def withdraw_account(request: Request):
-    """현재 Discord 로그인 회원만 본인 계정을 비식별화합니다."""
     member_id = request.session.get("member_id")
     discord_user = request.session.get("user")
-    if (type(member_id) is not int or not isinstance(discord_user, dict)
-            or not discord_user.get("discord_id")):
+    if (
+        type(member_id) is not int
+        or not isinstance(discord_user, dict)
+        or not discord_user.get("discord_id")
+    ):
         raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
 
     try:
@@ -209,6 +209,5 @@ async def withdraw_account(request: Request):
 
     if not success:
         raise HTTPException(status_code=404, detail="탈퇴 가능한 회원을 찾을 수 없습니다.")
-
     request.session.clear()
     return {"message": "회원 탈퇴가 완료되었습니다."}

@@ -1,0 +1,101 @@
+
+name: PlayMate Frontend - AWS Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - develop
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: playmate-frontend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-frontend:
+    name: Build and Deploy Frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      # 1. GitHub 소스 체크아웃
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Node.js 환경 설정
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # 3. 의존성 설치
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # 4. React 프로덕션 빌드
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      # 5. 빌드 결과 확인
+      - name: Verify build output
+        run: test -f frontend/dist/index.html
+
+      # 6. GitHub OIDC를 통한 AWS 인증
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::576436419281:role/playmate-github-frontend-role
+          aws-region: ap-northeast-2
+          role-session-name: PlayMateFrontendDeploy
+
+      # 7. 해시 기반 정적 파일 먼저 업로드
+      - name: Upload versioned assets to S3
+        run: |
+          aws s3 sync frontend/dist/assets/ \
+            s3://playmate-frontend-beta-20261116/assets/ \
+            --cache-control "public,max-age=31536000,immutable" \
+            --only-show-errors
+
+      # 8. 나머지 정적 파일 업로드
+      - name: Upload public files to S3
+        run: |
+          aws s3 sync frontend/dist/ \
+            s3://playmate-frontend-beta-20261116/ \
+            --exclude "assets/*" \
+            --exclude "index.html" \
+            --cache-control "public,max-age=300" \
+            --only-show-errors
+
+      # 9. HTML을 마지막에 업로드
+      - name: Upload index.html
+        run: |
+          aws s3 cp frontend/dist/index.html \
+            s3://playmate-frontend-beta-20261116/index.html \
+            --cache-control "no-cache,no-store,must-revalidate" \
+            --content-type "text/html; charset=utf-8" \
+            --only-show-errors
+
+      # 10. CloudFront 캐시 무효화
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id E20LTN93E2NBDU \
+            --paths "/*"
+
+      # 11. 완료 로그
+      - name: Deployment summary
+        run: |
+          echo "PlayMate frontend deployment completed"
+          echo "Commit: $GITHUB_SHA"
+          echo "URL: https://d6oimxkex2dki.cloudfront.net"

@@ -1,7 +1,6 @@
 
 name: PlayMate Backend - AWS SSM Deploy
 
-
 on:
   workflow_dispatch:
   push:
@@ -13,7 +12,6 @@ on:
       - "uv.lock"
       - ".github/workflows/deploy-backend.yml"
 
-
 permissions:
   id-token: write
   contents: read
@@ -24,12 +22,31 @@ concurrency:
 
 jobs:
   deploy-backend:
-    name: Verify and Sync PlayMate Backend
+    name: Validate and Sync PlayMate Backend
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
-      # 1. GitHub OIDC로 AWS 인증
+      # 1. GitHub 소스 체크아웃
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Python 3.13 환경 구성
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # 3. 백엔드 Python 문법 검사
+      - name: Validate Backend Python Syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m compileall -q backend/app
+          echo "BACKEND_SYNTAX_OK"
+
+      # 4. GitHub OIDC로 AWS 인증
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
@@ -37,11 +54,11 @@ jobs:
           aws-region: ap-northeast-2
           role-session-name: PlayMateGitHubDeploy
 
-      # 2. AWS 인증 확인
+      # 5. AWS 인증 확인
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
-      # 3. SSM을 통해 EC2 상태 확인 및 코드 동기화
+      # 6. SSM을 통해 EC2 상태 확인 및 코드 동기화
       - name: Sync Backend Code via SSM
         shell: bash
         run: |
@@ -59,7 +76,7 @@ jobs:
 
           echo "SSM Command ID: $COMMAND_ID"
 
-          # 4. 명령 완료 확인
+          # 7. SSM 명령 완료 확인
           if ! aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
             --instance-id "$INSTANCE_ID"; then
@@ -75,7 +92,7 @@ jobs:
             exit 1
           fi
 
-          # 5. 배포 결과 출력
+          # 8. 배포 결과 출력
           aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
             --instance-id "$INSTANCE_ID" \

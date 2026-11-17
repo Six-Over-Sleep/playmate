@@ -1,0 +1,21 @@
+# Collector Lambda 런타임 의존성 (Issue #133). Processor는 외부 의존성이 없다.
+# 버전·해시는 저장소 루트 uv.lock과 같다(tests/test_build_package.py가 일치 여부를 검사).
+# Lambda(Amazon Linux, Python 3.13, x86_64)용 wheel만 받도록 --platform·--only-binary와 함께 쓴다.
+# --require-hashes: lock과 다른 파일이면 설치를 거부한다. --no-deps: 아래 7개 외에는 설치하지 않는다.
+# 사용 방법은 crawler/news_lambda/DEPLOYMENT.md "Collector 의존성 준비"를 본다.
+feedparser==6.0.14 \
+    --hash=sha256:e35e3f760151b0c3b22cac9684155cae186a233e16c49bcbc6c49e91e3131137
+feedparser-sgmllib==2.1.0 \
+    --hash=sha256:2cab2d43b95a954f920f18aebce7a4dbbb3f539780b127e2aa114f579821e01d
+requests==2.34.2 \
+    --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0
+urllib3==2.8.0 \
+    --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3
+idna==3.20 \
+    --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
+certifi==2026.7.22 \
+    --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775
+# manylinux2014 x86_64(cp313) 바이너리 wheel과 순수 Python wheel 해시
+charset-normalizer==3.5.2 \
+    --hash=sha256:7218e8f32b0956cfcd048fd42d9d5779809745ca1d86113ca56f66e7ae1549c4 \
+    --hash=sha256:b6b751274acb69d77b3323d6b7dbaa3c7fdfc1eb829b7eb61d262f32e1af9685

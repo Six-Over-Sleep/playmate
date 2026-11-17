@@ -1,0 +1,32 @@
+# Collector Lambda에 함께 넣는 AWS SDK(boto3)와 그 의존성 (Issue #133). Processor에는 넣지 않는다.
+#
+# 왜 넣는가: Collector ZIP에는 requests 의존성인 urllib3가 들어간다. Lambda는 /var/task(ZIP)를 런타임
+# 라이브러리보다 먼저 찾으므로, 런타임 boto3/botocore가 ZIP의 urllib3를 쓰게 된다. AWS 문서
+# (https://docs.aws.amazon.com/lambda/latest/dg/python-package.html)는 이 경우 버전 불일치를 경고하고
+# "SDK 의존성을 넣으면 boto3도 함께 넣으라"고 권장한다.
+#
+# 버전 결정: 아래 명령으로 기존 requirements-collector.txt 7개 버전을 고정한 채 boto3를 해결했다(2026-11-17).
+#   uv pip compile --no-config --python-platform x86_64-manylinux_2_28 --python-version 3.13 \
+#     --only-binary :all: --generate-hashes <7개 고정 + boto3>
+#   → 13개 해결: 기존 7개는 그대로, 아래 6개 추가. urllib3 2.8.0은 botocore 1.44.4의 요구 범위를 만족.
+# 이 6개는 프로젝트 uv.lock에 없다(프로젝트 의존성이 아니므로 uv.lock은 바꾸지 않는다).
+# 해시는 패키지마다 PyPI 배포 파일 2개(wheel·sdist)의 값이다. --only-binary로 설치하므로 sdist는 쓰이지 않는다.
+# 설치는 requirements-collector.txt와 함께 --require-hashes --no-deps로 한다(DEPLOYMENT.md 7장).
+boto3==1.44.4 \
+    --hash=sha256:3d9ce4195296d59b545181acaf5b35882c2a148f6bbf656d16e6f57a51eae994 \
+    --hash=sha256:8f1b66649346a5b29a909827d1bb460c02bd795c4d39751e36e03d5a18a3eec8
+botocore==1.44.4 \
+    --hash=sha256:5a9303fc65e9a133bbc515fbb8d5c486787fb12108c37b2143c1c111c4a46525 \
+    --hash=sha256:9f01ec9c9bdd76dfb263bb4efe798229383dce32c942d26b9d9aeb062a979002
+s3transfer==0.19.3 \
+    --hash=sha256:24eb7535804306355e31c952a90022bf5b2f9d760f9a11062c7493a217c08553 \
+    --hash=sha256:8326acc3d056d7f7b8a37110c7d2aea41f67e83f6ae79cd3b5fbcca34c726406
+jmespath==1.1.0 \
+    --hash=sha256:472c87d80f36026ae83c6ddd0f1d05d4e510134ed462851fd5f754c8c3cbb88d \
+    --hash=sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64
+python-dateutil==2.9.0.post0 \
+    --hash=sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3 \
+    --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427
+six==1.17.0 \
+    --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274 \
+    --hash=sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81

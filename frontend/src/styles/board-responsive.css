@@ -482,3 +482,33 @@
   outline: 2px solid #315ca6;
   outline-offset: 2px;
 }
+
+
+/* PLAYMATE_SIDEBAR_PRESS_ONLY_V2
+   ?? ?? ??, ??? ???? ??? ??
+*/
+
+/* PC / ??? / ??? ?? ?? ?? */
+.board-shell .board-sidebar.board-directory .board-directory-item,
+.board-shell .board-sidebar.board-directory .board-directory-item.board-my-course,
+.board-shell.pm-board-dashboard .board-directory-pinned .board-directory-item,
+.board-shell.pm-board-dashboard .board-directory-own-course .board-directory-item {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* ??? ? ??? ??? ??? ?? */
+.board-shell .board-sidebar.board-directory .board-directory-item:active:not(:disabled),
+.board-shell .board-sidebar.board-directory .board-directory-item.board-my-course:active:not(:disabled),
+.board-shell.pm-board-dashboard .board-directory-pinned .board-directory-item:active:not(:disabled),
+.board-shell.pm-board-dashboard .board-directory-own-course .board-directory-item:active:not(:disabled) {
+  background: #e7effc;
+  border-color: #cadbf4;
+  color: #315ca6;
+}
+
+/* ??? ?? ??? ?? */
+.board-shell .board-sidebar.board-directory .board-directory-item:focus-visible {
+  outline: 2px solid #315ca6;
+  outline-offset: 2px;
+}

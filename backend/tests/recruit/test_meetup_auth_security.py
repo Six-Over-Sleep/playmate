@@ -32,6 +32,8 @@ def api(service, monkeypatch):
     columns = {row[1] for row in session.execute(text("PRAGMA table_info(members)"))}
     if "discord_id" not in columns:  # 테스트 ORM 스키마에 없는 운영 컬럼을 테스트 DB에만 추가
         session.execute(text("ALTER TABLE members ADD COLUMN discord_id TEXT"))
+    if "session_version" not in columns:
+        session.execute(text("ALTER TABLE members ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0"))
     session.execute(text("UPDATE members SET discord_id = 'd' || member_id"))
     session.execute(text("UPDATE members SET member_status = 'WITHDRAWN' WHERE member_id = 5"))
     session.commit()
@@ -43,7 +45,10 @@ def api(service, monkeypatch):
 
         class Adapter:
             def execute(self, sql, params=None):
-                cursor.execute(sql.replace("%s", "?"), params or ())
+                cursor.execute(
+                    sql.replace("%s", "?").replace("public.members", "members"),
+                    params or (),
+                )
 
             def fetchone(self):
                 return cursor.fetchone()
@@ -91,8 +96,8 @@ def cookie(data):
 
 STATES = {
     "anonymous": {},
-    "withdrawn": cookie({"member_id": 5, "user": {"discord_id": "d5"}}),
-    "discord_mismatch": cookie({"member_id": 1, "user": {"discord_id": "d2"}}),
+    "withdrawn": cookie({"member_id": 5, "session_version": 0, "user": {"discord_id": "d5"}}),
+    "discord_mismatch": cookie({"member_id": 1, "session_version": 0, "user": {"discord_id": "d2"}}),
     "signup_pending": cookie({"user": {"discord_id": "d-new"}}),
 }
 
@@ -106,7 +111,7 @@ def send(method, path, headers=None, **kwargs):
 
 
 def as_member(member_id):
-    return cookie({"member_id": member_id, "user": {"discord_id": f"d{member_id}"}})
+    return cookie({"member_id": member_id, "session_version": 0, "user": {"discord_id": f"d{member_id}"}})
 
 
 def program_body(payload):

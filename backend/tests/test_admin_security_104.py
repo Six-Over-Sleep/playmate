@@ -47,7 +47,7 @@ class FakeCursor:
         if self.kind == "auth":
             valid = (
                 self.state["active"]
-                and params == (14, DISCORD_ID)
+                and params == (14, DISCORD_ID, 0)
             )
         else:
             assert "role_code" in sql
@@ -75,6 +75,7 @@ def make_cursor(state, kind):
 def login_cookie():
     payload = {
         "member_id": 14,
+        "session_version": 0,
         "user": {"discord_id": DISCORD_ID},
     }
     encoded = b64encode(json.dumps(payload).encode())

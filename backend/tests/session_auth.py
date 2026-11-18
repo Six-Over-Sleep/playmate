@@ -12,10 +12,23 @@ from base64 import b64encode
 from itsdangerous import TimestampSigner
 
 
-def session_headers(member_id: int, discord_id: str) -> dict[str, str]:
-    """요청마다 넘기는 Cookie 헤더. TestClient는 응답 쿠키를 저장하므로 호출 전 client.cookies.clear()를 함께 쓴다."""
-    data = {"member_id": member_id, "user": {"discord_id": str(discord_id)}}
-    signed = TimestampSigner(os.environ["SESSION_SECRET_KEY"]).sign(
+
+def session_headers(
+    member_id: int,
+    discord_id: str,
+    session_version: int = 0,
+) -> dict[str, str]:
+    """테스트용 서명 세션 쿠키를 생성합니다."""
+    data = {
+        "member_id": member_id,
+        "session_version": session_version,
+        "user": {"discord_id": str(discord_id)},
+    }
+
+    signed = TimestampSigner(
+        os.environ["SESSION_SECRET_KEY"]
+    ).sign(
         b64encode(json.dumps(data).encode())
     ).decode()
-    return {"Cookie": "playmate_session=" + signed}
+
+    return {"Cookie": f"playmate_session={signed}"}

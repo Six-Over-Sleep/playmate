@@ -19,6 +19,7 @@ from app.services.member_service import (
     register_member,
     sync_member_avatar,
     withdraw_member,
+    revoke_member_session,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,16 +75,30 @@ async def discord_callback(
         logger.exception("로그인 회원 DB 조회 중 오류 발생")
         raise HTTPException(status_code=503, detail="회원 DB 조회에 실패했습니다.") from exc
 
+
     request.session.clear()
     request.session["user"] = {
         "discord_id": discord_id,
         "username": discord_user["username"],
         "avatar": discord_user.get("avatar"),
     }
+
+    # 기존 회원: 로그인 성공
     if member:
         request.session["member_id"] = member["member_id"]
-        return RedirectResponse(url=f"{FRONTEND_URL}/?auth=success", status_code=302)
-    return RedirectResponse(url=f"{FRONTEND_URL}/?signup=required", status_code=302)
+        request.session["session_version"] = int(member["session_version"])
+
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/?auth=success",
+            status_code=302,
+        )
+
+    # 신규 회원: 회원가입 페이지로 이동
+    return RedirectResponse(
+        url=f"{FRONTEND_URL}/?signup=required",
+        status_code=302,
+    )
+
 
 
 @router.get("/me")
@@ -110,7 +125,20 @@ async def get_current_user(request: Request):
             "member": None,
         }
 
-    request.session["member_id"] = member["member_id"]
+
+    # 로그인 쿠키의 회원 ID와 세션 버전을 RDS 값과 비교합니다.
+    if (
+        type(request.session.get("member_id")) is not int
+        or request.session["member_id"] != member["member_id"]
+        or type(request.session.get("session_version")) is not int
+        or request.session["session_version"] != member["session_version"]
+    ):
+        request.session.clear()
+        raise HTTPException(
+            status_code=401,
+            detail="로그인 세션이 만료되었습니다.",
+        )
+
     avatar_hash = discord_user.get("avatar")
     avatar_url = None
     if avatar_hash:
@@ -149,10 +177,36 @@ async def education_options(request: Request):
     return {"cohorts": cohorts}
 
 
+
 @router.post("/logout")
 async def logout(request: Request):
+    member_id = request.session.get("member_id")
+    session_version = request.session.get("session_version")
+    user = request.session.get("user")
+
+    if (
+        type(member_id) is int
+        and type(session_version) is int
+        and isinstance(user, dict)
+        and isinstance(user.get("discord_id"), str)
+    ):
+        try:
+            await run_in_threadpool(
+                revoke_member_session,
+                member_id,
+                user["discord_id"],
+                session_version,
+            )
+        except DB_ERRORS as exc:
+            logger.exception("로그아웃 세션 무효화 실패")
+            raise HTTPException(
+                status_code=503,
+                detail="로그아웃 처리에 실패했습니다. 다시 시도해주세요.",
+            ) from exc
+
     request.session.clear()
     return {"message": "로그아웃 완료"}
+
 
 
 @router.post("/signup", status_code=201)
@@ -185,8 +239,13 @@ def signup(request: Request, signup_data: MemberSignup):
         raise HTTPException(status_code=503, detail="회원정보 저장에 실패했습니다.") from exc
 
     request.session["member_id"] = member["member_id"]
-    return {"message": "회원가입 완료!", "signup_required": False, "member": member}
+    request.session["session_version"] = int(member["session_version"])
 
+    return {
+        "message": "회원가입 완료!",
+        "signup_required": False,
+        "member": member,
+    }
 
 @router.delete("/withdraw")
 async def withdraw_account(request: Request):

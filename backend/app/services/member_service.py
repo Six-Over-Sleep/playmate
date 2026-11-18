@@ -19,11 +19,13 @@ COURSE_NAMES = {
 
 
 def get_member(discord_id: str) -> dict | None:
+
+
     with db_cursor(read_only=True) as cursor:
         cursor.execute(
             """
             SELECT member_id, discord_id, nickname, course, cohort,
-                   role_code, profile_image_url
+                   role_code, profile_image_url, session_version
             FROM public.members
             WHERE discord_id = %s AND member_status = 'ACTIVE'
             """,
@@ -32,6 +34,46 @@ def get_member(discord_id: str) -> dict | None:
         row = cursor.fetchone()
     return dict(row) if row else None
 
+
+def get_session_version(member_id: int, discord_id: str) -> int | None:
+    """회원의 현재 세션 버전을 조회합니다."""
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT session_version
+            FROM public.members
+            WHERE member_id = %s
+              AND discord_id = %s
+              AND member_status = 'ACTIVE'
+            """,
+            (member_id, discord_id),
+        )
+        row = cursor.fetchone()
+
+    return int(row["session_version"]) if row else None
+
+
+def revoke_member_session(
+    member_id: int,
+    discord_id: str,
+    session_version: int,
+) -> bool:
+    """현재 유효한 세션 버전을 증가시켜 이전 쿠키를 무효화합니다."""
+    with db_cursor(commit=True) as cursor:
+        cursor.execute(
+            """
+            UPDATE public.members
+            SET session_version = session_version + 1
+            WHERE member_id = %s
+              AND discord_id = %s
+              AND member_status = 'ACTIVE'
+              AND session_version = %s
+            RETURNING member_id
+            """,
+            (member_id, discord_id, session_version),
+        )
+
+        return cursor.fetchone() is not None
 
 def get_education_options() -> list[dict]:
     """현재 등록 가능한 학교/과정/기수를 한 번에 조회합니다."""
@@ -169,7 +211,7 @@ def register_member(discord_id: str, signup_data: MemberSignup) -> dict:
             INSERT INTO public.members (
                 discord_id, nickname, course, cohort, role_code, external_dm_opt_in
             ) VALUES (%s, %s, %s, %s, 'USER', TRUE)
-            RETURNING member_id, discord_id, nickname, course, cohort, role_code
+            RETURNING member_id, discord_id, nickname, course, cohort, role_code, session_version
             """,
             (discord_id, signup_data.nickname, legacy_code, info["cohort_no"]),
         )

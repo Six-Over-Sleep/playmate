@@ -251,7 +251,7 @@ def test_commit_failure_rolls_back(database, monkeypatch):
 
 def session_cookie(member_id=1, discord_id="discord-user"):
     data = b64encode(
-        json.dumps(dict(member_id=member_id, user=dict(discord_id=discord_id))).encode()
+        json.dumps(dict(member_id=member_id, session_version=0, user=dict(discord_id=discord_id))).encode()
     )
     return TimestampSigner("isolated-test-secret").sign(data).decode()
 
@@ -275,7 +275,7 @@ def test_real_auth_missing_member(database):
         client.cookies.set("playmate_session", session_cookie(member_id=999))
         response = client.get("/api/boards")
     assert response.status_code == 401
-    assert cursor.queries[0][1] == (999, "discord-user")
+    assert cursor.queries[0][1] == (999, "discord-user", 0)
 
 
 def test_real_auth_valid_signed_session(database):
@@ -293,7 +293,7 @@ def test_real_auth_valid_signed_session(database):
         client.cookies.set("playmate_session", session_cookie())
         response = client.get("/api/boards")
     assert response.status_code == 200 and response.json() == []
-    assert cursor.queries[0][1] == (1, "discord-user")
+    assert cursor.queries[0][1] == (1, "discord-user", 0)
 
 
 def test_real_signed_session_ignores_dev_header(database, monkeypatch):
@@ -312,7 +312,7 @@ def test_real_signed_session_ignores_dev_header(database, monkeypatch):
         client.cookies.set("playmate_session", session_cookie())
         response = client.get("/api/boards", headers={"X-Dev-Member-ID": "14"})
     assert response.status_code == 200
-    assert cursor.queries[0][1] == (1, "discord-user")
+    assert cursor.queries[0][1] == (1, "discord-user", 0)
 
 @pytest.mark.parametrize(
     "cookie", [session_cookie(member_id="1"), session_cookie() + "tampered"]
@@ -658,11 +658,13 @@ def test_get_post_includes_scrap_field(database, scrapped):
     assert "FROM post_scraps AS s WHERE s.post_id = p.post_id" in sql
 
 
-def test_list_posts_does_not_query_scraps(database):
-    """목록은 스크랩 여부를 계산하지 않아 기존 SQL·바인딩을 유지한다."""
+def test_list_posts_includes_total_scrap_count(database):
+    """List includes total scraps, not a personal scrap flag."""
     cursor, _, _ = database([{"id": 1}, [post_row()], []])
     assert service.list_posts(1, None, "latest", 1)[0]["id"] == 1
-    assert all("post_scraps" not in sql for sql, _ in cursor.queries)
+    sql = next(sql for sql, _ in cursor.queries if "FROM posts AS p" in sql)
+    assert "AS scrap_count" in sql
+    assert "AS scrapped_by_me" not in sql
 
 
 @pytest.mark.parametrize(

@@ -1278,6 +1278,7 @@ export default function CareerPage() {
                         <div>
                             <span className="career-eyebrow">{isCareerEditor ? active.name : activeId === 'briefing' ? 'CAREER NEWS' : activeId === 'insights' ? 'JOB MARKET ANALYTICS' : 'CAREER COMMUNITY'}</span>
                             <h2>{isCareerEditor ? (isEditingCareerPost ? '게시글 수정' : '게시글 작성') : active.name}</h2>
+                            {isCareerEditor && <p className="career-editor-intro">{careerEditorHelp[activeId]}</p>}
                         </div>
 
                         {activeId !== 'insights' && activeId !== 'briefing' && (
@@ -1312,7 +1313,6 @@ export default function CareerPage() {
                                     : '+ 글쓰기'}
                             </button>
                         )}
-                        {isCareerEditor && <p className="career-editor-intro">{careerEditorHelp[activeId]}</p>}
                     </div>
 
                     {(activeId === 'reviews' || activeId === 'talk' || activeId === 'lounge' || activeId === 'lab') && notice && (

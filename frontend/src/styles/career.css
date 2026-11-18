@@ -1252,3 +1252,35 @@
   padding-right: 14px;
 }
 
+/* PLAYMATE_UI_20261118_CAREER_EDITOR */
+/* Keep guidance below the title and the back button at the far right. */
+.career-page .career-board--editor .career-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.career-page .career-board--editor .career-section-head > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.career-page .career-board--editor .career-section-head .career-editor-intro {
+  margin: 12px 0 0;
+  max-width: 70ch;
+}
+
+.career-page .career-board--editor .career-section-head .career-write-btn {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin: 8px 0 0 auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .career-page .career-board--editor .career-section-head .career-write-btn {
+    margin-left: auto;
+  }
+}
+

@@ -1,4 +1,3 @@
-import '../../styles/CareerBriefing.css'
 
 const SUMMARY_PENDING = 'AI 뉴스 요약 준비 중입니다.'
 

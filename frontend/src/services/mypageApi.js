@@ -1,6 +1,8 @@
 // PLAYMATE_ACTIVITY_V2
 
 import { apiRequest } from './apiClient'
+import { notifyMyAttendanceUpdated } from '../utils/attendanceEvents'
+import { notifyMyLevelUpdated } from '../utils/levelEvents'
 
 const pendingReads = new Map()
 
@@ -58,16 +60,32 @@ export function getMyAttendance() {
   return readMyPage('/mypage/attendance')
 }
 
-// 오늘 출석을 기록합니다. 같은 날 다시 요청하면 awarded: false를 반환합니다.
+// 드롭다운과 레벨·XP 페이지에서 동시에 눌러도 POST는 한 번만 전송합니다.
+// 지급 여부와 XP 계산은 기존 서버 API가 결정합니다.
+let pendingAttendanceCheck = null
+
 export function checkMyAttendance() {
-  return apiRequest('/mypage/attendance', {
+  if (pendingAttendanceCheck) return pendingAttendanceCheck
+
+  const request = apiRequest('/mypage/attendance', {
     method: 'POST',
     credentials: 'include',
-  }).then((result) => {
-    pendingReads.delete('/mypage/attendance')
-    pendingReads.delete('/mypage/level')
-    return result
   })
+    .then((result) => {
+      pendingReads.delete('/mypage/attendance')
+      pendingReads.delete('/mypage/level')
+      notifyMyAttendanceUpdated(result)
+
+      // 출석 응답을 기다리게 하지 않고 상단·마이페이지의 레벨 표시를 갱신합니다.
+      getMyLevel().then(notifyMyLevelUpdated).catch(() => {})
+      return result
+    })
+    .finally(() => {
+      if (pendingAttendanceCheck === request) pendingAttendanceCheck = null
+    })
+
+  pendingAttendanceCheck = request
+  return request
 }
 
 export function getMySkills() {

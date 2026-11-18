@@ -1,5 +1,9 @@
 import { getApiUrl } from '../config/api'
 
+// 개발 모드 Effect 재실행이나 여러 소비자의 동시 로그인 조회를 하나로 공유한다.
+// 완료된 응답은 캐시하지 않으므로 로그인/권한 변경 이후에는 항상 새로 확인한다.
+const pendingMeReads = new Map()
+
 /** FastAPI 오류 문자열과 Pydantic 검증 오류 목록을 사용자 메시지로 변환한다. */
 function errorMessage(data, status) {
   if (typeof data?.detail === 'string') return data.detail
@@ -38,6 +42,28 @@ export async function apiRequest(
   // 설정 검증 오류는 네트워크 실패로 바꾸지 않고 호출자에게 그대로 전달한다.
   const url = urlBuilder(path)
 
+  // GET /me에만 single-flight 적용. signal이 다른 요청이나 변경 요청은 합치지 않는다.
+  const shareKey = path === '/me' &&
+    (options.method == null || options.method.toUpperCase() === 'GET') &&
+    options.signal == null && options.body == null
+    ? url
+    : null
+  if (shareKey && pendingMeReads.has(shareKey)) {
+    return pendingMeReads.get(shareKey)
+  }
+
+  const task = performRequest(url, options, headers)
+  if (shareKey) {
+    pendingMeReads.set(shareKey, task)
+    const release = () => {
+      if (pendingMeReads.get(shareKey) === task) pendingMeReads.delete(shareKey)
+    }
+    task.then(release, release)
+  }
+  return task
+}
+
+async function performRequest(url, options, headers) {
   let response
 
   try {

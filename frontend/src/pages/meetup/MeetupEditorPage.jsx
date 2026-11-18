@@ -26,6 +26,7 @@ export default function MeetupEditorPage({
   isAdmin = false,
   busy,
   onBack,
+  onBackToList,
   onSubmit,
 
 }) {
@@ -86,10 +87,10 @@ export default function MeetupEditorPage({
     <main className="meetup-editor-page">
       <button
         className="meetup-back-button"
-        onClick={onBack}
+        onClick={onBackToList ?? onBack}
         type="button"
       >
-        ← 돌아가기
+        ← 모임 목록으로
       </button>
 
       <div className="meetup-editor-heading">

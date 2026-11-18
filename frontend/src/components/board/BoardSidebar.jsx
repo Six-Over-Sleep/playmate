@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import '../../styles/boardSidebar.css'
 
 // 일반 게시판을 처음에 보여줄 개수
 const DEFAULT_VISIBLE_COUNT = 5
@@ -15,7 +14,7 @@ const SPECIAL_BOARD_ORDER = {
 // 화면에만 사용하는 이모지를 제외한 게시판 이름
 function getOriginalName(board) {
   return String(board?.name || '')
-    .replace(/^[📢🏆🔥]\s*/u, '')
+    .replace(/^[📢🏆🔥💬🎓]\s*/u, '')
     .trim()
 }
 
@@ -26,6 +25,7 @@ function getDisplayName(board) {
   if (name === '공지사항') return '📢 공지사항'
   if (name === '명예의 전당') return '🏆 명예의 전당'
   if (name === 'HOT 게시판') return '🔥 HOT 게시판'
+  if (name === '자유게시판') return '💬 자유게시판'
 
   return board.name
 }
@@ -53,6 +53,8 @@ export default function BoardSidebar({
   const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  // 작은 화면에서는 일반 게시판을 접어 두고, 사용자가 원할 때만 펼칩니다.
+  const [compactGeneralOpen, setCompactGeneralOpen] = useState(false)
 
   const allBoards = Array.isArray(boards) ? boards : []
 
@@ -76,16 +78,16 @@ export default function BoardSidebar({
     return fallbackBoardId != null && String(item.id) === String(fallbackBoardId)
   }
 
-  // 주요 게시판은 검색·접기 여부에 상관없이 상단에 고정한다.
+  // 주요 게시판과 내 과정은 각각 분리하되, 기존 게시판 ID/선택 기능은 유지한다.
   const specialBoards = allBoards
-    .filter((item) => isSpecialBoard(item) || isMyCourseBoard(item))
+    .filter((item) => isSpecialBoard(item) && !isMyCourseBoard(item))
     .sort((first, second) => {
-      const firstOrder = SPECIAL_BOARD_ORDER[getOriginalName(first)]
-        ?? (isMyCourseBoard(first) ? 4 : 99)
-      const secondOrder = SPECIAL_BOARD_ORDER[getOriginalName(second)]
-        ?? (isMyCourseBoard(second) ? 4 : 99)
+      const firstOrder = SPECIAL_BOARD_ORDER[getOriginalName(first)] ?? 99
+      const secondOrder = SPECIAL_BOARD_ORDER[getOriginalName(second)] ?? 99
       return firstOrder - secondOrder
     })
+
+  const myCourseBoards = allBoards.filter((item) => isMyCourseBoard(item))
 
   // 다른 과정·기수 게시판은 읽기 가능하되 '일반 게시판'으로 분류합니다.
   const normalBoards = allBoards.filter(
@@ -112,21 +114,36 @@ export default function BoardSidebar({
   const hiddenCount = Math.max(0, normalBoards.length - visibleBoards.length)
   const hasMoreBoards = normalBoards.length > DEFAULT_VISIBLE_COUNT
 
-  // 현재 선택된 게시판에 강조 스타일을 적용한다.
+  // 표시는 아이콘 + 텍스트로 나누어 주요 게시판의 글자 시작점을 통일한다.
   function boardButton(board) {
     const selected = String(board.id) === String(selectedId)
+    const isMine = isMyCourseBoard(board)
+    const boardName = getOriginalName(board)
+    const boardClass = ({
+      '자유게시판': 'free',
+      '공지사항': 'notice',
+      'HOT 게시판': 'hot',
+      '명예의 전당': 'hall',
+    })[boardName]
+    const icon = isMine ? '🎓' : ({
+      '공지사항': '📢',
+      '명예의 전당': '🏆',
+      'HOT 게시판': '🔥',
+      '자유게시판': '💬',
+    })[boardName]
 
     return (
       <button
         type="button"
         key={board.id}
-        className={`board-directory-item${selected ? ' active' : ''}${isMyCourseBoard(board) ? ' board-my-course' : ''}`}
+        className={`board-directory-item${selected ? ' active' : ''}${isMine ? ' board-my-course' : ''}${boardClass ? ` board-directory-item--${boardClass}` : ''}`}
         aria-current={selected ? 'page' : undefined}
         disabled={busy}
         onClick={() => onSelect(board)}
-        title={getDisplayName(board)}
+        title={isMine ? `내 과정 · ${boardName}` : getDisplayName(board)}
       >
-        {getDisplayName(board)}
+        {icon && <span className="board-directory-item-icon" aria-hidden="true">{icon}</span>}
+        <span className="board-directory-item-text">{isMine && <span className="board-mobile-course-prefix">내 과정 · </span>}{boardName}</span>
       </button>
     )
   }
@@ -144,12 +161,35 @@ export default function BoardSidebar({
         </div>
       )}
 
+      {/* 소속 과정 게시판은 주요 게시판과 분리해서 표시 */}
+      {myCourseBoards.length > 0 && (
+        <div className="board-directory-group board-directory-own-course">
+          <p className="board-directory-label">내 과정</p>
+          <div className="board-directory-list">
+            {myCourseBoards.map(boardButton)}
+          </div>
+        </div>
+      )}
+
       {/* 일반 게시판: 이름 검색, 접기, 펼치기 */}
-      <div className="board-directory-group">
+      <div className="board-directory-group board-directory-general">
         <div className="board-directory-heading">
           <span className="board-directory-label">
             일반 게시판 <small>{normalBoards.length}</small>
           </span>
+
+          <button
+            type="button"
+            className="board-directory-mobile-toggle"
+            aria-expanded={compactGeneralOpen}
+            aria-controls="board-general-compact-content"
+            onClick={() => {
+              setCollapsed(false)
+              setCompactGeneralOpen((value) => !value)
+            }}
+          >
+            {compactGeneralOpen ? '접기 ▴' : '펼치기 ▾'}
+          </button>
 
           <button
             type="button"
@@ -162,7 +202,11 @@ export default function BoardSidebar({
           </button>
         </div>
 
-        {/* 접혀 있어도 검색창은 보여서 게시판을 바로 찾을 수 있다. */}
+        {/* PC에서는 항상 검색창을 노출합니다. 모바일·태블릿에서는 처음에 접습니다. */}
+        <div
+          id="board-general-compact-content"
+          className={`board-directory-general-body${compactGeneralOpen ? ' is-mobile-open' : ''}`}
+        >
         <div className="board-directory-search">
           <span aria-hidden="true">⌕</span>
           <input
@@ -204,6 +248,7 @@ export default function BoardSidebar({
             )}
           </>
         )}
+        </div>
       </div>
 
       {/* 기존 게시판 생성 기능 유지 */}

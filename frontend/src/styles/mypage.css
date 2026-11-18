@@ -1,820 +1,355 @@
-
-.mypage {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 48px 32px 80px;
+/* =============================================================
+   2026-11-17 | 마이페이지 통합 대시보드
+   - 왼쪽: 프로필 + 종합 레벨 + 메뉴를 하나의 카드로 통합
+   - 오른쪽: 활동 현황 -> 활동 기록 -> 스킬 레벨
+   - 레벨/XP, 취업 스펙 메뉴와 데이터/API 로직은 변경하지 않음
+   ============================================================= */
+.pm-mypage.pm-mypage--refined .pm-mypage-layout {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
-  color: #1d2939;
+  grid-template-columns: minmax(245px, 270px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.pm-mypage--refined .pm-mypage-aside,
+.pm-mypage--refined .pm-mypage-main { min-width: 0; }
+.pm-mypage--refined .pm-mypage-aside { display: block; }
+.pm-mypage--refined .pm-mypage-main { display: flex; flex-direction: column; gap: 14px; }
+
+/* 단일 사이드 카드 안에서 구역만 얇은 구분선으로 나눔 */
+.pm-mypage--refined .pm-mypage-aside-card {
   box-sizing: border-box;
-}
-
-.mypage > h1 {
-  grid-column: 1 / -1;
-  margin: 0;
-  font-size: 30px;
-  font-weight: 750;
-  letter-spacing: -1px;
-}
-
-.mypage > p {
-  grid-column: 1 / -1;
-  margin: -12px 0 12px;
-  font-size: 14px;
-  color: #8490a2;
-}
-
-.mypage > section {
-  min-height: 180px;
-  padding: 28px;
+  width: 100%;
+  padding: 20px 17px 15px;
   background: #fff;
-  border: 1px solid #e8ecf2;
-  border-radius: 16px;
-  box-shadow: 0 4px 18px rgba(20, 35, 60, 0.025);
-  box-sizing: border-box;
-}
-
-.mypage > section:first-of-type {
-  grid-column: 1 / -1;
-  min-height: 170px;
-}
-
-.mypage > section h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.4px;
-}
-
-@media (max-width: 768px) {
-  .mypage {
-    grid-template-columns: 1fr;
-    padding: 28px 18px 48px;
-    gap: 14px;
-  }
-
-  .mypage > section:first-of-type {
-    grid-column: auto;
-  }
-
-  .mypage > section {
-    min-height: 150px;
-    padding: 22px;
-  }
-}
-
-/* 마이페이지 프로필 */
-.mypage-profile-info {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  margin-top: 24px;
-}
-
-.mypage-profile-avatar,
-.mypage-profile-placeholder {
-  width: 76px;
-  height: 76px;
-  border-radius: 50%;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.mypage-profile-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #e8efff;
-  color: #5576c6;
-  font-size: 28px;
-  font-weight: 700;
-}
-
-.mypage-profile-info h3 {
-  margin: 0 0 8px;
-  font-size: 20px;
-}
-
-.mypage-profile-info p {
-  margin: 0;
-  color: #8490a2;
-  font-size: 13px;
-}
-
-/* 닉네임 수정 */
-.mypage-profile-details {
-  flex: 1;
-  min-width: 0;
-}
-
-.mypage-nickname-row,
-.mypage-nickname-form {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-
-.mypage-nickname-row h3 {
-  margin: 0;
-}
-
-.mypage-nickname-row button,
-.mypage-nickname-form button {
-  border: 1px solid #ded9ef;
-  background: #fff;
-  color: #594495;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.mypage-nickname-form button[type="submit"] {
-  background: #493584;
-  color: white;
-  border-color: #493584;
-}
-
-.mypage-nickname-form button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.mypage-nickname-form input {
-  padding: 9px 12px;
-  border: 1px solid #ded9ef;
-  border-radius: 8px;
-  font-size: 14px;
-  max-width: 220px;
-}
-
-.mypage-profile-error {
-  color: #d14343 !important;
-  margin-top: 8px !important;
-}
-
-/* 프로필 이미지 변경 */
-.mypage-image-actions button {
-  border: 1px solid #ded9ef;
-  background: #f3efff;
-  color: #594495;
-  border-radius: 8px;
-  padding: 9px 13px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.mypage-image-actions button:hover {
-  background: #e9e1ff;
-}
-
-.mypage-image-actions button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.mypage-profile-image {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-/* 종합 레벨 */
-.mypage-overall {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.mypage-level-heading,
-.mypage-level-info {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.mypage-level-badge {
-  padding: 6px 12px;
-  background: #f2edff;
-  color: #6950b0;
-  font-size: 11px;
-  font-weight: 700;
+  border: 1px solid #dce8f8;
   border-radius: 20px;
+  box-shadow: var(--pm-shadow);
 }
-
-.mypage-level-info strong {
-  font-size: 30px;
-  color: #493584;
-}
-
-.mypage-level-info p {
-  margin: 5px 0 0;
-  font-size: 12px;
-  color: #8490a2;
-}
-
-.mypage-xp-text {
-  font-size: 12px;
-  color: #6950b0;
-  font-weight: 600;
-  text-align: right;
-}
-
-.mypage-progress-track {
+.pm-mypage.mypage-dashboard .pm-mypage-aside-card > .pm-mypage-profile,
+.pm-mypage.mypage-dashboard .pm-mypage-aside-card > .pm-mypage-level-card {
+  box-sizing: border-box;
   width: 100%;
-  height: 10px;
-  background: #eee9f8;
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.mypage-progress-fill {
-  height: 100%;
-  background: #7958ce;
-  border-radius: 10px;
-  transition: width 0.3s ease;
-}
-
-.mypage-level-guide {
-  margin: 0;
-  font-size: 12px;
-  color: #8490a2;
-}
-
-/* 출석 체크 */
-.mypage-attendance {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin-top: 12px;
-  font-size: 13px;
-}
-
-.mypage-attendance p {
-  margin: 0;
-}
-
-.mypage-attendance [role='alert'] {
-  width: 100%;
-  color: #d14343;
-}
-
-/* 스킬 레벨 */
-.mypage-skills {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.mypage-skills-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.mypage-skills-heading span {
-  font-size: 12px;
-  color: #8490a2;
-}
-
-.mypage-skills-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.mypage-skill-card {
-  padding: 16px;
-  border: 1px solid #e8ecf2;
-  border-radius: 12px;
-  background: #fafbfe;
-  min-width: 0;
-}
-
-.mypage-skill-top,
-.mypage-skill-xp {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.mypage-skill-top strong {
-  font-size: 14px;
-}
-
-.mypage-skill-top > span {
-  font-size: 12px;
-  font-weight: 700;
-  color: #6950b0;
-}
-
-.mypage-skill-xp {
-  margin-top: 16px;
-  font-size: 11px;
-  color: #8490a2;
-}
-
-.mypage-skill-progress {
-  height: 8px;
-  margin-top: 10px;
-  background: #eceef4;
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.mypage-skill-progress-fill {
-  height: 100%;
-  border-radius: 10px;
-  transition: width 0.3s ease;
-}
-
-.mypage-skill-remaining {
-  margin: 10px 0 0;
-  font-size: 11px;
-  color: #8490a2;
-}
-
-@media (max-width: 900px) {
-  .mypage-skills-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* 내 활동 */
-.mypage-activity-section {
-  grid-column: 1 / -1;
-}
-
-.mypage-activity {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-}
-
-.mypage-activity-tabs {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  border-bottom: 1px solid #e8ecf2;
-  padding-bottom: 12px;
-}
-
-.mypage-activity-tabs button {
-  padding: 10px 16px;
-  border: 0;
-  border-radius: 9px;
-  background: #f5f6fa;
-  color: #667085;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.mypage-activity-tabs button.active {
-  background: #7958ce;
-  color: white;
-}
-
-.mypage-activity-tabs button:hover:not(.active) {
-  background: #eeebf7;
-}
-
-.mypage-activity-list {
-  list-style: none;
+  min-height: 0;
   margin: 0;
   padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
-
-.mypage-activity-item {
-  padding: 18px 4px;
-  border-bottom: 1px solid #edf0f5;
+.pm-mypage--refined .pm-mypage-aside-card > .pm-mypage-profile { padding-bottom: 19px !important; }
+.pm-mypage--refined .pm-mypage-aside-card > .pm-mypage-level-card {
+  padding-top: 19px !important;
+  padding-bottom: 20px !important;
+  border-top: 1px solid #eaf0f8 !important;
 }
-
-.mypage-activity-item:last-child {
-  border-bottom: none;
-}
-
-.mypage-activity-item strong {
-  display: block;
-  font-size: 14px;
-  color: #253047;
-  overflow-wrap: anywhere;
-}
-
-.mypage-activity-description {
-  margin: 8px 0;
+.pm-mypage--refined .pm-mypage-aside-card > .pm-mypage-profile > h2 {
   font-size: 13px;
-  color: #667085;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  font-weight: 800;
+  color: #314a66;
+  margin: 0 0 14px;
 }
-
-.mypage-activity-meta {
-  display: block;
-  margin-top: 8px;
-  font-size: 12px;
-  color: #98a2b3;
-}
-
-.mypage-activity-empty {
-  padding: 32px 0;
-  text-align: center;
-  color: #98a2b3;
-  font-size: 13px;
-}
-
-/* 내 모임 카드 */
-.mypage-meetup-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.mypage-meetup-card {
+.pm-mypage--refined .pm-mypage-profile .mypage-profile-info {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 22px;
-  border: 1px solid #e8e5f1;
-  border-radius: 16px;
-  background: #ffffff;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.mypage-meetup-card:hover {
-  border-color: #c9b8f1;
-  box-shadow: 0 6px 20px rgba(80, 55, 135, 0.07);
-}
-
-.mypage-meetup-card {
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.mypage-meetup-card:hover {
-  transform: translateY(-3px);
-}
-
-.mypage-meetup-card:focus-visible {
-  outline: 2px solid #7c6ee8;
-  outline-offset: 3px;
-}
-
-.mypage-meetup-top,
-.mypage-meetup-footer {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 12px;
-}
-
-.mypage-meetup-category {
-  background: #f3efff;
-  color: #7455b7;
-  padding: 6px 10px;
-  border-radius: 7px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.mypage-meetup-status {
-  font-size: 12px;
-  font-weight: 600;
-  color: #98a2b3;
-}
-
-.mypage-meetup-status.open {
-  color: #239873;
-}
-
-.mypage-meetup-card h3 {
   margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-  color: #253047;
-  overflow-wrap: anywhere;
+  text-align: center;
 }
-
-.mypage-meetup-details {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  color: #667085;
-  font-size: 12px;
-}
-
-.mypage-meetup-footer {
-  margin-top: auto;
-  padding-top: 14px;
-  border-top: 1px solid #edf0f5;
-  color: #98a2b3;
-  font-size: 11px;
-}
-
-@media (max-width: 768px) {
-  .mypage-meetup-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* 마이페이지 레이아웃 */
-.mypage > section:first-of-type {
-  grid-column: auto;
-  min-height: 200px;
-}
-
-.mypage > section:nth-of-type(2) {
-  min-height: 200px;
-}
-
-.mypage > section:nth-of-type(3) {
-  grid-column: 1 / -1;
-  min-height: auto;
-}
-
-.mypage-skills-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.mypage-skill-card {
-  padding: 16px 12px;
-}
-
-.mypage-activity-section {
-  grid-column: 1 / -1;
-}
-
-@media (max-width: 1100px) {
-  .mypage-skills-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 900px) {
-  .mypage-skills-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .mypage > section:first-of-type,
-  .mypage > section:nth-of-type(2),
-  .mypage > section:nth-of-type(3) {
-    grid-column: 1 / -1;
-  }
-}
-
-@media (max-width: 480px) {
-  .mypage-skills-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* 내 활동 페이지네이션 */
-.mypage-pagination {
-  display: flex;
-  align-items: center;
+.pm-mypage--refined .pm-mypage-profile .mypage-profile-avatar,
+.pm-mypage--refined .pm-mypage-profile .mypage-profile-placeholder { width: 78px; height: 78px; }
+.pm-mypage--refined .pm-mypage-profile .mypage-profile-info h3 { font-size: 18px; }
+.pm-mypage--refined .pm-mypage-profile .mypage-nickname-row {
   justify-content: center;
-  gap: 8px;
-  margin-top: 24px;
+  gap: 7px;
 }
-
-.mypage-pagination button {
-  min-width: 36px;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid #e8e5f1;
-  border-radius: 9px;
+.pm-mypage--refined .pm-mypage-profile .mypage-nickname-row button,
+.pm-mypage--refined .pm-mypage-profile .mypage-nickname-form button {
   background: #fff;
-  color: #667085;
-  font-size: 13px;
-  cursor: pointer;
+  border: 1px solid #dce8f8;
+  color: #527fb7;
+  border-radius: 8px;
+  font-size: 11px;
+  padding: 6px 9px;
 }
-
-.mypage-pagination button.active {
-  background: #7958ce;
-  border-color: #7958ce;
-  color: white;
-  font-weight: 700;
+.pm-mypage--refined .pm-mypage-profile .mypage-nickname-form button[type="submit"] {
+  background: #4e85c8;
+  border-color: #4e85c8;
+  color: #fff;
 }
-
-.mypage-pagination button:hover:not(:disabled):not(.active) {
-  background: #f3efff;
+.pm-mypage--refined .pm-mypage-profile .mypage-nickname-form input { max-width: 100%; }
+.pm-mypage--refined .pm-mypage-profile .mypage-profile-course {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8b9bb0;
+  word-break: keep-all;
 }
-
-.mypage-pagination button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.pm-mypage--refined .mypage-profile-account-action { margin-top: 7px; }
+.pm-mypage--refined .pm-mypage-level-card .mypage-level-preview { height: auto; gap: 10px; }
+.pm-mypage--refined .pm-mypage-level-card .mypage-level-preview h2 { font-size: 13px; color: #314a66; }
+.pm-mypage--refined .pm-mypage-level-card .mypage-level-preview-heading > span {
+  background: #e8f3ff; color: #3b7abf; font-size: 10px; padding: 5px 9px;
 }
+.pm-mypage--refined .pm-mypage-level-card .mypage-level-preview-amount strong { font-size: 23px; color: #527fc4; }
+.pm-mypage--refined .pm-mypage-level-card .mypage-level-preview-amount p { font-size: 11px; line-height: 1.4; }
+.pm-mypage--refined .pm-mypage-level-card .mypage-progress-track { height: 7px; background: #e9f0fa; }
+.pm-mypage--refined .pm-mypage-level-card .mypage-level-preview-tip { display: none; }
 
-/* 게시글 / 댓글 / 스크랩 목록 */
-.mypage-activity-list {
+/* 메뉴는 같은 카드 안에서 심플한 네비게이션으로 표현 */
+.pm-mypage.mypage-dashboard-v3 .pm-mypage-aside-card > .mypage-dashboard-nav {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  list-style: none;
+  padding: 14px 0 0;
   margin: 0;
-  padding: 0;
-}
-
-.mypage-activity-item {
-  width: 100%;
-  padding: 4px 0;
-  border-bottom: 1px solid #edf0f5;
-  box-sizing: border-box;
-}
-
-.mypage-activity-item:last-child {
-  border-bottom: none;
-}
-
-.mypage-activity-item button,
-.mypage-activity-item .mypage-activity-link {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  width: 100%;
-  padding: 16px 18px;
+  border: 0;
+  border-top: 1px solid #eaf0f8;
+  border-radius: 0;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  color: #253047;
-  font-family: inherit;
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-  box-sizing: border-box;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease;
-}
-
-.mypage-activity-item button:hover,
-.mypage-activity-item .mypage-activity-link:hover {
-  background: #f7f5fc;
-  border-color: #e8e0f8;
-}
-
-.mypage-activity-item button:focus-visible,
-.mypage-activity-item .mypage-activity-link:focus-visible {
-  outline: 2px solid #7958ce;
-  outline-offset: 2px;
-}
-
-.mypage-activity-item strong {
-  display: block;
-  width: 100%;
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.5;
-  color: #253047;
-  overflow-wrap: anywhere;
-}
-
-.mypage-activity-description {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #667085;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.mypage-activity-meta {
-  display: block;
-  font-size: 12px;
-  font-weight: 400;
-  color: #98a2b3;
-}
-
-@media (max-width: 768px) {
-  .mypage-activity-item button,
-  .mypage-activity-item .mypage-activity-link {
-    padding: 14px 12px;
-  }
-}
-
-/* 내 활동 목록 최종 스타일 */
-.mypage .mypage-activity-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.mypage .mypage-activity-item {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  width: 100%;
-  padding: 18px 20px;
-  background: #f8f6fd;
-  border: 1px solid #e5def5;
-  border-radius: 14px;
-  box-sizing: border-box;
-  transition: 0.2s ease;
-}
-
-.mypage .mypage-activity-item:hover {
-  background: #f2edff;
-  border-color: #c9b8f1;
-}
-
-.mypage .mypage-activity-item button,
-.mypage .mypage-activity-item .mypage-activity-link {
-  all: unset;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 8px;
-  width: 100%;
-  box-sizing: border-box;
-  color: #253047;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mypage .mypage-activity-item button:hover,
-.mypage .mypage-activity-item .mypage-activity-link:hover {
-  background: transparent;
-  color: #253047;
   box-shadow: none;
 }
-
-.mypage .mypage-activity-item button:focus-visible,
-.mypage .mypage-activity-item .mypage-activity-link:focus-visible {
-  outline: 2px solid #7958ce;
-  outline-offset: 4px;
+.pm-mypage.mypage-dashboard-v3 .pm-mypage-aside-card .mypage-nav-item {
+  display: flex;
+  justify-content: flex-start;
+  min-height: 43px;
+  padding: 10px 11px;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: #60768d;
+  background: transparent;
+  box-shadow: none;
 }
-
-.mypage .mypage-activity-item strong {
-  display: block;
-  width: 100%;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.5;
-  color: #253047;
-  text-align: left;
+.pm-mypage.mypage-dashboard-v3 .pm-mypage-aside-card .mypage-nav-item:hover:not(.active) { background: #f3f8ff; }
+.pm-mypage.mypage-dashboard-v3 .pm-mypage-aside-card .mypage-nav-item.active {
+  background: #e7f2ff;
+  color: #376fb2;
 }
+.pm-mypage--refined .pm-mypage-aside-card .mypage-nav-icon { font-size: 17px; color: #6f9bcb; }
+.pm-mypage--refined .pm-mypage-aside-card .mypage-nav-copy strong { font-size: 12px; }
+.pm-mypage--refined .pm-mypage-aside-card .mypage-nav-copy small { font-size: 10px; color: #92a4b8; }
+.pm-mypage--refined .pm-mypage-aside-card .pm-mypage-nav-arrow { font-size: 17px; }
 
-.mypage .mypage-activity-description {
+/* 대시보드 카드 간격과 중복 제목 정리 */
+.pm-mypage--refined .pm-mypage-main .pm-mypage-content-card {
+  min-width: 0;
+  padding: 21px 22px;
+  border: 1px solid #dce8f8;
+  border-radius: 19px;
+  background: #fff;
+  box-shadow: var(--pm-shadow);
+}
+.pm-mypage--refined .pm-mypage-main .pm-mypage-card-heading { margin-bottom: 16px; flex-wrap: wrap; }
+.pm-mypage--refined .pm-mypage-main .pm-mypage-card-heading h2,
+.pm-mypage--refined .pm-mypage-main .pm-mypage-card-heading h3 {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #667085;
-  text-align: left;
-  white-space: pre-wrap;
+  color: #22364d;
+  font-size: 16px;
+  font-weight: 800;
+}
+.pm-mypage--refined .pm-mypage-main .pm-mypage-card-heading span { font-size: 11px; color: #91a1b4; }
+.pm-mypage--refined .pm-mypage-main .pm-mypage-card-heading button {
+  color: #5486c5;
+  background: transparent;
+  border: 0;
+  font-weight: 750;
 }
 
-.mypage .mypage-activity-meta {
-  display: block;
+/* 활동 요약은 위쪽 4개 KPI만 표시. 종합 XP는 왼쪽 레벨 카드에 노출 */
+.pm-mypage--refined .pm-mypage-overview-card .mypage-overview { margin: 0; }
+.pm-mypage--refined .pm-mypage-overview-card .mypage-overview-heading { align-items: center; margin-bottom: 16px; }
+.pm-mypage--refined .pm-mypage-overview-card .mypage-overview-heading h3 {
   margin: 0;
-  font-size: 12px;
-  color: #98a2b3;
-  text-align: left;
+  font-size: 16px;
+  font-weight: 800;
+  color: #22364d;
 }
-
-@media (max-width: 768px) {
-  .mypage .mypage-activity-item {
-    padding: 16px;
-  }
+.pm-mypage--refined .pm-mypage-overview-card .mypage-overview-heading button {
+  padding: 7px 11px;
+  border: 1px solid #e0eaf7;
+  border-radius: 9px;
+  color: #527fb7;
+  background: #fff;
+  font-size: 11px;
 }
+.pm-mypage--refined .pm-mypage-overview-card .mypage-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.pm-mypage--refined .pm-mypage-overview-card .mypage-overview-stat {
+  min-width: 0;
+  padding: 15px 13px;
+  border: 1px solid #e0ebf9;
+  border-radius: 12px;
+  background: #f5f9ff;
+}
+.pm-mypage--refined .pm-mypage-overview-card .mypage-overview-stat > span { margin-bottom: 8px; color: #758ba4; font-size: 11px; }
+.pm-mypage--refined .pm-mypage-overview-card .mypage-overview-stat > strong {
+  color: #467ebf;
+  font-size: 24px;
+  line-height: 1.2;
+}
+.pm-mypage--refined .pm-mypage-overview-card .mypage-overview-stat small { color: #91a5bf; }
 
-/* 회원 탈퇴 링크 */
-.mypage-profile-account-action {
+/* 내 활동: 중복된 '활동 상세 내역'은 접근성 이름으로만 유지하고 건수는 우측에 표시 */
+.pm-mypage--refined .pm-mypage-activities .mypage-activity { gap: 12px; }
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-heading {
   display: flex;
   justify-content: flex-end;
-  margin-top: 12px;
+  margin: -9px 0 0;
+  min-height: 0;
 }
-
-.mypage-withdraw-link {
-  padding: 4px 0;
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-heading h3 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
   border: 0;
-  background: none;
-  color: #8891a2;
-  font: inherit;
-  font-size: 12px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
+}
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-heading span { font-size: 11px; color: #8fa2b8; }
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 13px;
+  border-bottom: 1px solid #edf2f8;
+}
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-tabs button {
+  min-height: 32px;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 9px;
+  color: #7488a0;
+  background: #f3f6fb;
+  font-size: 11px;
+}
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-tabs button.active {
+  background: #e7f2ff;
+  color: #3375bd;
+  font-weight: 800;
+}
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-list { gap: 9px; }
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-item {
+  padding: 12px 15px;
+  border: 1px solid #e3edf9;
+  border-radius: 11px;
+  background: #f9fbff;
+  box-shadow: none;
+}
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-item:hover {
+  border-color: #c5dcf5;
+  background: #f0f7ff;
+}
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-item button,
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-item .mypage-activity-plain { gap: 4px; }
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-item strong { font-size: 12px; color: #28415e; }
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-description { font-size: 11px; }
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-meta { font-size: 10px; color: #94a5b8; }
+.pm-mypage--refined .pm-mypage-activities .mypage-activity-item button:focus-visible {
+  outline: 2px solid #6398da;
+  outline-offset: 3px;
 }
 
-.mypage-withdraw-link:hover,
-.mypage-withdraw-link:focus-visible {
-  color: #b33b36;
+/* 스킬은 상세 정보로 이동할 수 있으므로 미리보기 카드만 작게 표시 */
+.pm-mypage--refined .pm-mypage-skills-preview .mypage-skills { gap: 0; }
+.pm-mypage--refined .pm-mypage-skills-preview .mypage-skills-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
 }
+.pm-mypage--refined .pm-mypage-skills-preview .mypage-skill-card {
+  min-width: 0;
+  padding: 12px 10px;
+  border: 1px solid #e2ebf7;
+  background: #f8fbff;
+  border-radius: 11px;
+}
+.pm-mypage--refined .pm-mypage-skills-preview .mypage-skill-top { gap: 5px; }
+.pm-mypage--refined .pm-mypage-skills-preview .mypage-skill-top strong { font-size: 11px; word-break: keep-all; }
+.pm-mypage--refined .pm-mypage-skills-preview .mypage-skill-top span { font-size: 10px; }
+.pm-mypage--refined .pm-mypage-skills-preview .mypage-skill-xp,
+.pm-mypage--refined .pm-mypage-skills-preview .mypage-skill-remaining { font-size: 9px; line-height: 1.45; }
+.pm-mypage--refined .pm-mypage-skills-preview .mypage-skill-xp { margin-top: 12px; }
+.pm-mypage--refined .pm-mypage-skills-preview .mypage-skill-progress { height: 5px; margin-top: 8px; }
+
+/* 레벨·XP와 취업 스펙 상세 화면은 기존의 기능과 구조 보존 */
+.pm-mypage--refined .pm-mypage-main-heading { display: flex; padding: 0 4px 2px; }
+.pm-mypage--refined .pm-mypage-main-heading h2 { margin: 0; font-size: 20px; }
+.pm-mypage--refined .pm-mypage-main-heading p { margin: 0; }
+.pm-mypage--refined .pm-mypage-level-detail .mypage-level-switcher button.active {
+  border-color: #4e85c8; background: #4e85c8; color: #fff;
+}
+
+@media (max-width: 980px) {
+  .pm-mypage.pm-mypage--refined .pm-mypage-layout { grid-template-columns: 1fr; }
+  .pm-mypage--refined .pm-mypage-aside-card {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 18px;
+    row-gap: 14px;
+    padding: 17px;
+  }
+  .pm-mypage--refined .pm-mypage-aside-card > .pm-mypage-profile { padding: 0 14px 0 0 !important; }
+  .pm-mypage--refined .pm-mypage-aside-card > .pm-mypage-level-card {
+    padding: 0 0 0 17px !important;
+    border-top: 0 !important;
+    border-left: 1px solid #eaf0f8 !important;
+  }
+  .pm-mypage.mypage-dashboard-v3 .pm-mypage-aside-card > .mypage-dashboard-nav {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    padding-top: 12px;
+  }
+  .pm-mypage.mypage-dashboard-v3 .pm-mypage-aside-card .mypage-nav-item { min-width: 0; justify-content: center; }
+  .pm-mypage--refined .pm-mypage-aside-card .pm-mypage-nav-arrow { display: none; }
+}
+@media (max-width: 700px) {
+  .pm-mypage--refined .pm-mypage-overview-card .mypage-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pm-mypage--refined .pm-mypage-skills-preview .mypage-skills-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pm-mypage--refined .pm-mypage-main .pm-mypage-content-card { padding: 19px 16px; }
+  .pm-mypage--refined .pm-mypage-main .pm-mypage-card-heading span { display: none; }
+}
+@media (max-width: 580px) {
+  .pm-mypage--refined .pm-mypage-aside-card {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 15px;
+    padding: 16px 15px;
+  }
+  .pm-mypage--refined .pm-mypage-aside-card > .pm-mypage-profile { padding: 0 0 15px !important; }
+  .pm-mypage--refined .pm-mypage-aside-card > .pm-mypage-level-card {
+    padding: 14px 0 14px !important;
+    border-left: 0 !important;
+    border-top: 1px solid #eaf0f8 !important;
+  }
+  .pm-mypage--refined .pm-mypage-profile .mypage-profile-info { flex-direction: row; text-align: left; gap: 13px; }
+  .pm-mypage--refined .pm-mypage-profile .mypage-profile-avatar,
+  .pm-mypage--refined .pm-mypage-profile .mypage-profile-placeholder { width: 66px; height: 66px; }
+  .pm-mypage--refined .pm-mypage-profile .mypage-profile-details { align-items: flex-start; }
+  .pm-mypage--refined .pm-mypage-profile .mypage-nickname-row { justify-content: flex-start; }
+  .pm-mypage--refined .pm-mypage-profile .mypage-profile-course { text-align: left; }
+  .pm-mypage.mypage-dashboard-v3 .pm-mypage-aside-card > .mypage-dashboard-nav { padding-top: 12px; gap: 5px; }
+  .pm-mypage.mypage-dashboard-v3 .pm-mypage-aside-card .mypage-nav-item { min-height: 43px; padding: 9px 3px; gap: 5px; }
+  .pm-mypage--refined .pm-mypage-aside-card .mypage-nav-icon { display: inline-block; font-size: 14px; }
+  .pm-mypage--refined .pm-mypage-aside-card .mypage-nav-copy strong { font-size: 11px; white-space: nowrap; }
+  .pm-mypage--refined .pm-mypage-aside-card .mypage-nav-copy small { display: none; }
+  .pm-mypage--refined .pm-mypage-overview-card .mypage-overview-stat { padding: 13px 12px; }
+}
+@media (max-width: 365px) {
+  .pm-mypage--refined .pm-mypage-profile .mypage-profile-info { flex-direction: column; text-align: center; }
+  .pm-mypage--refined .pm-mypage-profile .mypage-profile-details { align-items: center; }
+  .pm-mypage--refined .pm-mypage-profile .mypage-nickname-row { justify-content: center; }
+  .pm-mypage--refined .pm-mypage-profile .mypage-profile-course { text-align: center; }
+  .pm-mypage.mypage-dashboard-v3 .pm-mypage-aside-card .mypage-nav-item { flex-direction: column; }
+}
+
+

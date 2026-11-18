@@ -1,15 +1,7 @@
 import { useState } from 'react'
-import '../../styles/CareerLoungeForm.css'
+import { getCareerMenuLabels } from '../../data/careerMenuGroups'
 
-// 현직자 라운지 6개 주제
-const LOUNGE_TOPICS = [
-    '현직자의 하루',
-    '실무 기술',
-    '회사 생활',
-    '직무 Q&A',
-    '주니어 생존기',
-    '졸업생 인터뷰',
-]
+const LOUNGE_TOPICS = getCareerMenuLabels('lounge')
 
 const JOB_CATEGORIES = [
     '소프트웨어 개발',
@@ -32,6 +24,7 @@ export default function CareerLoungeForm({
 }) {
     const [title, setTitle] = useState(initial?.title || '')
     const [menu, setMenu] = useState(initial?.menu || defaultMenu)
+    const [postType, setPostType] = useState(initial?.subcategory_code === 'JOB_QNA' ? 'QUESTION' : 'EXPERIENCE')
     const [jobCategory, setJobCategory] = useState(initial?.job_category || '')
     const [careerYears, setCareerYears] = useState(initial?.career_years ?? '')
     const [companyName, setCompanyName] = useState(initial?.company_name || '')
@@ -58,6 +51,10 @@ export default function CareerLoungeForm({
             company_name: companyName.trim() || null,
             body: body.trim(),
             anonymous,
+            post_type: postType,
+            subcategory_code: initial?.menu === menu &&
+                ((initial.subcategory_code === 'JOB_QNA') === (postType === 'QUESTION'))
+                ? initial.subcategory_code : null,
         })
     }
 
@@ -94,9 +91,10 @@ export default function CareerLoungeForm({
                 <label>
                     글 유형
                     <select
-                        value={menu === '직무 Q&A' ? 'QUESTION' : 'EXPERIENCE'}
-                        disabled
-                        aria-label="게시글 주제에 따른 자동 분류"
+                        value={menu === '실무·직무 Q&A' ? postType : 'EXPERIENCE'}
+                        disabled={busy || menu !== '실무·직무 Q&A'}
+                        onChange={(event) => setPostType(event.target.value)}
+                        aria-label="실무·직무 질문 또는 경험 공유 선택"
                     >
                         <option value="EXPERIENCE">실무 경험 공유</option>
                         <option value="QUESTION">직무 질문</option>

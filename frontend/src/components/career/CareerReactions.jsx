@@ -1,6 +1,5 @@
 
 import { useEffect, useRef, useState } from 'react'
-import '../../styles/CareerReactions.css'
 
 import {
     createCareerComment,

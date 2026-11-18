@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminApi } from '../../services/adminApi'
-import '../../styles/adminReports.css'
 
 const REWARD_LABELS = {
   PARTICIPATION: '모임 참여 인증',

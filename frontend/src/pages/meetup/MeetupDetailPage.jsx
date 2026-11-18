@@ -364,7 +364,7 @@ export default function MeetupDetailPage({
         disabled={busy}
         onClick={onBack}
       >
-        ← 목록으로
+        ← 모임 목록으로
       </button>
 
       <article className="meetup-detail-card">

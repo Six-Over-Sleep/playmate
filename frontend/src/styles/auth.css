@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap');
+/* --- auth.css (preserved original rules) --- */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css');
 
 * {
   box-sizing: border-box;
@@ -660,3 +661,321 @@ button {
   background: #ffffff;
   color: #493278;
 }
+
+/* =============================================================
+   PlayMate 2026 · Auth pages redesign
+   로그인·회원가입 공통 UI만 수정합니다. 인증 / 가입 로직 변경 없음.
+   ============================================================= */
+.auth-page {
+  --auth-ink: #172231;
+  --auth-muted: #71849c;
+  --auth-blue: #4e82c8;
+  --auth-blue-strong: #3478c7;
+  --auth-pale: #edf5ff;
+  --auth-border: #dbe8fa;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: linear-gradient(180deg, #f4f9ff 0%, #ebf4ff 65%, #f6faff 100%);
+  color: var(--auth-ink);
+  font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', sans-serif;
+}
+
+.auth-page :is(button, input, select) {
+  font-family: inherit;
+}
+
+/* 로그인: 가벼운 흰색 카드와 헤더와 동일한 잉크 네이비 로고 영역 */
+.auth-page .login-main-centered {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+}
+.auth-page .login-container-centered {
+  display: block;
+  width: min(100%, 450px);
+  max-width: 450px;
+}
+.auth-page .login-container-centered .login-card {
+  width: 100%;
+  /* 카드 바깥 여유를 늘리되 PC 버튼의 실제 너비는 유지 */
+  padding: 44px clamp(22px, 4vw, 43px) 42px;
+  background: #fff;
+  border: 1px solid var(--auth-border);
+  border-radius: 21px;
+  box-shadow: 0 18px 42px rgba(50, 95, 157, .075);
+  text-align: center;
+}
+.auth-page .login-card-logo,
+.auth-page .signup-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  margin: 0 auto 25px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.auth-page .login-card-logo img {
+  display: block;
+  width: min(100%, 200px);
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+.auth-page .login-card-description {
+  margin: 0 0 28px;
+  color: var(--auth-muted);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+.auth-page .discord-login-button {
+  grid-template-columns: 26px minmax(0, 1fr) 26px;
+  width: calc(100% - 24px);
+  margin-inline: auto;
+  min-height: 55px;
+  padding: 0 17px;
+  border: none;
+  border-radius: 13px;
+  background: var(--auth-blue);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 750;
+  box-shadow: none;
+  transition: background .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+.auth-page .discord-login-button:hover {
+  background: var(--auth-blue-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 19px rgba(52, 120, 199, .16);
+}
+.auth-page .discord-login-button:active { transform: translateY(0); }
+.auth-page .discord-icon {
+  font-size: 19px;
+  line-height: 1;
+}
+.auth-page .login-arrow {
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1;
+}
+.auth-page .signup-text-button {
+  margin-top: 17px;
+  padding: 6px 12px;
+  color: #6688b1;
+  font-size: 13px;
+  font-weight: 700;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+}
+.auth-page .signup-text-button:hover {
+  color: var(--auth-blue-strong);
+  background: #eef6ff;
+  text-decoration: none;
+}
+
+/* 회원가입: 폼 밀도·라벨·입력·선택·버튼을 동일한 블루 톤으로 통일 */
+.auth-page .signup-main {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 46px 20px 62px;
+}
+.auth-page .signup-card {
+  width: min(100%, 600px);
+  padding: 34px 42px 40px;
+  border: 1px solid var(--auth-border);
+  border-radius: 25px;
+  background: #fff;
+  box-shadow: 0 18px 42px rgba(50, 95, 157, .075);
+}
+.auth-page .signup-back-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 4px;
+  margin: 0 0 13px;
+  color: #7389a4;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.auth-page .signup-back-button:hover { color: var(--auth-blue-strong); }
+.auth-page .signup-logo {
+  padding: 0;
+  margin-bottom: 28px;
+}
+.auth-page .signup-logo img {
+  display: block;
+  width: min(100%, 206px);
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+.auth-page .signup-heading { margin-bottom: 26px; }
+.auth-page .signup-heading h1 {
+  margin: 0;
+  color: var(--auth-ink);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -.7px;
+}
+.auth-page .signup-heading p {
+  margin: 8px 0 0;
+  color: var(--auth-muted);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.6;
+  word-break: keep-all;
+}
+.auth-page .signup-form { gap: 18px; }
+.auth-page .signup-field { gap: 9px; min-width: 0; }
+.auth-page .signup-field > span {
+  color: #293c55;
+  font-size: 13px;
+  font-weight: 750;
+}
+.auth-page .signup-field b { color: #5298cf; }
+.auth-page .signup-field input,
+.auth-page .signup-field select {
+  width: 100%;
+  min-height: 49px;
+  padding: 0 15px;
+  border: 1px solid var(--auth-border);
+  border-radius: 12px;
+  background-color: #f8fbff;
+  color: #2b3e56;
+  font-size: 13px;
+  font-weight: 550;
+  transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+}
+.auth-page .signup-field select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%237a95b1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 14px center;
+  background-repeat: no-repeat;
+  background-size: 18px;
+}
+.auth-page .signup-field input::placeholder { color: #98aabd; }
+.auth-page .signup-field input:hover:not(:disabled),
+.auth-page .signup-field select:hover:not(:disabled) { border-color: #bed7f2; }
+.auth-page .signup-field input:focus,
+.auth-page .signup-field select:focus {
+  outline: none;
+  border-color: #6fa6de;
+  background-color: #fff;
+  box-shadow: 0 0 0 3px rgba(104, 163, 222, .16);
+}
+.auth-page .signup-field input:disabled,
+.auth-page .signup-field select:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  background-color: #f4f7fb;
+  color: #91a0b1;
+}
+.auth-page .signup-field small {
+  color: #8397ae;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.auth-page .discord-auth-button {
+  width: 100%;
+  min-height: 49px;
+  border: 1px solid #cddff4;
+  border-radius: 12px;
+  background: #edf5ff;
+  color: #376eaf;
+  font-size: 13px;
+  font-weight: 750;
+  box-shadow: none;
+}
+.auth-page .discord-auth-button:hover:not(:disabled) {
+  background: #e3efff;
+  border-color: #adcbf0;
+  transform: none;
+}
+.auth-page .discord-auth-button:disabled { opacity: .65; cursor: wait; }
+.auth-page .discord-verified input {
+  border-color: #b8dfd0 !important;
+  background: #f1faf6 !important;
+  color: #3b8069 !important;
+}
+.auth-page .discord-verified .signup-status-icon {
+  color: #248462;
+  background: #d6f2e7;
+}
+.auth-page .discord-success { color: #338768 !important; }
+.auth-page .signup-submit-button {
+  width: 100%;
+  min-height: 53px;
+  margin-top: 7px;
+  border: none;
+  border-radius: 12px;
+  background: var(--auth-blue);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: none;
+}
+.auth-page .signup-submit-button:hover:not(:disabled) {
+  background: var(--auth-blue-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 19px rgba(52, 120, 199, .16);
+}
+.auth-page .signup-submit-button:disabled {
+  background: #e3e9f2;
+  color: #92a4bb;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.auth-page :is(button, input, select):focus-visible {
+  outline: 3px solid rgba(91, 164, 234, .42);
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  .auth-page .login-main-centered { padding: 24px 14px; }
+  /* 로그인 카드 크기와 내부 여백은 PC와 동일하게 유지 */
+  .auth-page .login-card-logo { padding: 0; }
+  .auth-page .login-card-logo img { width: min(100%, 194px); }
+  .auth-page .signup-main { padding: 25px 14px 40px; }
+  .auth-page .signup-card { padding: 25px 22px 30px; border-radius: 21px; }
+  .auth-page .signup-logo img { width: min(100%, 184px); }
+  .auth-page .signup-heading h1 { font-size: 26px; }
+  .auth-page .signup-form { gap: 17px; }
+}
+
+
+/* PlayMate 모바일 공통 좌우 페이지 여백 (메인 화면과 동일한 기준) */
+@media (max-width: 880px) {
+  .auth-page .login-main-centered,
+  .auth-page .signup-main {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+@media (max-width: 580px) {
+  .auth-page .login-main-centered,
+  .auth-page .signup-main {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+

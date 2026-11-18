@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import '../../styles/CareerPage.css'
 import CareerReviewForm from '../../components/career/CareerReviewForm'
 import CareerReviewDetailPage from './CareerReviewDetailPage'
 import CareerTalkForm from '../../components/career/CareerTalkForm'
@@ -12,6 +11,7 @@ import CareerLabDetailPage from './CareerLabDetailPage'
 import CareerBriefing from '../../components/career/CareerBriefing'
 import CareerInsights from '../../components/career/CareerInsights'
 import CareerReactions from '../../components/career/CareerReactions'
+import { getCareerMenuLabels, getCareerMenuLabel, getCareerMenuCode, getCareerMenuQuery } from '../../data/careerMenuGroups'
 import {
     createCareerReview,
     getCareerReviews,
@@ -46,22 +46,22 @@ const CATEGORIES = [
     {
         id: 'reviews', name: '취준 도감', icon: 'book',
         description: '전형별 합격·탈락 후기',
-        menus: ['전체', '서류 도감', '코테·과제 도감', '면접 도감', '최종 결과', '취업 성공기'],
+        menus: ['전체', ...getCareerMenuLabels('reviews')],
     },
     {
         id: 'talk', name: '커리어 톡톡', icon: 'chat',
         description: '취업과 이직 이야기',
-        menus: ['전체', '취업 고민', '이직 고민', '진로 고민', '취준 일상', '취업 근황', '연봉·처우 고민'],
+        menus: ['전체', ...getCareerMenuLabels('talk')],
     },
     {
         id: 'lounge', name: '현직자 라운지', icon: 'users',
         description: '졸업생과 현직자 이야기',
-        menus: ['전체', '현직자의 하루', '실무 기술', '회사 생활', '직무 Q&A', '주니어 생존기', '졸업생 인터뷰'],
+        menus: ['전체', ...getCareerMenuLabels('lounge')],
     },
     {
         id: 'lab', name: '커리어 연구소', icon: 'light',
         description: '질문·토론·피드백',
-        menus: ['전체', '취업 전략', '포트폴리오 피드백', '이력서·자소서', '기술면접 스터디', '자격증·스펙 전략', '직무 비교'],
+        menus: ['전체', ...getCareerMenuLabels('lab')],
     },
     {
         id: 'briefing', name: '커리어 브리핑', icon: 'news',
@@ -71,22 +71,7 @@ const CATEGORIES = [
     },
 ]
 
-// 취준 도감에 표시할 메뉴와 API에서 사용하는 값의 대응표
-const REVIEW_MENU_CODES = {
-    '전체': null,
-    '서류 도감': 'DOCUMENT',
-    '코테·과제 도감': 'CODING_ASSIGNMENT',
-    '면접 도감': 'INTERVIEW',
-    '최종 결과': 'FINAL',
-    '취업 성공기': 'SUCCESS',
-}
-
-const REVIEW_MENU_NAMES = Object.fromEntries(
-    Object.entries(REVIEW_MENU_CODES)
-        .filter(([, code]) => code)
-        .map(([name, code]) => [code, name])
-)
-
+// 통합 세부 메뉴는 data/careerMenuGroups.js에서 관리합니다.
 const JOB_CATEGORY_CODES = {
     '소프트웨어 개발': 'SOFTWARE_DEVELOPMENT',
     '데이터·AI': 'DATA_AI',
@@ -117,29 +102,12 @@ const APPLICATION_TYPE_CODES = {
     EXPERIENCED: 'EXPERIENCED',
 }
 
-// 커리어 연구소 하위 메뉴 ↔ 서버 코드
-const LAB_MENU_CODES = {
-    '전체': null,
-    '취업 전략': 'JOB_STRATEGY',
-    '포트폴리오 피드백': 'PORTFOLIO_FEEDBACK',
-    '이력서·자소서': 'RESUME',
-    '기술면접 스터디': 'TECH_INTERVIEW',
-    '자격증·스펙 전략': 'CERTIFICATION',
-    '직무 비교': 'JOB_COMPARISON',
-}
-
-const LAB_MENU_NAMES = Object.fromEntries(
-    Object.entries(LAB_MENU_CODES)
-        .filter(([, code]) => code)
-        .map(([name, code]) => [code, name])
-)
-
 const LAB_PAGE_SIZE = 10
 
 function toLabPost(data) {
     return {
         ...data,
-        menu: LAB_MENU_NAMES[data.subcategory_code] || '취업 전략',
+        menu: getCareerMenuLabel('lab', data.subcategory_code) || '취업 전략·스펙',
         summary: data.body_preview || data.body?.slice(0, 150) || '',
         author: data.author_name,
         date: data.created_at
@@ -152,7 +120,7 @@ function toLabPost(data) {
 }
 
 function toLabPayload(form) {
-    const subcategory = form.subcategory_code || LAB_MENU_CODES[form.menu]
+    const subcategory = form.subcategory_code || getCareerMenuCode('lab', form.menu)
     const title = String(form.title || '').trim()
     const body = String(form.body || '').trim()
 
@@ -184,23 +152,6 @@ function toLabPayload(form) {
 
     return payload
 }
-// 커리어 톡톡 화면 선택값 <-> 서버 코드
-const TALK_MENU_CODES = {
-    '전체': null,
-    '취업 고민': 'JOB_SEARCH',
-    '이직 고민': 'JOB_CHANGE',
-    '진로 고민': 'CAREER_PATH',
-    '취준 일상': 'DAILY',
-    '취업 근황': 'UPDATE',
-    '연봉·처우 고민': 'SALARY',
-}
-
-const TALK_MENU_NAMES = Object.fromEntries(
-    Object.entries(TALK_MENU_CODES)
-        .filter(([, code]) => code)
-        .map(([name, code]) => [code, name])
-)
-
 const TALK_STATUS_CODES = {
     '취업 준비 중': 'PREPARING',
     '신입': 'NEW',
@@ -215,30 +166,13 @@ const TALK_STATUS_NAMES = Object.fromEntries(
 
 const TALK_PAGE_SIZE = 10
 
-// 현직자 라운지 하위 카테고리 ↔ API 코드
-const LOUNGE_MENU_CODES = {
-    '전체': null,
-    '현직자의 하루': 'DAILY_WORK',
-    '실무 기술': 'WORK_SKILLS',
-    '회사 생활': 'COMPANY_LIFE',
-    '직무 Q&A': 'JOB_QNA',
-    '주니어 생존기': 'JUNIOR_TIPS',
-    '졸업생 인터뷰': 'ALUMNI_INTERVIEW',
-}
-
-const LOUNGE_MENU_NAMES = Object.fromEntries(
-    Object.entries(LOUNGE_MENU_CODES)
-        .filter(([, code]) => code)
-        .map(([name, code]) => [code, name])
-)
-
 const LOUNGE_PAGE_SIZE = 10
 
 // API 응답을 기존 라운지 화면 표시값으로 변환
 function toLoungePost(data) {
     return {
         ...data,
-        menu: LOUNGE_MENU_NAMES[data.subcategory_code] || '현직자의 하루',
+        menu: getCareerMenuLabel('lounge', data.subcategory_code) || '현직 생활',
         summary: data.body_preview || data.body?.slice(0, 150) || '',
         author: data.author_name,
         date: data.created_at
@@ -256,7 +190,9 @@ function toLoungePost(data) {
 
 // 실제 Backend의 CareerLoungeCreate/Update 필드만 전송
 function toLoungePayload(form) {
-    const subcategory = LOUNGE_MENU_CODES[form.menu]
+    const subcategory = form.subcategory_code || (form.menu === '실무·직무 Q&A' && form.post_type === 'QUESTION'
+        ? 'JOB_QNA'
+        : getCareerMenuCode('lounge', form.menu))
     if (!subcategory) {
         throw new Error('게시글 주제를 선택해 주세요.')
     }
@@ -294,7 +230,7 @@ function toLoungePayload(form) {
 function toTalkPost(data) {
     return {
         ...data,
-        menu: TALK_MENU_NAMES[data.subcategory_code] || '취업 고민',
+        menu: getCareerMenuLabel('talk', data.subcategory_code) || '취업·진로 고민',
         summary: data.body_preview || data.body?.slice(0, 150) || '',
         author: data.author_name,
         date: data.created_at
@@ -312,7 +248,7 @@ function toTalkPost(data) {
 
 // 기존 TalkForm의 한글 값 -> CareerTalkCreate/Update 형식으로 변환
 function toTalkPayload(form) {
-    const subcategory = TALK_MENU_CODES[form.menu]
+    const subcategory = form.subcategory_code || getCareerMenuCode('talk', form.menu)
     if (!subcategory) {
         throw new Error('고민 유형을 선택해 주세요.')
     }
@@ -343,7 +279,7 @@ const REVIEW_PAGE_SIZE = 10
 function toReviewPost(data) {
     return {
         ...data,
-        menu: REVIEW_MENU_NAMES[data.subcategory_code] || '서류 도감',
+        menu: getCareerMenuLabel('reviews', data.subcategory_code) || '서류 후기',
         summary: data.body_preview || data.body?.slice(0, 150) || '',
         author: data.author_name,
         date: data.created_at
@@ -391,6 +327,20 @@ function toReviewPayload(form) {
     return data
 }
 
+// 취업 게시글 목록: 같은 선 두께의 좋아요·댓글·스크랩 아이콘.
+function CareerMetricIcon({ type }) {
+    const shapes = {
+        like: <path d="M20.4 5.6a4.6 4.6 0 0 0-6.5 0L12 7.5l-1.9-1.9a4.6 4.6 0 0 0-6.5 6.5L12 20.5l8.4-8.4a4.6 4.6 0 0 0 0-6.5Z" />,
+        comment: <><path d="M20.5 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-3.6-.8L3 21l1.8-5.4a9 9 0 0 1-.8-3.6 8.5 8.5 0 1 1 16.5-.5Z" /><path d="M8 11.5h8M8 15h5" /></>,
+        scrap: <path d="M6 3.5h12a1 1 0 0 1 1 1V21l-7-4.5L5 21V4.5a1 1 0 0 1 1-1Z" />,
+    }
+    return (
+        <svg className="career-post-metric-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {shapes[type]}
+        </svg>
+    )
+}
+
 // 기존 카테고리 카드 아이콘을 그대로 사용합니다.
 function CategoryIcon({ type }) {
     const common = {
@@ -416,11 +366,10 @@ function CategoryIcon({ type }) {
 // URL에서 현재 카테고리와 게시글 ID를 읽습니다.
 function parseCareerPath(pathname) {
     const parts = pathname.split('/').filter(Boolean)
+    // /career와 알 수 없는 경로의 기본 화면은 채용 인사이트입니다.
     const requestedCategory = CATEGORIES.some((item) => item.id === parts[1])
         ? parts[1]
-        : 'reviews'
-    // 채용 인사이트는 외부 채용 데이터 API 연동 전까지 비활성화합니다.
-    // /career, /career/insights로 직접 접근해도 취준 도감으로 진입합니다.
+        : 'insights'
     const category = requestedCategory
     const isPostCategory = ['reviews', 'talk', 'lounge', 'lab'].includes(category)
     const postId = isPostCategory && /^\d+$/.test(parts[2] || '')
@@ -582,7 +531,7 @@ export default function CareerPage() {
                     page: reviewPage,
                     page_size: REVIEW_PAGE_SIZE,
                     q: keyword || undefined,
-                    subcategory_code: REVIEW_MENU_CODES[activeMenu] || undefined,
+                    ...getCareerMenuQuery('reviews', activeMenu),
                 })
 
                 if (!canceled) {
@@ -618,7 +567,7 @@ export default function CareerPage() {
                     page: talkPage,
                     page_size: TALK_PAGE_SIZE,
                     q: keyword || undefined,
-                    subcategory_code: TALK_MENU_CODES[activeMenu] || undefined,
+                    ...getCareerMenuQuery('talk', activeMenu),
                 })
 
                 if (!canceled) {
@@ -654,7 +603,7 @@ export default function CareerPage() {
                     page: loungePage,
                     page_size: LOUNGE_PAGE_SIZE,
                     q: keyword || undefined,
-                    subcategory_code: LOUNGE_MENU_CODES[activeMenu] || undefined,
+                    ...getCareerMenuQuery('lounge', activeMenu),
                 })
 
                 if (!canceled) {
@@ -689,7 +638,7 @@ export default function CareerPage() {
                     page: labPage,
                     page_size: LAB_PAGE_SIZE,
                     q: keyword || undefined,
-                    subcategory_code: LAB_MENU_CODES[activeMenu] || undefined,
+                    ...getCareerMenuQuery('lab', activeMenu),
                 })
                 if (!canceled) {
                     setServerLabs(response.items.map(toLabPost))
@@ -1269,6 +1218,26 @@ export default function CareerPage() {
         }
     }
 
+    // 카테고리별 글쓰기 화면은 하나의 공통 헤더를 사용합니다.
+    const isCareerEditor = (
+        (activeId === 'reviews' && reviewView === 'editor') ||
+        (activeId === 'talk' && talkView === 'editor') ||
+        (activeId === 'lounge' && loungeView === 'editor') ||
+        (activeId === 'lab' && labView === 'editor')
+    )
+    const isEditingCareerPost = isCareerEditor && (
+        (activeId === 'reviews' && editingReview) ||
+        (activeId === 'talk' && editingTalk) ||
+        (activeId === 'lounge' && editingLoungePost) ||
+        (activeId === 'lab' && editingLabPost)
+    )
+    const careerEditorHelp = {
+        reviews: '작성한 후기는 PLAYMATE 서버에 저장됩니다. 본문은 500자 이상 입력해 주세요.',
+        talk: '자유롭게 고민과 경험을 나누는 공간입니다. 작성한 글은 서버에 저장됩니다.',
+        lounge: '실무 경험과 직무 질문을 나눠요. 작성한 글은 서버에 저장됩니다.',
+        lab: '질문·토론 게시글이 서버에 저장됩니다. 피드백 요청은 질문 유형으로 등록해 주세요.',
+    }
+
     return (
         <main className="career-page">
             <div className="career-container">
@@ -1304,11 +1273,11 @@ export default function CareerPage() {
                     ))}
                 </nav>
 
-                <section className="career-board" aria-label={`${active.name} 콘텐츠`}>
+                <section className={`career-board ${isCareerEditor ? 'career-board--editor' : ''}`} aria-label={`${active.name} 콘텐츠`}>
                     <div className="career-section-head">
                         <div>
-                            <span className="career-eyebrow">{activeId === 'briefing' ? 'CAREER NEWS' : activeId === 'insights' ? 'JOB MARKET ANALYTICS' : 'CAREER COMMUNITY'}</span>
-                            <h2>{active.name}</h2>
+                            <span className="career-eyebrow">{isCareerEditor ? active.name : activeId === 'briefing' ? 'CAREER NEWS' : activeId === 'insights' ? 'JOB MARKET ANALYTICS' : 'CAREER COMMUNITY'}</span>
+                            <h2>{isCareerEditor ? (isEditingCareerPost ? '게시글 수정' : '게시글 작성') : active.name}</h2>
                         </div>
 
                         {activeId !== 'insights' && activeId !== 'briefing' && (
@@ -1343,6 +1312,7 @@ export default function CareerPage() {
                                     : '+ 글쓰기'}
                             </button>
                         )}
+                        {isCareerEditor && <p className="career-editor-intro">{careerEditorHelp[activeId]}</p>}
                     </div>
 
                     {(activeId === 'reviews' || activeId === 'talk' || activeId === 'lounge' || activeId === 'lab') && notice && (
@@ -1362,10 +1332,6 @@ export default function CareerPage() {
 
                     {activeId === 'reviews' && reviewView === 'editor' ? (
                         <div className="career-review-editor">
-                            <h3>{editingReview ? '후기 수정' : '후기 작성'}</h3>
-                            <p className="career-review-help">
-                                작성한 후기는 PLAYMATE 서버에 저장됩니다. 본문은 500자 이상 입력해 주세요.
-                            </p>
                             <CareerReviewForm
                                 key={editingReview ? `edit-${selectedReview.id}` : 'new'}
                                 initial={editingReview ? selectedReview : null}
@@ -1400,10 +1366,6 @@ export default function CareerPage() {
                         </div>
                     ) : activeId === 'talk' && talkView === 'editor' ? (
                         <div className="career-talk-editor">
-                            <h3>{editingTalk ? '커리어 톡톡 글 수정' : '커리어 톡톡 글쓰기'}</h3>
-                            <p className="career-talk-help">
-                                자유롭게 고민과 경험을 나누는 공간입니다. 작성한 글은 서버에 저장됩니다.
-                            </p>
                             <CareerTalkForm
                                 key={editingTalk ? `talk-edit-${selectedTalk.id}` : 'talk-new'}
                                 initial={editingTalk ? selectedTalk : null}
@@ -1438,10 +1400,6 @@ export default function CareerPage() {
                         </CareerTalkDetailPage>
                     ) : activeId === 'lounge' && loungeView === 'editor' ? (
                         <div className="career-lounge-editor">
-                            <h3>{editingLoungePost ? '현직자 라운지 글 수정' : '현직자 라운지 글쓰기'}</h3>
-                            <p className="career-lounge-help">
-                                실무 경험과 직무 질문을 나눠요. 작성한 글은 서버에 저장됩니다.
-                            </p>
                             <CareerLoungeForm
                                 key={editingLoungePost ? `lounge-edit-${selectedLoungePost.id}` : 'lounge-new'}
                                 initial={editingLoungePost ? selectedLoungePost : null}
@@ -1476,10 +1434,6 @@ export default function CareerPage() {
                         </CareerLoungeDetailPage>
                     ) : activeId === 'lab' && labView === 'editor' ? (
                         <div className="career-lab-editor">
-                            <h3>{editingLabPost ? '커리어 연구소 글 수정' : '커리어 연구소 글쓰기'}</h3>
-                            <p className="career-lab-help">
-                                질문·토론 게시글이 서버에 저장됩니다. 피드백 요청은 질문 유형으로 등록해 주세요.
-                            </p>
                             <CareerLabForm
                                 key={editingLabPost ? `lab-edit-${selectedLabPost.id}` : 'lab-new'}
                                 initial={editingLabPost ? selectedLabPost : null}
@@ -1608,20 +1562,20 @@ export default function CareerPage() {
 
                                             {activeId === 'lab' && item.post_type === 'QUESTION' && (
                                                 <span className={`career-lab-state ${item.is_resolved ? 'is-complete' : 'is-open'}`}>
-                                                    {item.is_resolved ? '✓ 해결 완료' : '○ 미해결'}
+                                                    {item.is_resolved ? '해결 완료' : '미해결'}
                                                 </span>
                                             )}
 
                                             {activeId === 'lab' && item.post_type === 'DISCUSSION' && (
                                                 <span className="career-lab-state is-discussion">
-                                                    ◇ 토론
+                                                    토론
                                                 </span>
                                             )}
 
                                             {/* 커리어 가이드 유형 표시 */}
                                             {activeId === 'lab' && item.post_type === 'GUIDE' && (
                                                 <span className="career-lab-state is-guide">
-                                                    ✦ 커리어 가이드
+                                                    커리어 가이드
                                                 </span>
                                             )}
                                         </div>
@@ -1650,8 +1604,20 @@ export default function CareerPage() {
                                         <div className="career-post-footer">
                                             <strong>{item.author}</strong>
                                             <span>{item.date}</span>
-                                            <span>♡ {item.isServer ? item.like_count ?? 0 : item.likes}</span>
-                                            <span>♧ {item.isServer ? item.comment_count ?? 0 : item.comments}</span>
+                                            <span className="career-post-metrics" aria-label="게시글 반응">
+                                                <span className="career-post-metric" title="댓글" aria-label={`댓글 ${item.isServer ? item.comment_count ?? 0 : item.comments ?? 0}개`}>
+                                                    <CareerMetricIcon type="comment" />
+                                                    <span>{item.isServer ? item.comment_count ?? 0 : item.comments ?? 0}</span>
+                                                </span>
+                                                <span className="career-post-metric" title="좋아요" aria-label={`좋아요 ${item.isServer ? item.like_count ?? 0 : item.likes ?? 0}개`}>
+                                                    <CareerMetricIcon type="like" />
+                                                    <span>{item.isServer ? item.like_count ?? 0 : item.likes ?? 0}</span>
+                                                </span>
+                                                <span className="career-post-metric" title={item.scrap_count == null ? '스크랩 수 정보 없음' : '스크랩'} aria-label={`스크랩 ${item.scrap_count == null ? '수 정보 없음' : `${item.scrap_count}개`}`}>
+                                                    <CareerMetricIcon type="scrap" />
+                                                    <span>{item.scrap_count ?? '—'}</span>
+                                                </span>
+                                            </span>
                                         </div>
                                     </article>
                                 )) : (

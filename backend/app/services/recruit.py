@@ -184,46 +184,52 @@ def get_recruit_post(db: Session, recruit_id: int) -> Post:
     return post
 
 
-def get_recruit(db: Session, recruit_id: int, member_id: int | None = None):
-    """게시글·모임·카테고리 상세를 조회한 후 기존 응답 형태로 구성함.
+def get_recruit(
+    db: Session,
+    recruit_id: int,
+    member_id: int | None = None,
+    *,
+    include_context: bool = False,
+    include_program_history: bool = False,
+):
+    """기존 상세 응답을 유지하면서 참여자·인원을 함께 반환한다.
 
-    member_id는 로그인한 경우에만 전달되며, 좋아요·스크랩·참여·모임장 여부 계산에 사용함.
-    로그인하지 않았으면 네 값 모두 False임.
+    include_context는 Dispatch가 기존 종류 변경 권한을 추가 SQL 없이 판단할 때만
+    사용한다. 공개 서비스 호출의 반환값은 이전과 같이 dict이다.
     """
-    # 삭제되지 않은 게시글과 모임 정보를 JOIN하여 함께 조회함.
-    result = recruit_repo.find_recruit_with_post(db, recruit_id)
-    if result is None:
+    row = recruit_repo.legacy_detail_snapshot(
+        db, recruit_id, member_id,
+        include_program_history=include_program_history,
+    )
+    if row is None:
         raise HTTPException(status_code=404, detail="모임이 없습니다.")
 
-    # 반환된 (게시글, 모임) 결과를 각각의 변수로 분리함.
-    post, recruit = result
-    # 저장된 카테고리에 맞는 상세 모델을 선택함.
-    detail_model = DETAIL_MODELS.get(recruit.category)
-    if detail_model is None:
-        raise HTTPException(
-            status_code=400,
-            detail="지원하지 않는 모임 카테고리입니다.",
-        )
+    (
+        post, recruit, sports_detail, game_detail, study_detail,
+        group_buy_detail, like_count, liked_by_me, scrapped_by_me,
+        member_role, member_status, history,
+    ) = row
 
-    # 운동·게임·스터디·공동구매 중 해당 상세 정보를 조회함.
-    detail = recruit_repo.get_category_detail(db, detail_model, recruit_id)
+    category_details = {
+        "sports": sports_detail,
+        "game": game_detail,
+        "study": study_detail,
+        "group_buy": group_buy_detail,
+    }
+    if recruit.category not in DETAIL_MODELS:
+        raise HTTPException(status_code=400, detail="지원하지 않는 모임 카테고리입니다.")
 
-    # 로그인 회원의 참여 기록으로 참여 여부(JOINED)와 모임장(HOST) 여부를 계산함.
-    my_member = (
-        recruit_repo.find_member(db, recruit_id, member_id)
-        if member_id is not None
-        else None
-    )
-
-    # 게시글 정보 + 모임 정보 + 카테고리 상세 정보를 한 응답으로 합침.
-    return {
+    members = recruit_repo.list_joined_members_with_profiles(db, recruit_id)
+    joined_count = len(members)
+    capacity = recruit.capacity
+    result = {
         "recruit_id": recruit.recruit_id,
         "creator_member_id": post.author_member_id,
         "is_owner": member_id is not None and post.author_member_id == member_id,
         "title": post.title,
         "body": post.body,
         "category": recruit.category,
-        "capacity": recruit.capacity,
+        "capacity": capacity,
         "state": recruit.state,
         "recruit_mode": recruit.recruit_mode,
         "deadline_at": recruit.deadline_at,
@@ -235,15 +241,25 @@ def get_recruit(db: Session, recruit_id: int, member_id: int | None = None):
         "place": recruit.place,
         "is_online": recruit.is_online,
         "contact_method": recruit.contact_method,
-        "detail": _serialize_category_detail(detail),
-        "like_count": recruit_repo.count_post_likes(db, post.post_id),
-        "liked_by_me": member_id is not None
-        and recruit_repo.has_post_like(db, post.post_id, member_id),
-        "scrapped_by_me": member_id is not None
-        and recruit_repo.has_post_scrap(db, post.post_id, member_id),
-        "joined_by_me": my_member is not None and my_member.status == "JOINED",
-        "is_host": my_member is not None and my_member.role == "HOST",
+        "detail": _serialize_category_detail(category_details[recruit.category]),
+        "like_count": int(like_count or 0),
+        "liked_by_me": bool(liked_by_me),
+        "scrapped_by_me": bool(scrapped_by_me),
+        "joined_by_me": member_status == "JOINED",
+        "is_host": member_role == "HOST",
+        # 추가 필드만 포함한다. 기존 /members·/count API도 유지된다.
+        "members": members,
+        "participant_count": joined_count,
+        "participation": {
+            "recruit_id": recruit_id,
+            "current_members": joined_count,
+            "capacity": capacity,
+            "remaining": max(0, capacity - joined_count),
+        },
     }
+    if include_context:
+        return result, (recruit, post, bool(history))
+    return result
 
 
 def _serialize_category_detail(detail):

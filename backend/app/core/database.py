@@ -6,7 +6,9 @@
 여러 개발자가 같은 DB를 사용하면 각 서버 프로세스가 별도 풀을 갖습니다.
 """
 
+import logging
 import os
+from time import perf_counter
 
 import psycopg
 from sqlalchemy import create_engine, event
@@ -49,17 +51,34 @@ DATABASE_URL = URL.create(
 )
 
 
-# 기본 SQLAlchemy 연결 풀(5+10)이 공유 DB의 연결 한도를 소진하지 않게 제한.
-# 프로세스당 ORM 연결 최대 1개, 초과 요청은 최대 15초 대기합니다.
+# 공유 DB에서는 기존 기본값(1개)을 유지하고, AWS RDS로 전환한 뒤
+# 전체 연결 예산에 맞춰 환경 변수로 조정할 수 있게 한다.
+# 예: DB_POOL_SIZE=2 / DB_POOL_TIMEOUT=10 (서버 프로세스마다 별도 풀)
+def _bounded_int(name, default, minimum, maximum):
+    raw = os.getenv(name, str(default))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name}은 정수여야 합니다.") from None
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{name}은 {minimum}~{maximum} 범위여야 합니다.")
+    return value
+
+
+DB_POOL_SIZE = _bounded_int("DB_POOL_SIZE", 1, 1, 10)
+DB_POOL_TIMEOUT = _bounded_int("DB_POOL_TIMEOUT", 15, 1, 60)
+DB_SLOW_QUERY_MS = _bounded_int("DB_SLOW_QUERY_MS", 500, 0, 60000)
+_db_logger = logging.getLogger(__name__)
+
 engine = create_engine(
     DATABASE_URL,
     connect_args={
         "connect_timeout": 10,
         "application_name": os.getenv("DB_APPLICATION_NAME", "playmate") + "_orm",
     },
-    pool_size=1,
-    max_overflow=0,
-    pool_timeout=15,
+    pool_size=DB_POOL_SIZE,
+    max_overflow=0,  # 연결 폭증 방지: 여유 연결을 명시적으로 만들지 않음
+    pool_timeout=DB_POOL_TIMEOUT,
     pool_pre_ping=True,
     pool_recycle=900,
 )
@@ -69,6 +88,24 @@ engine = create_engine(
 @event.listens_for(engine, "do_connect")
 def _enforce_sslmode(dialect, conn_rec, cargs, cparams):
     cparams["sslmode"] = _sslmode()
+
+
+# DB 내부 SQL 실행 시간만 기록한다(풀 대기·네트워크 연결 수립 시간 제외).
+# 파라미터 및 SQL 본문은 기록하지 않아 개인정보/세션 데이터가 노출되지 않는다.
+@event.listens_for(engine, "before_cursor_execute")
+def _before_sql(conn, cursor, statement, parameters, context, executemany):
+    if DB_SLOW_QUERY_MS > 0:
+        context._playmate_sql_started = perf_counter()
+
+
+@event.listens_for(engine, "after_cursor_execute")
+def _after_sql(conn, cursor, statement, parameters, context, executemany):
+    started = getattr(context, "_playmate_sql_started", None)
+    if started is None:
+        return
+    duration_ms = (perf_counter() - started) * 1000
+    if duration_ms >= DB_SLOW_QUERY_MS:
+        _db_logger.warning("Slow DB query: %.0f ms (statement omitted)", duration_ms)
 
 
 SessionLocal = sessionmaker(

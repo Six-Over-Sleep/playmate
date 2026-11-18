@@ -1,0 +1,459 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css');
+
+/* PlayMate 2026 redesign: 공통 컬러와 섹션별 전용 레이아웃.
+   기존 API·상세·에디터 기능은 변경하지 않습니다. */
+:root {
+  --pm-ink: #172231;
+  --pm-muted: #71849c;
+  --pm-blue: #4c8acc;
+  --pm-blue-strong: #3478c7;
+  --pm-blue-pale: #e9f3ff;
+  --pm-border: #dbe9fa;
+  --pm-surface: #fff;
+  --pm-shadow: 0 12px 32px rgba(49, 103, 165, .055);
+  --pm-content-max: 1200px;
+  --pm-page-gutter: 24px;
+  font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', sans-serif;
+  color: var(--pm-ink);
+  /* 서브페이지 공통 배경: 쿨그레이 */
+  --pm-subpage-background: #f7f9fc;
+  background: var(--pm-subpage-background);
+}
+/* 게시판·모임·취업·마이페이지 공통 배경; 홈 콘텐츠 자체 배경은 기존 설정 유지 */
+body { background: var(--pm-subpage-background); color: var(--pm-ink); }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid rgba(91,164,234,.38); outline-offset: 2px; }
+
+/* 상단 네비게이션 - 스크린샷의 네이비/블루 스타일 */
+.app-header {
+  height: 72px; padding: 0 var(--pm-page-gutter);
+  background: #151d29; color: #eaf4ff; border-bottom: 1px solid #263449;
+  box-shadow: 0 2px 15px rgba(9, 21, 39, .1);
+}
+.app-header-inner { display: flex; align-items: center; width: 100%; max-width: var(--pm-content-max); height: 100%; margin: 0 auto; min-width: 0; }
+.app-header .brand { margin-right: 24px; text-decoration: none; min-width: max-content; }
+.app-header .brand-logo { display: block; width: 140px; height: auto; flex: 0 0 auto; object-fit: contain; transform: none; }
+.app-header .app-nav { margin-left: 0; gap: 10px; }
+.app-header .app-nav button { padding: 11px 21px; color: #b6c8dd; border-radius: 13px; font-size: 15px; font-weight: 760; white-space: nowrap; }
+.app-header .app-nav button:hover { color: #fff; background: rgba(132, 180, 241, .11); }
+.app-header .app-nav button.active { background: #eaf2ff; color: #416eaf; box-shadow: none; }
+.app-header .profile-container { display: flex; align-items: center; gap: 19px; }
+.header-notification-icon { color: #a3bedb; font-size: 26px; transform: rotate(-10deg); line-height: 1; opacity: .88; }
+.app-header .profile-avatar { height: 40px; width: 40px; border: 2px solid #304962; background: #6f96c3; }
+.profile-dropdown { color: var(--pm-ink); border-color: var(--pm-border); }
+.profile-dropdown button:hover { background: var(--pm-blue-pale); }
+
+/* 메인: 다크 채용 차트 + 바로가기 + 커뮤니티 카드 */
+.playmate-home { min-height: calc(100vh - 72px); background: #f0f7ff; }
+.home-night-surface { padding: 10px 28px 22px; background: #161d27; }
+.home-insights-shell { max-width: var(--pm-content-max); margin: 0 auto; padding: 25px 24px 20px; border: 1px solid #354150; border-radius: 23px; background: radial-gradient(ellipse at 70% -20%, #263448 0, transparent 48%), #161d27; box-shadow: 0 18px 40px rgba(0,0,0,.12); }
+.home-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 0 4px 19px; color: #fff; }
+.home-section-heading > div { display: flex; align-items: flex-start; gap: 14px; }
+.home-section-marker { display: grid; place-items: center; width: 39px; height: 39px; flex-shrink: 0; border: 1px solid #40546d; border-radius: 12px; color: #b6dcff; font-size: 25px; }
+.home-section-heading h1 { margin: 0 0 8px; font-size: 27px; font-weight: 840; letter-spacing: -.8px; }
+.home-section-heading p { margin: 0; font-size: 13px; color: #b4c4d6; }
+.home-section-heading button, .home-panel-title button { padding: 7px 4px; border: 0; background: transparent; color: #a5d4ff; font-size: 13px; font-weight: 750; white-space: nowrap; }
+.home-section-heading button:hover, .home-panel-title button:hover { color: #fff; }
+.home-section-heading button span { font-size: 20px; vertical-align: -1px; }
+.home-insights-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.home-top-five { min-width: 0; padding: 22px 22px 25px; background: linear-gradient(145deg,#232f40,#181f2c); border: 1px solid #3b4b5f; border-radius: 20px; box-shadow: 0 8px 20px rgba(0,0,0,.08); }
+.home-top-five h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 23px; color: white; font-size: 19px; font-weight: 790; letter-spacing: -.4px; }
+.home-top-five-label { margin-left: 0; color: #a9bbce; font-size: 13px; }
+.home-top-five ol { display: grid; gap: 16px; padding: 0; margin: 0; list-style: none; }
+.home-top-five li { display: grid; grid-template-columns: 28px minmax(90px, 150px) minmax(40px, 1fr) 73px; align-items: center; gap: 12px; color: #e6f0ff; font-size: 13px; }
+.home-rank-number { color: #8ca6c0; font-weight: 750; font-variant-numeric: tabular-nums; }
+.home-rank-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 720; }
+.home-rank-bar { height: 7px; border-radius: 100px; background: #344052; overflow: hidden; }
+.home-rank-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#8bc5fb,#c5deff); }
+.home-top-five li strong { text-align: right; font-size: 12px; color: #b7dcff; font-variant-numeric: tabular-nums; }
+.home-no-data, .home-insights-message { color: #bdd2e8; font-size: 13px; }
+.home-insights-footnote { margin: 13px 4px 0; font-size: 11px; color: #788ba0; }
+.home-quick-wrap { background: linear-gradient(115deg, #dbecff, #eff7ff); padding: 23px 28px; }
+.home-quick-links { max-width: var(--pm-content-max); margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 17px; }
+.home-quick-links button { display: flex; align-items: center; gap: 15px; min-height: 66px; text-align: left; background: rgba(255,255,255,.79); border: 1px solid #e1ebf8; border-radius: 18px; padding: 14px 18px; box-shadow: 0 3px 9px rgba(35,100,171,.025); }
+.home-quick-links button:hover { transform: translateY(-2px); border-color: #c3dcf6; box-shadow: var(--pm-shadow); }
+.home-quick-links strong { font-size: 16px; font-weight: 800; }
+.home-quick-icon { color: #283d55; font-size: 24px; }
+.home-quick-arrow { margin-left: auto; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: #4c89d2; background: #e8f2ff; font-size: 23px; }
+.home-community-layout { max-width: var(--pm-content-max); width: calc(100% - 2 * var(--pm-page-gutter)); margin: 0 auto; padding: 22px 0 60px; display: grid; grid-template-columns: 1fr 1fr; gap: 19px; }
+.home-community-panel { min-width: 0; padding: 22px 24px; background: #fff; border: 1px solid #dce9fa; border-radius: 22px; box-shadow: var(--pm-shadow); }
+.home-panel-title { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 17px; }
+.home-panel-title h2 { display: flex; align-items: center; gap: 9px; font-size: 19px; margin: 0; letter-spacing: -.5px; }
+.home-panel-title button { color: #719bd0; }
+.home-panel-title button:hover { color: #2566aa; }
+.home-hot-list { margin: 0; padding: 0; list-style: none; }
+.home-hot-list li { border-top: 1px solid #eaf0f8; }
+.home-hot-list li button { width: 100%; padding: 11px 0; display: flex; align-items: center; gap: 15px; text-align: left; border: 0; background: transparent; }
+.home-hot-list li button:hover strong { color: var(--pm-blue-strong); }
+.home-hot-number { width: 39px; height: 39px; flex: 0 0 39px; display: grid; place-items: center; color: #284666; border-radius: 50%; background: #e9f4ff; font-weight: 850; }
+.home-hot-copy { min-width: 0; display: grid; gap: 7px; }
+.home-hot-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.home-hot-copy small { display: flex; align-items: center; gap: 15px; font-size: 12px; color: #7188a5; }
+.home-meetup-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }
+.home-meetup-grid button { min-height: 135px; border: 1px solid #e0ebf9; border-radius: 20px; background: linear-gradient(145deg, #fff, #fbfdff); padding: 16px; text-align: left; display: flex; flex-direction: column; gap: 9px; }
+.home-meetup-grid button:hover { border-color: #a8cdf8; transform: translateY(-2px); }
+.home-meetup-type { align-self: flex-start; background: #e3f2ff; color: #3983c9; font-weight: 750; font-size: 11px; border-radius: 7px; padding: 5px 8px; }
+.home-meetup-grid button strong { font-size: 13px; line-height: 1.45; }
+.home-meetup-meta { color: #7890a9; font-size: 11px; margin-top: auto; }
+.home-panel-empty { padding: 24px 6px; font-size: 13px; color: var(--pm-muted); }
+
+/* 게시판: 왼쪽 과정/게시판 네비 + 오른쪽 HOT 큐레이션/글 목록 */
+.board-shell.pm-board-dashboard { max-width: var(--pm-content-max); width: calc(100% - 2 * var(--pm-page-gutter)); padding: 34px 0 90px; }
+.pm-board-title { margin-bottom: 20px; }
+.pm-board-title > div { display: flex; align-items: center; gap: 13px; }
+.pm-board-title h1 { font-size: 31px; margin: 0; color: var(--pm-ink); letter-spacing: -.8px; }
+.pm-board-title p { margin: 7px 0 0; color: #7a91ac; font-size: 13px; }
+.pm-board-title .pm-heading-icon { display: none; }
+.pm-board-dashboard .board-grid { grid-template-columns: 225px minmax(0,1fr); gap: 19px; align-items: start; }
+.pm-board-dashboard .board-sidebar.board-directory { padding: 20px 15px; border: 1px solid var(--pm-border); border-radius: 20px; background: #fff; box-shadow: var(--pm-shadow); }
+.pm-board-dashboard .board-directory-label { color: #38526f; font-weight: 850; }
+.pm-board-dashboard .board-directory .board-directory-item { font-size: 13px; color: #4e627a; }
+.pm-board-dashboard .board-directory .board-directory-item:hover { background: #edf6ff; }
+.pm-board-dashboard .board-directory .board-directory-item.active, .pm-board-dashboard .board-directory .board-directory-item.board-my-course.active { background: #e6f1ff; color: #266fc0; }
+.pm-board-dashboard .board-directory .board-directory-item.board-my-course { background: #f1f7fe; color: #3572ad; }
+.pm-board-dashboard .board-directory-search { border-color: #dbe7f5; border-radius: 10px; }
+.pm-board-dashboard .board-sidebar .create-board { background: #e5f2ff; color: #3376b5; text-align: center; }
+.pm-board-content { min-width: 0; display: grid; gap: 17px; }
+.pm-board-banner { position: relative; overflow: hidden; min-height: 145px; padding: 27px 32px; display: flex; justify-content: space-between; background: linear-gradient(110deg,#e7f4ff,#dce7ff 65%, #c9dafa); border: 1px solid #d7e8fc; border-radius: 21px; }
+.pm-small-caps, .pm-section-kicker { font-weight: 800; font-size: 10px; color: #4788c6; letter-spacing: 1.2px; }
+.pm-board-banner h2 { font-size: 22px; margin: 10px 0 8px; letter-spacing: -.7px; }
+.pm-board-banner p { font-size: 13px; color: #7087a2; margin: 0; }
+.pm-banner-art { position: absolute; top: -34px; right: 30px; opacity: .22; font-weight: 800; font-size: 170px; line-height: 1; color: #438bd6; transform: rotate(-10deg); }
+.pm-board-highlights { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; }
+.pm-board-highlight-card, .pm-board-feed { min-width: 0; padding: 21px 23px; background: #fff; border: 1px solid #dbe8f8; border-radius: 20px; box-shadow: var(--pm-shadow); }
+.pm-board-highlight-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 11px; }
+.pm-board-highlight-heading h3 { margin: 0; font-size: 16px; letter-spacing: -.3px; }
+.pm-board-highlight-heading button { border: 0; background: transparent; color: var(--pm-blue); font-size: 12px; font-weight: 720; }
+.pm-board-highlight-heading span { font-size: 10px; font-weight: 800; color: #94abc2; }
+.pm-board-highlight-card ol { margin: 0; padding: 0; list-style: none; }
+.pm-board-highlight-card ol li { border-top: 1px solid #edf2fa; }
+.pm-board-highlight-card ol li button { width: 100%; padding: 13px 0; display: flex; align-items: center; text-align: left; gap: 12px; border: 0; background: transparent; }
+.pm-board-highlight-card ol li button span { flex: 0 0 28px; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: #e6f2ff; color: #2d6fb0; font-size: 12px; font-weight: 800; }
+.pm-board-highlight-card ol li button strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.pm-board-highlight-card ol li button small { color: #8197af; font-size: 11px; white-space: nowrap; }
+.pm-board-highlight-empty { padding: 23px 0; font-size: 12px; color: #91a3b8; }
+.pm-board-highlight-links { display: grid; gap: 9px; }
+.pm-board-highlight-links button { border: 1px solid #e6eef8; border-radius: 11px; min-height: 37px; padding: 8px 12px; background: #f7fbff; text-align: left; display: flex; align-items: center; gap: 9px; color: #45647f; font-size: 12px; }
+.pm-board-highlight-links button:hover { background: #e9f4ff; }
+.pm-board-highlight-links button span { flex: 1; }
+.pm-board-highlight-links button b { color: #91b6db; font-size: 18px; }
+.pm-board-feed .feed-head { margin-bottom: 16px; }
+.pm-board-feed .feed-head h2 { margin-top: 6px; font-size: 20px; color: var(--pm-ink); }
+.pm-board-feed .button.mint { background: linear-gradient(115deg, #458ed8,#3278bf); color: white; border-radius: 10px; }
+.pm-board-feed .search-row { margin: 12px 0 20px; }
+.pm-board-feed .search-box { height: 46px; border-color: #dae7f7; border-radius: 11px; background: #fafdff; box-shadow: none; }
+.pm-board-feed .search-box input { font-size: 13px; color: var(--pm-ink); }
+.pm-board-feed .sort-pill { border-color: #dbe8f6; color: #466987; border-radius: 11px; }
+.pm-board-feed .post-card { margin: 0; padding: 17px 5px; border: 0; border-bottom: 1px solid #eaf1f9; border-radius: 0; box-shadow: none; background: transparent; }
+.pm-board-feed .post-card:hover { transform: none; background: #f7fbff; box-shadow: none; }
+.pm-board-feed .post-card h3 { font-size: 14px; margin-bottom: 8px; color: var(--pm-ink); }
+.pm-board-feed .post-card p { color: #879bb0; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-bottom: 8px; }
+.pm-board-feed .post-meta { color: #8096ad; font-size: 11px; }
+
+/* 모임: 사이드 카테고리 + 팀 찾기 배너 + 균일한 모집 카드 */
+.meetup-page.pm-meetup-page { max-width: var(--pm-content-max); width: calc(100% - 2 * var(--pm-page-gutter)); padding: 34px 0 90px; }
+.pm-meetup-title { margin-bottom: 20px; }
+.pm-meetup-title h1 { font-size: 31px; margin: 0 0 8px; color: var(--pm-ink); }
+.pm-meetup-title p { margin: 0; font-size: 13px; color: #7d91a8; }
+.pm-meetup-layout { display: grid; grid-template-columns: 225px minmax(0,1fr); gap: 19px; align-items: start; }
+.pm-meetup-sidebar { display: flex; flex-direction: column; gap: 16px; padding: 20px 14px; border-radius: 21px; background: #fff; border: 1px solid var(--pm-border); box-shadow: var(--pm-shadow); }
+/* 게시판 분류 제목과 동일한 세로 블루 포인트 */
+.pm-meetup-sidebar-heading {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  margin: 2px 7px 0;
+  padding: 0 0 0 10px;
+  border-left: 3px solid #86b5e9;
+  color: #294965;
+  font-size: 15px;
+  font-weight: 850;
+  letter-spacing: -.25px;
+  line-height: 1.45;
+}
+.pm-meetup-sidebar-heading strong { font-size: inherit; font-weight: inherit; }
+.pm-meetup-sidebar .meetup-tabs { margin: 0; display: flex; flex-direction: column; align-items: stretch; gap: 5px; overflow: visible; }
+.pm-meetup-sidebar .meetup-tabs button {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 14px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: #48647e;
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.4;
+  text-align: left;
+  box-shadow: none;
+  transition: background-color .16s ease, color .16s ease;
+}
+.pm-meetup-sidebar .meetup-tabs button.active { color: #266fc0; background: #e6f1ff; border-color: transparent; font-weight: 800; }
+.pm-meetup-sidebar .meetup-tabs button:hover:not(.active) { background: #f3f8ff; color: #3477b6; }
+.pm-meetup-main { min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.pm-meetup-search-row { display: flex; align-items: center; gap: 12px; }
+.pm-meetup-search { flex: 1; display: flex; align-items: center; height: 46px; padding: 0 16px; gap: 12px; background: #fff; border: 1px solid #dbe8f7; border-radius: 12px; }
+.pm-meetup-search span { color: #8ba5c0; font-size: 22px; }
+.pm-meetup-search input { flex: 1; min-width: 0; outline: 0; border: 0; background: transparent; font-size: 13px; color: var(--pm-ink); }
+.pm-meetup-search-row .meetup-write-button { min-width: 137px; height: 46px; border-radius: 12px; background: linear-gradient(125deg, #579de3, #3276c2); font-size: 13px; }
+.pm-meetup-section-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 4px 0 -2px; }
+.pm-meetup-section-head h2 { margin: 0; font-size: 19px; letter-spacing: -.6px; }
+.pm-meetup-section-head span { color: #7c94aa; font-size: 12px; white-space: nowrap; }
+.pm-meetup-main .meetup-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
+.pm-meetup-main .meetup-card, .pm-meetup-main .meetup-card:first-child {
+  min-width: 0; min-height: 205px; display: flex; flex-direction: column; grid-column: auto;
+  border: 1px solid #deebfa; border-radius: 19px; background: #fff; box-shadow: none;
+  padding: 19px; color: #1d3048; opacity: 1;
+}
+.pm-meetup-main .meetup-card:hover { transform: translateY(-2px); border-color: #a4cafa; box-shadow: none; }
+/* 전체 모임 첫 화면에서는 첫 카드를 2칸 크기로 강조합니다.
+   베스트 선정 API가 연결되기 전에는 임의로 베스트 배지를 붙이지 않습니다. */
+.pm-meetup-main .meetup-grid--featured > .meetup-card:first-child {
+  grid-column: span 2;
+  min-height: 205px;
+}
+.pm-meetup-main .meetup-grid--featured > .meetup-card:first-child .meetup-card-content h3 {
+  font-size: 18px;
+}
+.pm-meetup-main .meetup-grid--featured > .meetup-card:first-child .meetup-card-content p {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pm-meetup-main .meetup-card.meetup-card-closed { opacity: .7; }
+.pm-meetup-main .meetup-card .meetup-category, .pm-meetup-main .meetup-card:first-child .meetup-category { color: #3c82c1; background: #eaf4ff; font-size: 11px; }
+.pm-meetup-main .meetup-card .meetup-status, .pm-meetup-main .meetup-card:first-child .meetup-status { font-size: 10px; background: #e5f3fd; color: #347ab9; }
+.pm-meetup-main .meetup-card .meetup-status.closed { color: #8c96a2; background: #edf1f6; }
+.pm-meetup-main .meetup-card-content { margin: 20px 0 10px; }
+.pm-meetup-main .meetup-card h3, .pm-meetup-main .meetup-card:first-child .meetup-card-content h3 { font-size: 15px; font-weight: 800; color: #20344d; }
+.pm-meetup-main .meetup-card-content p { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; color: #8195a9; line-height: 1.55; margin: 7px 0 0; }
+.pm-meetup-main .meetup-card-skills, .pm-meetup-main .meetup-card-study-info { margin-top: 3px; }
+.pm-meetup-main .meetup-skill-chip, .pm-meetup-main .meetup-study-meta, .pm-meetup-main .meetup-study-topic { background: #f1f7fe; color: #6685a4; border-radius: 6px; font-size: 10px; }
+.pm-meetup-main .meetup-card-schedule { margin: auto 0 10px; display: block; font-size: 11px; color: #7b92a8; }
+.pm-meetup-main .meetup-card-count, .pm-meetup-main .meetup-card-like { color: #587794; font-size: 11px; }
+.pm-meetup-main .meetup-empty { padding: 60px 20px; border-radius: 17px; border: 1px solid var(--pm-border); background: #fff; color: #7c92a8; }
+
+/* 취업: 기존 여섯 개 메뉴를 세로 사이드바로, 데이터 인사이트는 카드 대시보드로 */
+.career-page { color: var(--pm-ink); background: transparent; }
+.career-page .career-container { width: min(var(--pm-content-max), calc(100% - 2 * var(--pm-page-gutter))); padding: 34px 0 90px; display: grid; grid-template-columns: 225px minmax(0,1fr); gap: 19px; align-items: start; }
+.career-page-heading { grid-column: 1 / -1; margin: 0 0 2px; }
+.career-page-heading h1 { font-size: 31px; letter-spacing: -.8px; color: var(--pm-ink); }
+.career-page-heading p { color: #7f93ab; }
+.career-category-grid { grid-column: 1; display: flex; flex-direction: column; gap: 5px; margin: 0; border: 1px solid var(--pm-border); padding: 17px 11px; border-radius: 20px; background: #fff; box-shadow: var(--pm-shadow); }
+.career-category-card { width: 100%; min-height: 58px; padding: 10px 12px; gap: 12px; border: 0; border-radius: 12px; color: #526e89; background: transparent; box-shadow: none; }
+.career-category-card:hover { background: #f1f8ff; border: 0; transform: none; }
+.career-category-card.active { background: #e7f2ff; border: 0; box-shadow: none; color: #2f76bc; }
+.career-category-icon { width: 29px; height: 29px; color: #608ebc; background: #eff6ff; border-radius: 9px; }
+.career-category-card.active .career-category-icon { color: #2f78c2; background: #d6eaff; }
+.career-category-text { gap: 2px; }
+.career-category-text strong { font-size: 13px; color: inherit; }
+.career-category-text small { font-size: 10px; color: #97a8bc; line-height: 1.25; }
+.career-category-card.active .career-category-text small { color: #6597cc; }
+.career-board { grid-column: 2; min-width: 0; padding: 23px; background: #fff; border: 1px solid #dce9f9; border-radius: 21px; box-shadow: var(--pm-shadow); }
+.career-section-head h2 { font-size: 22px; color: var(--pm-ink); }
+.career-eyebrow { color: #5c93c9; }
+.career-write-btn { border-radius: 12px; background: linear-gradient(120deg,#559adf,#3579c8); color: #fff; cursor: pointer; }
+.career-subnav button { background: #f5faff; color: #597994; border-color: #e3ecf8; }
+.career-subnav button.active { background: #458ad2; border-color: #458ad2; color: #fff; }
+.career-search, .career-board-toolbar select { border-color: #dbe8f8; }
+.career-page .career-post { border-bottom-color: #e7f0fa; }
+.career-page .career-post-tag { background: #e7f4ff; color: #397cb8; }
+.career-page .career-post h3 { color: #1c3048; }
+.career-page .career-post p { color: #7890a7; }
+
+.career-insights-v2 { --ci-main: #377bc0; --ci-accent: #6aa5df; --ci-text: #26394e; --ci-muted: #7f90a5; --ci-border: #dfeaf7; padding: 0; background: transparent; border-radius: 0; gap: 14px; }
+.career-ci-intro { padding: 24px; background: linear-gradient(115deg,#1d2c40,#172132); border-radius: 17px; color: #fff; }
+.career-ci-intro-kicker { color: #a5ceff; }
+.career-ci-intro h3 { color: #fff; font-size: 23px; }
+.career-ci-intro p { color: #becfe0; font-size: 12px; }
+.career-ci-demo-label { color: #b0d4fb; background: rgba(122,178,246,.13); border-color: rgba(151,192,240,.25); font-size: 11px; }
+.career-ci-source { border-radius: 11px; background: #f7fbff; }
+.career-ci-filters { padding: 19px; border-radius: 15px; box-shadow: none; }
+.career-ci-filters-heading { margin-bottom: 14px; }
+.career-ci-filters-heading strong { font-size: 14px; }
+.career-ci-filter-grid label { color: #58758f; }
+.career-ci-filter-grid select { border-color: #dce8f8; border-radius: 10px; }
+.career-ci-search-button { background: #3b80c5; }
+.career-ci-kpis { gap: 10px; }
+.career-ci-kpi { border-top: 0; background: #eff6ff; padding: 16px; border-radius: 13px; box-shadow: none; }
+.career-ci-kpi strong { color: #2e76ba; font-size: 26px; }
+.career-ci-grid { gap: 12px; }
+.career-ci-panel { border-radius: 15px; padding: 19px; box-shadow: none; }
+.career-ci-section-title h3 { color: #213750; font-size: 16px; }
+.career-ci-ranking { gap: 12px; }
+.career-ci-rank-text { font-size: 12px; }
+.career-ci-rank-text strong { color: #4e84bf; }
+.career-ci-bar-track { background: #e8f1fc; height: 7px; }
+.career-ci-bar-track > span { background: linear-gradient(90deg,#77b5f2,#3e80c4); }
+.career-ci-availability { border-color: #d7e7fa; background: #f5faff; }
+.career-ci-availability strong { color: #397dbd; }
+
+/* 마이페이지: 프로필/레벨/메뉴 사이드바 + 활동/스킬/XP/스펙 */
+.mypage.mypage-dashboard.pm-mypage { display: block; max-width: var(--pm-content-max); width: calc(100% - 2 * var(--pm-page-gutter)); padding: 34px 0 90px; color: var(--pm-ink); }
+.pm-mypage .mypage-dashboard-title { margin-bottom: 19px; }
+.pm-mypage .mypage-dashboard-title h1 { font-size: 31px; color: var(--pm-ink); }
+.pm-mypage .mypage-dashboard-title p { color: #8499b0; }
+.pm-mypage-layout { display: grid; grid-template-columns: 270px minmax(0,1fr); gap: 19px; align-items: start; }
+.pm-mypage-aside { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.pm-mypage .pm-mypage-profile, .pm-mypage .pm-mypage-level-card { min-width: 0; background: #fff; padding: 22px 19px; border: 1px solid #dbe8f8; border-radius: 19px; box-shadow: var(--pm-shadow); }
+.pm-mypage-profile > h2 { font-size: 15px; }
+.pm-mypage-profile .mypage-profile-info { flex-direction: column; text-align: center; gap: 11px; }
+.pm-mypage-profile .mypage-profile-details { display: flex; flex-direction: column; align-items: center; }
+.pm-mypage-profile .mypage-nickname-row { justify-content: center; }
+.pm-mypage-profile .mypage-profile-image { align-items: center; }
+.pm-mypage-profile .mypage-profile-avatar, .pm-mypage-profile .mypage-profile-placeholder { width: 92px; height: 92px; }
+.pm-mypage-profile .mypage-profile-course { text-align: center; }
+.pm-mypage-profile .mypage-withdraw-link { font-size: 11px; }
+.pm-mypage-level-card .mypage-level-preview { gap: 12px; }
+.pm-mypage-level-card .mypage-level-preview h2 { font-size: 16px; }
+.pm-mypage-level-card .mypage-level-preview-amount { display: block; }
+.pm-mypage-level-card .mypage-level-preview-amount strong { color: #4885c5; font-size: 25px; }
+.pm-mypage-level-card .mypage-level-preview-amount p { text-align: left; margin-top: 5px; font-size: 11px; }
+.pm-mypage-level-card .mypage-level-preview-heading > span { background: #e7f3ff; color: #4383c3; }
+.pm-mypage-level-card .mypage-progress-fill { background: #6daee9; }
+.pm-mypage.mypage-dashboard-v3 .mypage-dashboard-nav { display: flex; flex-direction: column; gap: 5px; padding: 11px; border: 1px solid #dbe8f8; border-radius: 18px; background: #fff; box-shadow: var(--pm-shadow); }
+.pm-mypage.mypage-dashboard-v3 .mypage-nav-item { display: flex; width: 100%; justify-content: flex-start; min-height: 45px; padding: 10px 11px; text-align: left; }
+.pm-mypage.mypage-dashboard-v3 .mypage-nav-item:hover { background: #f2f8ff; }
+.pm-mypage.mypage-dashboard-v3 .mypage-nav-item.active { color: #3b7dbb; border-color: transparent; background: #e9f3ff; }
+.pm-mypage .mypage-nav-icon { font-size: 18px; color: #70a4d3; }
+.pm-mypage .mypage-nav-copy small { color: #9aacc0; }
+.pm-mypage-nav-arrow { color: #9db7ce; margin-left: auto; font-size: 21px; }
+.pm-mypage-main { display: grid; gap: 14px; min-width: 0; }
+.pm-mypage-main-heading { display: flex; justify-content: space-between; align-items: end; padding: 3px 4px 4px; }
+.pm-mypage-main-heading h2 { margin: 5px 0 0; font-size: 21px; }
+.pm-mypage-main-heading p { font-size: 12px; color: #8196ac; }
+.pm-mypage-content-card { min-width: 0; padding: 22px 24px; border-radius: 19px; background: #fff; border: 1px solid #dbe8f8; box-shadow: var(--pm-shadow); }
+.pm-mypage-card-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+.pm-mypage-card-heading h3 { margin: 0; font-size: 17px; }
+.pm-mypage-card-heading span { color: #8497aa; font-size: 12px; }
+.pm-mypage-card-heading button { border: 0; background: transparent; color: #4488c4; font-size: 12px; font-weight: 750; }
+.pm-mypage .mypage-activity-tabs { background: transparent; }
+.pm-mypage .mypage-activity-tabs button.active { color: #2c72b9; background: #e7f3ff; }
+.pm-mypage .mypage-dashboard-activity { border: 0; padding: 0; }
+.pm-mypage .mypage-skills-heading { display: none; }
+.pm-mypage .mypage-skills-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 10px; }
+.pm-mypage .mypage-skill-card { min-width: 0; padding: 13px; border: 1px solid #e0eaf7; border-radius: 13px; background: #f9fcff; }
+.pm-mypage .mypage-skill-top { flex-wrap: wrap; gap: 6px; }
+.pm-mypage .mypage-skill-top strong { color: #263e57; font-size: 12px; }
+.pm-mypage .mypage-skill-top span { color: #4789ca; }
+.pm-mypage .mypage-skill-xp { flex-wrap: wrap; }
+.pm-mypage .mypage-overview-stat { background: #f4f9ff; border-color: #e0ecfa; }
+.pm-mypage .mypage-overview-stat > strong { color: #3d81c4; }
+.pm-mypage .mypage-level-switcher button { border-color: #e0ebf7; background: #f8fbff; color: #6384a4; }
+.pm-mypage .mypage-level-switcher button.active { background: #427fc4; color: #fff; border-color: #427fc4; }
+.pm-mypage .mypage-career-spec { background: #fff; border: 0; box-shadow: none; }
+
+@media (max-width: 1120px) {
+  .app-header { padding: 0 23px; }
+  .app-header .brand { margin-right: 14px; }
+  .app-header .app-nav { gap: 2px; }
+  .app-header .app-nav button { padding: 10px 13px; }
+  .pm-meetup-main .meetup-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .pm-mypage .mypage-skills-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+@media (max-width: 880px) {
+  /* 로고와 떨어져 헤더 오른쪽 끝에 종/프로필을 정렬 */
+  .app-header { padding-right: var(--pm-page-gutter); }
+  .app-header .app-nav { min-width: 0; }
+  .app-header .profile-container { margin-left: auto; flex-shrink: 0; gap: 12px; }
+  .home-insights-grid, .home-community-layout { grid-template-columns: 1fr; }
+  .home-quick-links { grid-template-columns: repeat(2,1fr); }
+  .pm-board-dashboard .board-grid, .pm-meetup-layout, .career-page .career-container, .pm-mypage-layout { grid-template-columns: 1fr; }
+  .pm-board-dashboard .board-sidebar.board-directory { min-height: 0; }
+  .pm-meetup-sidebar .meetup-tabs { flex-direction: row; overflow-x: auto; }
+  .pm-meetup-sidebar .meetup-tabs button { width: auto; min-width: 100px; flex: 0 0 auto; text-align: center; }
+  .career-page-heading, .career-category-grid, .career-board { grid-column: 1; }
+  .career-category-grid { flex-direction: row; flex-wrap: wrap; }
+  .career-category-card { width: calc(33.333% - 4px); min-width: 155px; }
+  .pm-mypage-aside { display: grid; grid-template-columns: 1fr 1fr; }
+  .pm-mypage.mypage-dashboard-v3 .mypage-dashboard-nav { grid-column: 1 / -1; flex-direction: row; }
+}
+@media (max-width: 580px) {
+  .app-header { height: 64px; padding: 0 var(--pm-page-gutter); }
+  .app-header .brand { margin-right: 6px; }
+  .app-header .brand-logo { width: 112px; }
+  .app-header .app-nav { flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .app-header .app-nav button { padding: 8px 10px; font-size: 12px; }
+  .header-notification-icon { display: none; }
+  .app-header .profile-container { gap: 10px; margin-left: auto; flex-shrink: 0; }
+  .home-night-surface { padding: 10px var(--pm-page-gutter) 14px; }
+  .home-insights-shell { padding: 17px 13px; border-radius: 17px; }
+  .home-section-heading { flex-direction: column; gap: 7px; }
+  .home-section-heading h1 { font-size: 21px; }
+  .home-top-five { padding: 15px 12px; }
+  .home-top-five li { grid-template-columns: 22px minmax(69px, 104px) minmax(35px,1fr) 59px; gap: 7px; font-size: 11px; }
+  .home-top-five h3 { font-size: 16px; }
+  .home-quick-wrap { padding: 14px var(--pm-page-gutter); }
+  .home-quick-links { gap: 8px; }
+  .home-quick-links button { padding: 10px; min-height: 58px; gap: 6px; }
+  .home-quick-links strong { font-size: 12px; }
+  .home-quick-arrow { width: 23px; height: 23px; font-size: 16px; }
+  .home-community-layout { padding: 13px 0 45px; }
+  .home-community-panel { padding: 17px 13px; }
+  .home-meetup-grid { gap: 9px; }
+  .home-meetup-grid button { padding: 12px; }
+  .board-shell.pm-board-dashboard, .meetup-page.pm-meetup-page, .career-page .career-container, .mypage.mypage-dashboard.pm-mypage { width: calc(100% - 2 * var(--pm-page-gutter)); padding-top: 22px; }
+  .pm-board-highlights { grid-template-columns: 1fr; }
+  .pm-board-banner { min-height: 130px; padding: 20px; }
+  .pm-board-banner h2 { font-size: 18px; }
+  .pm-board-highlight-card, .pm-board-feed { padding: 15px; }
+  .pm-meetup-search-row { align-items: stretch; flex-direction: column; }
+  .pm-meetup-search-row .meetup-write-button { width: 100%; }
+  .pm-meetup-main .meetup-grid { grid-template-columns: 1fr; }
+  .pm-meetup-main .meetup-grid--featured > .meetup-card:first-child { grid-column: 1; }
+  .career-category-card { width: calc(50% - 4px); min-width: 0; }
+  .career-board { padding: 15px; }
+  .career-ci-kpis { grid-template-columns: 1fr 1fr; }
+  .career-ci-grid, .career-ci-filter-grid { grid-template-columns: 1fr; }
+  .pm-mypage-aside { grid-template-columns: 1fr; }
+  .pm-mypage.mypage-dashboard-v3 .mypage-dashboard-nav { flex-direction: column; }
+  .pm-mypage .mypage-skills-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .pm-mypage-content-card { padding: 17px 14px; }
+  .pm-mypage-main-heading { flex-direction: column; align-items: flex-start; }
+}
+
+
+/* 페이지 전체에서 Pretendard만 사용: 이전 로그인/게시판 서체 선언도 덮어씀. */
+html, body, body * {
+  font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', sans-serif !important;
+}
+
+/* 목록 외의 상세·작성·관리자 페이지도 동일한 1200px 중앙 기준선 적용. */
+.board-shell,
+.detail-layout,
+.detail-shell,
+.meetup-page,
+.meetup-detail-page,
+.meetup-editor-page,
+.mypage,
+.admin-shell {
+  max-width: var(--pm-content-max);
+  width: calc(100% - 2 * var(--pm-page-gutter));
+  margin-left: auto;
+  margin-right: auto;
+}
+.admin-shell { padding-left: 0; padding-right: 0; }
+.career-page .career-container { max-width: var(--pm-content-max); }
+
+/* 취업 게시글 상세는 취업 컨텐츠 안에서만 렌더링되므로 부모 컨테이너 안에 맞춤. */
+.career-talk-detail,
+.career-lounge-detail,
+.career-lab-detail,
+.career-review-detail,
+.career-news-detail { width: 100%; max-width: 100%; }
+
+@media (max-width: 580px) {
+  :root { --pm-page-gutter: 20px; }
+  .app-header { padding-left: var(--pm-page-gutter); padding-right: var(--pm-page-gutter); }
+  .home-community-layout { box-sizing: border-box; width: calc(100% - 2 * var(--pm-page-gutter)); padding-left: 0; padding-right: 0; }
+  .board-shell,
+  .detail-layout,
+  .detail-shell,
+  .meetup-page,
+  .meetup-detail-page,
+  .meetup-editor-page,
+  .mypage,
+  .admin-shell { width: calc(100% - 2 * var(--pm-page-gutter)); }
+}
+

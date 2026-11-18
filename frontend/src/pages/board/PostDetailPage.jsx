@@ -1,6 +1,8 @@
 // PLAYMATE_BOARD_REPORTS_V1
 // PLAYMATE_COURSE_BOARD_PERMISSIONS_V1
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import BoardSidebar from '../../components/board/BoardSidebar'
 import CommentForm from '../../components/board/CommentForm'
 import CommentList from '../../components/board/CommentList'
@@ -25,8 +27,12 @@ export default function PostDetailPage({
   }
 
   return (
-    <main className="detail-layout">
-      <aside className="detail-side">
+    <main className="board-shell pm-board-dashboard pm-board-detail-page">
+      <div className="pm-board-title">
+        <div><h1>게시판</h1></div>
+        <p>배우고, 공유하고, 함께 성장하는 PlayMate 이야기</p>
+      </div>
+      <div className="board-grid">
         <BoardSidebar
           boards={boards}
           memberCourse={memberCourse}
@@ -36,8 +42,8 @@ export default function PostDetailPage({
           onSelect={onSelectBoard}
           onCreate={onCreateBoard}
         />
-      </aside>
-      <article className="detail-content">
+        <div className="pm-board-content">
+          <article className="detail-content pm-board-detail-card">
         <button className="back-link" disabled={busy} onClick={onBack}>
           ‹ {board.name} 목록으로
         </button>
@@ -56,7 +62,15 @@ export default function PostDetailPage({
             <span>{formatBoardDate(post.created_at, 'long')}</span>
           </p>
         </header>
-        <div className="post-body">{post.body}</div>
+        <div className={`post-body ${board?.name === '공지사항' ? 'notice-markdown' : ''}`}>
+          {board?.name === '공지사항' ? (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {post.body || ''}
+            </ReactMarkdown>
+          ) : (
+            post.body
+          )}
+        </div>
         {!!post.images?.length && (
           <div className="post-images">
             {post.images.map((image) => {
@@ -128,7 +142,9 @@ export default function PostDetailPage({
           />
           {canWrite && <CommentForm busy={busy} onSubmit={onComment} />}
         </section>
-      </article>
+          </article>
+        </div>
+      </div>
     </main>
   )
 }

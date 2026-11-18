@@ -9,7 +9,7 @@ const SUMMARY_ITEMS = [
   { key: 'total_xp', label: '종합 XP', unit: 'XP' },
 ]
 
-export default function MyPageActivityOverview() {
+export default function MyPageActivityOverview({ compact = false }) {
   const [summary, setSummary] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -35,11 +35,11 @@ export default function MyPageActivityOverview() {
   }, [reload])
 
   return (
-    <section className="mypage-overview" aria-labelledby="mypage-overview-heading">
+    <section className={`mypage-overview ${compact ? 'mypage-overview--compact' : ''}`} aria-labelledby="mypage-overview-heading">
       <div className="mypage-overview-heading">
         <div>
-          <h3 id="mypage-overview-heading">활동 요약</h3>
-          <p>지금까지 PLAYMATE에서 기록한 활동입니다.</p>
+          <h3 id="mypage-overview-heading">{compact ? '활동 현황' : '활동 요약'}</h3>
+          {!compact && <p>지금까지 PLAYMATE에서 기록한 활동입니다.</p>}
         </div>
         <button type="button" onClick={() => setReload((n) => n + 1)} disabled={loading}>
           새로고침
@@ -48,7 +48,7 @@ export default function MyPageActivityOverview() {
       {error && <p className="mypage-overview-message" role="alert">{error}</p>}
       {summary ? (
         <div className="mypage-overview-grid" aria-busy={loading}>
-          {SUMMARY_ITEMS.map((item) => (
+          {(compact ? SUMMARY_ITEMS.filter((item) => item.key !== 'total_xp') : SUMMARY_ITEMS).map((item) => (
             <div className="mypage-overview-stat" key={item.key}>
               <span>{item.label}</span>
               <strong>

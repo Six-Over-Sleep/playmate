@@ -16,7 +16,27 @@
 // 1. 공통 API 요청 함수
 // =========================================================
 
-async function request(url, options = {}) {
+// 동일한 URL의 동시에 진행 중인 GET만 공유한다. 재방문 시에는 새로 조회한다.
+// 쓰기 요청은 절대 합치지 않아 작성/수정 기능의 동작을 보존한다.
+const pendingReads = new Map()
+
+function request(url, options = {}) {
+    const canShare = (options.method == null || options.method.toUpperCase() === 'GET')
+        && options.signal == null && options.body == null && options.headers == null
+    if (canShare && pendingReads.has(url)) return pendingReads.get(url)
+
+    const task = performRequest(url, options)
+    if (canShare) {
+        pendingReads.set(url, task)
+        const release = () => {
+            if (pendingReads.get(url) === task) pendingReads.delete(url)
+        }
+        task.then(release, release)
+    }
+    return task
+}
+
+async function performRequest(url, options = {}) {
     const headers = {
         Accept: 'application/json',
         ...options.headers,

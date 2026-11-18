@@ -4,7 +4,6 @@ import {
   saveMyCareerSpecs,
   updateCareerSpecVisibility,
 } from '../../services/mypageApi'
-import '../../styles/CareerSpecCard.css'
 
 const EMPTY_SPEC = {
   desired_job: '',

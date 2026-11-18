@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import '../../styles/CareerReviewForm.css'
 
 // 취업 카테고리 공통 직무 대분류 (추후 DB 직무 코드와 연동)
 const JOB_CATEGORIES = [

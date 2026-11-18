@@ -1,25 +1,8 @@
 import { useEffect, useState } from 'react'
 import { fetchGuideAward } from '../../services/careerApi'
-import '../../styles/CareerLabForm.css'
+import { getCareerMenuLabels, getCareerMenuCode } from '../../data/careerMenuGroups'
 
-// 기존 커리어 연구소 하위 메뉴를 그대로 사용합니다.
-const LAB_MENUS = [
-    '취업 전략',
-    '포트폴리오 피드백',
-    '이력서·자소서',
-    '기술면접 스터디',
-    '자격증·스펙 전략',
-    '직무 비교',
-]
-
-const LAB_CODES = {
-    '취업 전략': 'JOB_STRATEGY',
-    '포트폴리오 피드백': 'PORTFOLIO_FEEDBACK',
-    '이력서·자소서': 'RESUME',
-    '기술면접 스터디': 'TECH_INTERVIEW',
-    '자격증·스펙 전략': 'CERTIFICATION',
-    '직무 비교': 'JOB_COMPARISON',
-}
+const LAB_MENUS = getCareerMenuLabels('lab')
 
 const POST_TYPES = [
     {
@@ -51,7 +34,7 @@ export default function CareerLabForm({
     const [title, setTitle] = useState(initial?.title || '')
     const [menu, setMenu] = useState(initial?.menu || defaultMenu)
     const [postType, setPostType] = useState(
-        initial?.post_type || (defaultMenu === '직무 비교' ? 'DISCUSSION' : 'QUESTION')
+        initial?.post_type || 'QUESTION'
     )
     
     const [guideAward, setGuideAward] = useState(undefined)
@@ -116,7 +99,9 @@ export default function CareerLabForm({
         const payload = {
             title: title.trim(),
             body: body.trim(),
-            subcategory_code: LAB_CODES[menu],
+            subcategory_code: initial?.menu === menu
+                ? initial.subcategory_code
+                : getCareerMenuCode('lab', menu),
             is_anonymous: anonymous,
         }
 

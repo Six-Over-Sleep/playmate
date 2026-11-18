@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { apiRequest } from '../../services/apiClient'
 import { downloadAdminUsageCsv } from '../../services/adminCsvApi'
-import '../../styles/adminUsage.css'
 
 // 서버는 이용 시간을 초 단위로 저장합니다. 화면에서는 분/시간으로 변환합니다.
 function formatDuration(seconds) {

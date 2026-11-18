@@ -55,9 +55,15 @@ class RecruitDispatchService:
             self.require_enabled()
             return self.programs.detail(recruit_id, self.optional_member())
         member = self.legacy_optional_member()
-        result = legacy.get_recruit(self.db, recruit_id, member)
-        result["can_edit_configuration"] = RecruitConfigurationService(self.programs).allowed(
-            recruit_id, member
+        # is_program()이 검증한 신규 모임 테이블 존재 여부를 재사용한다.
+        # 기존 종류 변경 권한도 상세 SQL에서 읽은 이력으로 판단해 재조회를 없앤다.
+        result, context = legacy.get_recruit(
+            self.db, recruit_id, member,
+            include_context=True,
+            include_program_history=self.repository.schema_available(),
+        )
+        result["can_edit_configuration"] = (
+            RecruitConfigurationService(self.programs).allowed_context(context, member)
         )
         return result
 

@@ -95,9 +95,11 @@ class PostResponse(BaseModel):
     is_owner: bool = False
 
     # like_count : 좋아요 수
+    # scrap_count : 해당 글을 스크랩한 회원 수 (목록·상세 공통)
     # liked_by_me : 현재 로그인한 회원의 좋아요 여부
     # scrapped_by_me : 현재 회원의 스크랩 여부 (목록에서는 None, 상세에서만 계산)
     like_count: int = 0
+    scrap_count: int = 0
     liked_by_me: bool = False
     scrapped_by_me: bool | None = None
 

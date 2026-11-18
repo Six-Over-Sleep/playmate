@@ -64,7 +64,7 @@
     white-space: normal;
     text-align: center;
   }
-  .board-shell.pm-board-dashboard .board-directory-pinned .board-directory-item.active {
+  .board-shell.pm-board-dashboard .board-directory-pinned .board-directory-item:active:not(:disabled) {
     border-color: #bdd4f5;
     background: #e7f1ff;
     color: #4779b9;
@@ -107,7 +107,7 @@
     border-radius: 12px;
     padding: 10px 12px;
   }
-  .board-shell.pm-board-dashboard .board-directory-own-course .board-directory-item.active {
+  .board-shell.pm-board-dashboard .board-directory-own-course .board-directory-item:active:not(:disabled) {
     background: #e7f1ff;
     border-color: #bdd4f5;
   }
@@ -429,12 +429,7 @@
     text-align: left;
   }
 
-  .board-shell .board-sidebar.board-directory .board-directory-item:hover:not(:disabled) {
-    background: #eaf1fc;
-    color: #3d66ac;
-  }
-
-  .board-shell .board-sidebar.board-directory .board-directory-item.active {
+  .board-shell .board-sidebar.board-directory .board-directory-item:active:not(:disabled) {
     border-color: #cadbf4;
     background: #e7effc;
     color: #315ca6;
@@ -446,7 +441,7 @@
     color: #5177bc;
   }
 
-  .board-shell .board-sidebar.board-directory .board-directory-item.board-my-course.active {
+  .board-shell .board-sidebar.board-directory .board-directory-item.board-my-course:active:not(:disabled) {
     border-color: #cadbf4;
     background: #e7effc;
     color: #315ca6;
@@ -481,3 +476,9 @@
   }
 }
 
+
+/* ??? ?? ??? ??? ???? ?????. */
+.board-sidebar.board-directory .board-directory-item:focus-visible {
+  outline: 2px solid #315ca6;
+  outline-offset: 2px;
+}

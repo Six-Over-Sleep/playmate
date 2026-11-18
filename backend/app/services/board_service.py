@@ -254,6 +254,27 @@ def _comment_detail(cursor, comment_id: int, member_id: int) -> dict[str, Any]:
 # =========================================================
 # 2. 게시판 목록·생성·상세 조회
 # =========================================================
+
+def _is_member_course_board(board, member, enrollments) -> bool:
+    """Identify the member's actual cohort, regardless of admin rights."""
+    scope = board.get("scope_type") or "LEGACY"
+
+    if scope == "COHORT":
+        cohort_id = board.get("cohort_id")
+        return cohort_id is not None and any(
+            enrollment.get("cohort_id") == cohort_id
+            for enrollment in enrollments
+        )
+
+    if scope == "LEGACY" and board.get("course_code") is not None:
+        return (
+            member.get("course") == board.get("course_code")
+            and member.get("cohort") == board.get("cohort")
+        )
+
+    return False
+
+
 def list_boards(member_id: int | None = None) -> list[dict[str, Any]]:
     """읽을 수 있는 게시판만 반환하며 작성 권한을 계산합니다."""
     with db_cursor(read_only=True) as cursor:
@@ -270,6 +291,7 @@ def list_boards(member_id: int | None = None) -> list[dict[str, Any]]:
         for board in boards:
             if not _can_access_board(board, member, enrollments, write=False):
                 continue
+            board["is_my_course"] = _is_member_course_board(board, member, enrollments)
             board["can_write"] = _can_access_board(
                 board, member, enrollments, write=True
             )
@@ -325,6 +347,7 @@ def get_board(board_id: int, member_id: int | None = None) -> dict[str, Any]:
         )
         if not _can_access_board(board, member, enrollments, write=False):
             raise HTTPException(status_code=403, detail="이 게시판을 열람할 권한이 없습니다.")
+        board["is_my_course"] = _is_member_course_board(board, member, enrollments)
         board["can_write"] = _can_access_board(board, member, enrollments, write=True)
         if board.get("name") == "공지사항":
             board["can_write"] = (

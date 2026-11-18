@@ -44,6 +44,12 @@ const CATEGORIES = [
         description: '분기별 채용 데이터 분석', menus: [],
     },
     {
+        id: 'briefing', name: '커리어 브리핑', icon: 'news',
+        description: '직무별 취업 뉴스',
+        // 뉴스 수집기·채용 트렌드와 같은 8개 직무 분야 (CareerBriefing의 FIELD_CODES와 이름이 같아야 함)
+        menus: ['전체', '데이터·AI', '백엔드·서버', '프론트엔드·웹', '모바일 개발', '클라우드·인프라', '정보보안', 'QA·테스트', 'IT기획·디자인'],
+    },
+    {
         id: 'reviews', name: '취준 도감', icon: 'book',
         description: '전형별 합격·탈락 후기',
         menus: ['전체', ...getCareerMenuLabels('reviews')],
@@ -62,12 +68,6 @@ const CATEGORIES = [
         id: 'lab', name: '커리어 연구소', icon: 'light',
         description: '질문·토론·피드백',
         menus: ['전체', ...getCareerMenuLabels('lab')],
-    },
-    {
-        id: 'briefing', name: '커리어 브리핑', icon: 'news',
-        description: '직무별 취업 뉴스',
-        // 뉴스 수집기·채용 트렌드와 같은 8개 직무 분야 (CareerBriefing의 FIELD_CODES와 이름이 같아야 함)
-        menus: ['전체', '데이터·AI', '백엔드·서버', '프론트엔드·웹', '모바일 개발', '클라우드·인프라', '정보보안', 'QA·테스트', 'IT기획·디자인'],
     },
 ]
 

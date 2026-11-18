@@ -666,6 +666,13 @@ export default function App() {
   return (
     <BrowserRouter>
       <AppContent />
+      <footer className="playmate-site-footer">
+        <p>© 2026 Team SOS. All rights reserved.</p>
+        <p>문의사항 -</p>
+        <a href="mailto:sixoversleep@gmail.com">
+          sixoversleep@gmail.com
+        </a>
+      </footer>
     </BrowserRouter>
   )
 }

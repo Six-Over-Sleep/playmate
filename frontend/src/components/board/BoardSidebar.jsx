@@ -137,7 +137,7 @@ export default function BoardSidebar({
       <button
         type="button"
         key={board.id}
-        className={`board-directory-item${selected ? ' active' : ''}${isMine ? ' board-my-course' : ''}${boardClass ? ` board-directory-item--${boardClass}` : ''}`}
+        className={`board-directory-item${isMine ? ' board-my-course' : ''}${boardClass ? ` board-directory-item--${boardClass}` : ''}`}
         aria-current={selected ? 'page' : undefined}
         disabled={busy}
         onClick={() => onSelect(board)}

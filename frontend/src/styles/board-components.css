@@ -9,7 +9,7 @@
   font-weight: 800;
 }
 
-.board-directory .board-directory-item.board-my-course.active {
+.board-directory .board-directory-item.board-my-course:active:not(:disabled) {
   background: #eae4f7;
   color: #35236f;
 }
@@ -292,11 +292,7 @@
   cursor: pointer;
 }
 
-.board-directory .board-directory-item:hover {
-  background: #f0edf8;
-}
-
-.board-directory .board-directory-item.active {
+.board-directory .board-directory-item:active:not(:disabled) {
   background: #ece8f8;
   color: #35236f;
   font-weight: 800;

@@ -144,7 +144,24 @@ def detail_repo(repo, monkeypatch):
     )
     post = SimpleNamespace(post_id=20, author_member_id=3, title="스터디", body="본문")
     monkeypatch.setattr(recruit_repo, "find_recruit_with_post", lambda db, rid: (post, recruit))
-    monkeypatch.setattr(recruit_repo, "get_category_detail", lambda db, model, rid: None)
+    def snapshot(db, rid, member_id, *, include_program_history=False):
+        assert rid == 7
+        return (
+            post, recruit,
+            None, None, None, None,
+            repo.state["likes"],
+            bool(repo.state["liked"]) if member_id is not None else False,
+            bool(repo.state["scrapped"]) if member_id is not None else False,
+            None, None, False,
+        )
+
+    monkeypatch.setattr(
+        recruit_repo, "legacy_detail_snapshot", snapshot
+    )
+    monkeypatch.setattr(
+        recruit_repo, "list_joined_members_with_profiles",
+        lambda db, rid: [],
+    )
     return repo
 
 
@@ -312,7 +329,7 @@ def test_comment_schemas():
 # =========================================================
 def session_cookie(member_id=3, discord_id="discord-user"):
     data = b64encode(
-        json.dumps(dict(member_id=member_id, user=dict(discord_id=discord_id))).encode()
+        json.dumps(dict(member_id=member_id, session_version=0, user=dict(discord_id=discord_id))).encode()
     )
     return TimestampSigner("isolated-test-secret").sign(data).decode()
 
@@ -331,10 +348,12 @@ def fake_auth_cursor(*args, **kwargs):
 
         def execute(self, sql, params):
             assert "member_status = 'ACTIVE'" in sql
-            if len(params) == 2:  # 세션: (member_id, discord_id)
-                found = tuple(params) in ACTIVE_MEMBERS
-            else:  # 개발용 헤더: (member_id,)
-                found = params[0] in {member for member, _ in ACTIVE_MEMBERS}
+            # 실제 인증 SQL: (member_id, discord_id, session_version)
+            found = (
+                len(params) == 3
+                and (params[0], params[1]) in ACTIVE_MEMBERS
+                and params[2] == 0
+            )
             self.row = {"exists": 1} if found else None
 
         def fetchone(self):

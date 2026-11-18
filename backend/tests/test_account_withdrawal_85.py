@@ -12,7 +12,7 @@ def _logged_in_client():
     login = client.get("/auth/discord/login", follow_redirects=False)
     state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
     fake_user = {"id": "123456789012345678", "username": "tester", "avatar": None}
-    fake_member = {"member_id": 918, "discord_id": fake_user["id"], "nickname": "테스터"}
+    fake_member = {"member_id": 918, "discord_id": fake_user["id"], "nickname": "테스터", "session_version": 0}
     with (
         patch("backend.app.routers.auth.exchange_code_for_token", new_callable=AsyncMock, return_value="token"),
         patch("backend.app.routers.auth.get_discord_user", new_callable=AsyncMock, return_value=fake_user),
@@ -29,7 +29,9 @@ def _logged_in_client():
 
 def test_logout_clears_cookie_and_session():
     with _logged_in_client() as client:
-        assert client.post("/auth/logout").status_code == 200
+        with patch("backend.app.routers.auth.revoke_member_session", return_value=True) as revoke:
+            assert client.post("/auth/logout").status_code == 200
+        revoke.assert_called_once_with(918, "123456789012345678", 0)
         assert not client.cookies.get("playmate_session")
         assert client.get("/auth/me").status_code == 401
 

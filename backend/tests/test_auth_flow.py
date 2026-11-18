@@ -29,6 +29,7 @@ fake_member = {
     "course": "AI",
     "cohort": 36,
     "role_code": "USER",
+    "session_version": 0,
 }
 
 

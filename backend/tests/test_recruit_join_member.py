@@ -187,6 +187,7 @@ def router_client(monkeypatch):
         if member_id is not None:
             session = {
                 "member_id": member_id,
+                "session_version": 0,
                 "user": {"discord_id": "isolated-discord-user"},
             }
             cookie = (
@@ -227,7 +228,7 @@ def test_router_passes_authenticated_member_id(
     assert response.status_code == 200
     assert received == [(1, 5)]
     assert checked == [5]
-    assert queries == [(5, "isolated-discord-user")]
+    assert queries == [(5, "isolated-discord-user", 0)]
 
 
 @pytest.mark.parametrize(

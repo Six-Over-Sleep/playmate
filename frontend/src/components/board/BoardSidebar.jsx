@@ -69,6 +69,7 @@ export default function BoardSidebar({
     : null
 
   const isMyCourseBoard = (item) => {
+    if (typeof item.is_my_course === 'boolean') return item.is_my_course
     if (!item.course_code) return false
     if (hasMemberProfile) {
       return String(item.course_code) === String(memberCourse)
@@ -162,14 +163,12 @@ export default function BoardSidebar({
       )}
 
       {/* 소속 과정 게시판은 주요 게시판과 분리해서 표시 */}
-      {myCourseBoards.length > 0 && (
-        <div className="board-directory-group board-directory-own-course">
+      <div className="board-directory-group board-directory-own-course">
           <p className="board-directory-label">내 과정</p>
           <div className="board-directory-list">
             {myCourseBoards.map(boardButton)}
           </div>
-        </div>
-      )}
+      </div>
 
       {/* 일반 게시판: 이름 검색, 접기, 펼치기 */}
       <div className="board-directory-group board-directory-general">

@@ -45,6 +45,7 @@ class BoardResponse(BaseModel):
     read_policy: Literal["SCOPE_ONLY", "ALL_VERIFIED"] = "SCOPE_ONLY"
     write_policy: Literal["SCOPE_ONLY", "STAFF_ONLY"] = "SCOPE_ONLY"
     can_write: bool = True
+    is_my_course: bool = False
     created_at: datetime
 
 

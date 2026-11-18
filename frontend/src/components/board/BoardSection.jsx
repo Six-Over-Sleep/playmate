@@ -1,7 +1,7 @@
 /* PLAYMATE_FRONTEND_POLISH_V1 */
-import '../../styles/boardBetaPolish.css'
 // PLAYMATE_BOARD_REPORTS_V1
 import BoardCreateModal from './BoardCreateModal'
+import BoardSidebar from './BoardSidebar'
 import BoardPage from '../../pages/board/BoardPage'
 import PostDetailPage from '../../pages/board/PostDetailPage'
 import PostEditorPage from '../../pages/board/PostEditorPage'
@@ -33,9 +33,33 @@ export default function BoardSection({ resetVersion, memberCourse, memberCohort 
         </main>
       ) : (
         <>
-          {detailLoading && <p className="empty-state" role="status">글을 불러오는 중…</p>}
+          {detailLoading && (
+            <main className="board-shell pm-board-dashboard pm-board-detail-page pm-board-loading-page" aria-busy="true">
+              <div className="pm-board-title">
+                <div><h1>게시판</h1></div>
+                <p>배우고, 공유하고, 함께 성장하는 PlayMate 이야기</p>
+              </div>
+              <div className="board-grid">
+                <BoardSidebar
+                  boards={boards}
+                  memberCourse={memberCourse}
+                  memberCohort={memberCohort}
+                  busy={busy}
+                  selectedId={board?.id}
+                  onSelect={boardState.selectBoard}
+                  onCreate={boardState.openModal}
+                />
+                <div className="pm-board-content">
+                  <section className="detail-content pm-board-detail-card pm-board-loading-card" role="status" aria-live="polite">
+                    <span className="pm-board-loading-spinner" aria-hidden="true" />
+                    <span>게시글을 불러오는 중...</span>
+                  </section>
+                </div>
+              </div>
+            </main>
+          )}
 
-          {view === 'list' && (
+          {!detailLoading && view === 'list' && (
             <BoardPage
               boards={boards}
               memberCourse={memberCourse}
@@ -53,18 +77,23 @@ export default function BoardSection({ resetVersion, memberCourse, memberCohort 
             />
           )}
 
-          {view === 'editor' && board && (
+          {!detailLoading && view === 'editor' && board && (
             <PostEditorPage
               key={post?.id ?? 'new'}
+              boards={boards}
+              memberCourse={memberCourse}
+              memberCohort={memberCohort}
               board={board}
               post={post}
               busy={busy}
+              onSelectBoard={boardState.selectBoard}
+              onCreateBoard={boardState.openModal}
               onBack={boardState.cancelEditor}
               onSubmit={boardState.savePost}
             />
           )}
 
-          {view === 'detail' && post && (
+          {!detailLoading && view === 'detail' && post && (
             <PostDetailPage
               key={post.id}
               memberCourse={memberCourse}

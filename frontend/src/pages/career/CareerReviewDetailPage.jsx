@@ -1,4 +1,3 @@
-import '../../styles/CareerReviewDetailPage.css'
 
 const STAGE_NAMES = {
     DOCUMENT: '서류',
@@ -20,19 +19,12 @@ const TYPE_NAMES = {
 }
 
 /** 취준 도감 후기 상세 화면. 서버에 없는 값은 추정하지 않는다. */
-export default function CareerReviewDetailPage({ review, onBack, onEdit, onDelete, children }) {
+export default function CareerReviewDetailPage({ review, onEdit, onDelete, children }) {
     if (!review) return null
 
 
     return (
         <div className="career-review-detail">
-            <button
-                type="button"
-                className="career-review-back"
-                onClick={onBack}
-            >
-                ← 취준 도감 목록으로
-            </button>
 
             <article className="career-review-detail-card">
                 <div className="career-review-detail-top">
@@ -72,22 +64,16 @@ export default function CareerReviewDetailPage({ review, onBack, onEdit, onDelet
                 <div className="career-review-detail-body">
                     {review.body || review.summary}
                 </div>
-
-                <div className="career-review-detail-actions">
-                    <button type="button" className="career-review-cancel" onClick={onBack}>
-                        목록
-                    </button>
-                    {review.is_owner && (
-                        <>
-                            <button type="button" className="career-review-edit-btn" onClick={onEdit}>
-                                수정
-                            </button>
-                            <button type="button" className="career-review-delete-btn" onClick={onDelete}>
-                                삭제
-                            </button>
-                        </>
-                    )}
-                </div>
+                {review.is_owner && (
+                    <div className="career-review-detail-actions">
+                        <button type="button" className="career-review-edit-btn" onClick={onEdit}>
+                            수정
+                        </button>
+                        <button type="button" className="career-review-delete-btn" onClick={onDelete}>
+                            삭제
+                        </button>
+                    </div>
+                )}
 
                 {/* 좋아요·스크랩·댓글 (취업 4종 공통 영역) */}
                 {children}

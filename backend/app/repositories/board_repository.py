@@ -228,6 +228,11 @@ def list_posts(
                 FROM post_likes AS l
                 WHERE l.post_id = p.post_id
             )::int AS like_count,
+            (
+                SELECT COUNT(*)
+                FROM post_scraps AS s
+                WHERE s.post_id = p.post_id
+            )::int AS scrap_count,
             EXISTS (
                 SELECT 1
                 FROM post_likes AS l
@@ -380,6 +385,11 @@ def get_post(
                 FROM post_likes AS l
                 WHERE l.post_id = p.post_id
             )::int AS like_count,
+            (
+                SELECT COUNT(*)
+                FROM post_scraps AS s
+                WHERE s.post_id = p.post_id
+            )::int AS scrap_count,
             EXISTS (
                 SELECT 1
                 FROM post_likes AS l
@@ -867,6 +877,11 @@ def list_featured_posts(
             ) AS comment_count,
             (p.author_member_id = %s) AS is_owner,
             likes.total_likes AS like_count,
+            (
+                SELECT COUNT(*)
+                FROM post_scraps AS s
+                WHERE s.post_id = p.post_id
+            )::int AS scrap_count,
             EXISTS (
                 SELECT 1 FROM post_likes AS my_likes
                 WHERE my_likes.post_id = p.post_id

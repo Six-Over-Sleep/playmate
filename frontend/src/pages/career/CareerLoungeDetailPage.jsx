@@ -1,9 +1,7 @@
-import '../../styles/CareerLoungeDetailPage.css'
 
 /** 서버에 저장된 현직자 라운지 게시글 상세 화면 */
 export default function CareerLoungeDetailPage({
     post,
-    onBack,
     onEdit,
     onDelete,
     busy = false,
@@ -13,14 +11,6 @@ export default function CareerLoungeDetailPage({
 
     return (
         <div className="career-lounge-detail">
-            <button
-                type="button"
-                className="career-lounge-back"
-                disabled={busy}
-                onClick={onBack}
-            >
-                ← 현직자 라운지 목록으로
-            </button>
 
             <article className="career-lounge-detail-card">
                 <div className="career-lounge-detail-top">
@@ -46,38 +36,26 @@ export default function CareerLoungeDetailPage({
                 <div className="career-lounge-detail-body">
                     {post.body || post.summary}
                 </div>
-
-                <div className="career-lounge-detail-actions">
-                    <button
-                        type="button"
-                        className="career-lounge-cancel"
-                        disabled={busy}
-                        onClick={onBack}
-                    >
-                        목록
-                    </button>
-
-                    {post.is_owner && (
-                        <>
-                            <button
-                                type="button"
-                                className="career-lounge-edit"
-                                disabled={busy}
-                                onClick={onEdit}
-                            >
-                                수정
-                            </button>
-                            <button
-                                type="button"
-                                className="career-lounge-delete"
-                                disabled={busy}
-                                onClick={onDelete}
-                            >
-                                삭제
-                            </button>
-                        </>
-                    )}
-                </div>
+                {post.is_owner && (
+                    <div className="career-lounge-detail-actions">
+                        <button
+                            type="button"
+                            className="career-lounge-edit"
+                            disabled={busy}
+                            onClick={onEdit}
+                        >
+                            수정
+                        </button>
+                        <button
+                            type="button"
+                            className="career-lounge-delete"
+                            disabled={busy}
+                            onClick={onDelete}
+                        >
+                            삭제
+                        </button>
+                    </div>
+                )}
 
                 {/* 좋아요·스크랩·댓글 (취업 4종 공통 영역) */}
                 {children}

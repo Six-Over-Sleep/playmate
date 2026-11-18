@@ -1,5 +1,4 @@
-import '../../styles/auth.css'
-import logo from '../../assets/playmate-logo.png'
+import logo from '../../assets/playmate-auth-logo.png'
 import { getAuthUrl } from '../../config/api'
 
 export default function LoginPage({

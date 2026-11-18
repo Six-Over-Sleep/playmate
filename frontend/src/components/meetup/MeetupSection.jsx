@@ -183,6 +183,8 @@ export default function MeetupSection({
           meetup={selectedMeetup}
           busy={busy}
 
+          onBackToList={handleGoBack}
+
           onBack={
             selectedMeetup
               ? backToDetail

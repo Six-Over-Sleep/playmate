@@ -7,7 +7,6 @@ import {
     scrapCareerNews,
     unscrapCareerNews,
 } from '../../services/careerApi'
-import '../../styles/CareerBriefing.css'
 
 const NEWS_TYPES = ['전체 유형', '채용 동향', '기술 동향', '직무 분석']
 

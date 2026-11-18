@@ -1,5 +1,9 @@
 """신규 계약 검증용 라우터. 기존 모임 라우터를 덮어쓰거나 자동 등록하지 않는다."""
 
+import logging
+import os
+from time import perf_counter
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
@@ -24,6 +28,16 @@ from backend.app.services.recruit_program_service import ProgramService
 router = APIRouter(prefix="/api/recruits", tags=["recruit-programs"])
 features_router = APIRouter(prefix="/api/recruits", tags=["recruit-programs"])
 
+_logger = logging.getLogger(__name__)
+
+
+def _slow_api_threshold_ms():
+    try:
+        return max(0, int(os.getenv("RECRUIT_SLOW_API_MS", "500")))
+    except ValueError:
+        return 500
+
+
 
 def build_program_service(db=Depends(get_db)):
     """실제 DB 세션과 공용 모임 기술 사전으로 서비스를 구성한다."""
@@ -44,7 +58,8 @@ def get_service(service: ProgramService = Depends(build_program_service)):
 
 
 def invoke(method, *args):
-    """업무 오류만 기존 HTTP detail 문자열 계약으로 변환한다."""
+    """기존 응답/오류 계약을 유지하며 모임 서비스 처리 지연을 관찰한다."""
+    start = perf_counter()
     try:
         return method(*args)
     except PolicyError as error:
@@ -52,6 +67,16 @@ def invoke(method, *args):
     except ValidationError as error:
         errors = [{**item, "loc": ("body", *item["loc"])} for item in error.errors()]
         raise RequestValidationError(errors) from error
+    finally:
+        duration_ms = (perf_counter() - start) * 1000
+        threshold = _slow_api_threshold_ms()
+        if threshold and duration_ms >= threshold:
+            # 요청 본문·회원 ID·SQL 파라미터는 기록하지 않는다.
+            _logger.warning(
+                "Slow recruit service %s: %.0f ms",
+                getattr(method, "__name__", "unknown"),
+                duration_ms,
+            )
 
 
 @router.get("")

@@ -104,6 +104,7 @@ def list_reviews(
     member_id: int,
     q: str | None = None,
     subcategory_code: str | None = None,
+    subcategory_codes: list[str] | None = None,
     job_category_code: str | None = None,
     process_stage: str | None = None,
     process_result: str | None = None,
@@ -121,7 +122,10 @@ def list_reviews(
     params = []
 
     # 하위 카테고리 필터
-    if subcategory_code:
+    if subcategory_codes:
+        conditions.append("cp.subcategory_code = ANY(%s)")
+        params.append(subcategory_codes)
+    elif subcategory_code:
         conditions.append("cp.subcategory_code = %s")
         params.append(subcategory_code)
 
@@ -514,6 +518,7 @@ def list_talks(
     member_id: int,
     q: str | None = None,
     subcategory_code: str | None = None,
+    subcategory_codes: list[str] | None = None,
     job_category_code: str | None = None,
     current_status: str | None = None,
     page: int = 1,
@@ -530,7 +535,10 @@ def list_talks(
     params = []
 
     # 1. 하위 카테고리 필터
-    if subcategory_code:
+    if subcategory_codes:
+        conditions.append("cp.subcategory_code = ANY(%s)")
+        params.append(subcategory_codes)
+    elif subcategory_code:
         conditions.append("cp.subcategory_code = %s")
         params.append(subcategory_code)
 
@@ -1175,6 +1183,7 @@ def list_lounges(
     member_id: int,
     q: str | None = None,
     subcategory_code: str | None = None,
+    subcategory_codes: list[str] | None = None,
     job_category_code: str | None = None,
     experience_years: int | None = None,
     page: int = 1,
@@ -1191,10 +1200,11 @@ def list_lounges(
     params = []
 
     # 1. 하위 카테고리 필터
-    if subcategory_code:
-        conditions.append(
-            "cp.subcategory_code = %s"
-        )
+    if subcategory_codes:
+        conditions.append("cp.subcategory_code = ANY(%s)")
+        params.append(subcategory_codes)
+    elif subcategory_code:
+        conditions.append("cp.subcategory_code = %s")
         params.append(subcategory_code)
 
     # 2. 직무 필터
@@ -1737,6 +1747,7 @@ def list_labs(
     member_id: int,
     q: str | None = None,
     subcategory_code: str | None = None,
+    subcategory_codes: list[str] | None = None,
     post_type: str | None = None,
     is_resolved: bool | None = None,
     page: int = 1,
@@ -1754,10 +1765,11 @@ def list_labs(
     params = []
 
     # 2. 하위 카테고리 필터
-    if subcategory_code:
-        conditions.append(
-            "cp.subcategory_code = %s"
-        )
+    if subcategory_codes:
+        conditions.append("cp.subcategory_code = ANY(%s)")
+        params.append(subcategory_codes)
+    elif subcategory_code:
+        conditions.append("cp.subcategory_code = %s")
         params.append(subcategory_code)
 
     # 3. 질문·토론 유형 필터
@@ -2260,7 +2272,7 @@ def attach_post_reactions(cursor, row: dict | None, member_id: int) -> dict | No
 
 
 def attach_list_reactions(cursor, items: list[dict]) -> list[dict]:
-    """목록 항목에 좋아요 수와 댓글 수를 한 번의 조회로 붙인다.
+    """목록 항목에 좋아요·댓글·스크랩 수를 한 번의 조회로 붙인다.
 
     댓글 수는 게시판과 같이 삭제되지 않은 댓글만 센다. (삭제 자리표시 제외)
     """
@@ -2282,7 +2294,12 @@ def attach_list_reactions(cursor, items: list[dict]) -> list[dict]:
                 FROM comments AS c
                 WHERE c.post_id = p.post_id
                   AND c.deleted_at IS NULL
-            )::int AS comment_count
+            )::int AS comment_count,
+            (
+                SELECT COUNT(*)
+                FROM post_scraps AS s
+                WHERE s.post_id = p.post_id
+            )::int AS scrap_count
         FROM posts AS p
         WHERE p.post_id = ANY(%s)
         """,
@@ -2292,4 +2309,5 @@ def attach_list_reactions(cursor, items: list[dict]) -> list[dict]:
     for item in items:
         item["like_count"] = counts[item["id"]]["like_count"]
         item["comment_count"] = counts[item["id"]]["comment_count"]
+        item["scrap_count"] = counts[item["id"]]["scrap_count"]
     return items

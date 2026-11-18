@@ -5,7 +5,8 @@
 DB 처리와 트랜잭션은 career_service에서 담당한다.
 """
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from typing import get_args
 from fastapi.concurrency import run_in_threadpool
 
 from app.core.auth import get_current_member_id
@@ -72,6 +73,17 @@ async def guide_award(response: Response, member_id: int = Depends(get_current_m
     return {"xp_amount": await run_in_threadpool(career_service.read_guide_award)}
 
 
+# 통합 화면 메뉴에서 여러 기존 세부 코드를 함께 조회할 수 있도록 합니다.
+# 저장된 글의 코드/스키마는 변경하지 않습니다. 단일 코드 API도 그대로 지원합니다.
+def _parse_subcategory_codes(value: str | None, allowed: tuple[str, ...]) -> list[str] | None:
+    if value is None:
+        return None
+    codes = value.split(',')
+    if not 1 <= len(codes) <= len(allowed) or any(code not in allowed for code in codes):
+        raise HTTPException(status_code=422, detail='유효하지 않은 세부 카테고리 코드입니다.')
+    return list(dict.fromkeys(codes))
+
+
 # =========================================
 # 취준 도감 - 후기 등록
 # =========================================
@@ -108,6 +120,8 @@ async def create_review(
 async def list_reviews(
     q: str | None = Query(default=None, max_length=100),
 
+    # 쉼표로 연결된 기존 코드 목록 (예: JOB_SEARCH,CAREER_PATH)
+    subcategory_codes: str | None = Query(default=None, max_length=160),
     subcategory_code: ReviewSubcategory | None = Query(
         default=None
     ),
@@ -139,6 +153,7 @@ async def list_reviews(
         member_id=member_id,
         q=q,
         subcategory_code=subcategory_code,
+        subcategory_codes=_parse_subcategory_codes(subcategory_codes, get_args(ReviewSubcategory)),
         job_category_code=job_category_code,
         process_stage=process_stage,
         process_result=process_result,
@@ -246,6 +261,8 @@ async def list_talks(
         default=None,
         max_length=100,
     ),
+    # 쉼표로 연결된 기존 코드 목록 (예: JOB_SEARCH,CAREER_PATH)
+    subcategory_codes: str | None = Query(default=None, max_length=160),
     subcategory_code: TalkSubcategory | None = Query(
         default=None,
     ),
@@ -275,6 +292,7 @@ async def list_talks(
         member_id=member_id,
         q=q,
         subcategory_code=subcategory_code,
+        subcategory_codes=_parse_subcategory_codes(subcategory_codes, get_args(TalkSubcategory)),
         job_category_code=job_category_code,
         current_status=current_status,
         page=page,
@@ -392,6 +410,8 @@ async def list_lounges(
         default=None,
         max_length=100,
     ),
+    # 쉼표로 연결된 기존 코드 목록 (예: JOB_SEARCH,CAREER_PATH)
+    subcategory_codes: str | None = Query(default=None, max_length=160),
     subcategory_code: LoungeSubcategory | None = Query(
         default=None,
     ),
@@ -423,6 +443,7 @@ async def list_lounges(
         member_id=member_id,
         q=q,
         subcategory_code=subcategory_code,
+        subcategory_codes=_parse_subcategory_codes(subcategory_codes, get_args(LoungeSubcategory)),
         job_category_code=job_category_code,
         experience_years=experience_years,
         page=page,
@@ -544,6 +565,8 @@ async def list_labs(
         default=None,
         max_length=100,
     ),
+    # 쉼표로 연결된 기존 코드 목록 (예: JOB_SEARCH,CAREER_PATH)
+    subcategory_codes: str | None = Query(default=None, max_length=160),
     subcategory_code: LabSubcategory | None = Query(
         default=None,
     ),
@@ -571,6 +594,7 @@ async def list_labs(
         member_id=member_id,
         q=q,
         subcategory_code=subcategory_code,
+        subcategory_codes=_parse_subcategory_codes(subcategory_codes, get_args(LabSubcategory)),
         post_type=post_type,
         is_resolved=is_resolved,
         page=page,

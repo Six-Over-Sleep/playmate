@@ -15,11 +15,13 @@ import AdminPage from './pages/admin/AdminPage'
 import MeetupSection from './components/meetup/MeetupSection'
 import MyPage from './pages/mypage/MyPage'
 import CareerPage from './pages/career/CareerPage'
+import HomePage from './pages/home/HomePage'
 
 import { apiRequest } from './services/apiClient'
 import { getAuthUrl } from './config/api'
 
 const VALID_SECTIONS = [
+  'home',
   'board',
   'career',
   'meetup',
@@ -36,7 +38,7 @@ function getSavedSection() {
 
   return VALID_SECTIONS.includes(savedSection)
     ? savedSection
-    : 'board'
+    : 'home'
 }
 
 function getSectionFromPath(pathname) {
@@ -81,7 +83,7 @@ function AppContent() {
 
   const section =
     getSectionFromPath(location.pathname) ||
-    savedSection
+    (location.pathname === '/' ? 'home' : savedSection)
 
   const meetupMatch =
     location.pathname.match(
@@ -93,6 +95,8 @@ function AppContent() {
     : null
 
   const [boardKey, setBoardKey] = useState(0)
+  // 헤더 메뉴를 다시 클릭해도 해당 섹션의 내부 화면(작성/상세/탭)을 초기화합니다.
+  const [menuNavigationKey, setMenuNavigationKey] = useState(0)
 
   // =========================================================
   // 현재 섹션 저장
@@ -308,6 +312,12 @@ function AppContent() {
   const handleNavigate = (
     nextSection,
   ) => {
+    // 성장 페이지는 현재 준비 중입니다. 실제 페이지나 라우트는 아직 만들지 않습니다.
+    if (nextSection === 'growth') {
+      window.alert('성장 페이지는 현재 준비 중입니다. 조금만 기다려 주세요!')
+      return
+    }
+
     if (
       !VALID_SECTIONS.includes(
         nextSection,
@@ -320,7 +330,11 @@ function AppContent() {
       return
     }
 
-    navigate(`/${nextSection}`)
+    // 같은 URL이어도 작성/상세 화면을 종료하고 섹션 메인을 다시 표시합니다.
+    setMenuNavigationKey((prev) => prev + 1)
+    // 헤더·홈의 취업 메뉴는 게시판이 아닌 채용 인사이트를 처음 표시합니다.
+    navigate(nextSection === 'career' ? '/career/insights' : `/${nextSection}`)
+    window.scrollTo(0, 0)
 
     setSavedSection(nextSection)
 
@@ -582,6 +596,8 @@ function AppContent() {
 
         <ActivityTracker />
 
+        {section === 'home' && <HomePage key={menuNavigationKey} onNavigate={handleNavigate} />}
+
         {section === 'board' && (
           <BoardSection
             resetVersion={
@@ -598,15 +614,16 @@ function AppContent() {
 
         {section === 'admin' &&
           roleCode === 'ADMIN' && (
-            <AdminPage />
+            <AdminPage key={menuNavigationKey} />
           )}
 
         {section === 'career' && (
-          <CareerPage />
+          <CareerPage key={menuNavigationKey} />
         )}
 
         {section === 'meetup' && (
           <MeetupSection
+            key={menuNavigationKey}
             isAdmin={roleCode === 'ADMIN'}
             currentMemberId={currentMemberId}
             targetMeetupId={
@@ -617,6 +634,7 @@ function AppContent() {
 
         {section === 'mypage' && (
           <MyPage
+            key={menuNavigationKey}
             onOpenMeetup={
               handleOpenMeetup
             }

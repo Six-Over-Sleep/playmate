@@ -6,6 +6,28 @@ import { meetupErrorMessage } from '../../utils/meetupForm'
 import { normalizeMemberCount } from '../../utils/meetup'
 import { createMeetupRequestGate } from '../../utils/meetupRequest'
 
+// 회원별 목록은 잠깐만 재사용한다. 권한·참여 상태가 바뀌면 즉시 무효화한다.
+const LIST_CACHE_TTL_MS = 30_000
+let listCache = null
+let listCacheEpoch = 0
+
+function freshCachedList(memberId) {
+  if (memberId == null || !listCache) return null
+  return listCache.memberId === memberId &&
+    Date.now() - listCache.savedAt < LIST_CACHE_TTL_MS
+    ? listCache.rows
+    : null
+}
+
+function invalidateListCache() {
+  listCache = null
+  listCacheEpoch += 1
+}
+
+function isListPath(pathname) {
+  return pathname === '/meetup' || pathname === '/meetup/'
+}
+
 
 // =========================================================
 // 공통 유틸리티
@@ -153,6 +175,9 @@ export default function useMeetups({
   const [comments, setComments] = useState([])
   const [commentsLoading, setCommentsLoading] = useState(false)
   const [listRequests] = useState(createMeetupRequestGate)
+  const listRequestEpoch = useRef(-1)
+  // React StrictMode의 Effect 재실행은 로그인 회원 변경으로 처리하지 않는다.
+  const initializedMember = useRef({ ready: false, id: null })
   const memberRef = useRef(currentMemberId)
   memberRef.current = currentMemberId
 
@@ -169,28 +194,40 @@ export default function useMeetups({
 
   const loadMeetups = async ({ force = false } = {}) => {
     const member = currentMemberId
-    const request = listRequests.get(member, () => meetupApi.list(), { force })
-    const isCurrent = () => request.isCurrent() && memberRef.current === member
+    if (force) invalidateListCache()
+
+    const cached = !force ? freshCachedList(member) : null
+    if (cached) {
+      setMeetups(cached)
+      setLoading(false)
+      return cached
+    }
+
+    // 변경 이전에 시작한 응답은 무시하고, 오래된 진행 중 요청도 재사용하지 않는다.
+    const epoch = listCacheEpoch
+    const mustReload = force || listRequestEpoch.current !== epoch
+    listRequestEpoch.current = epoch
+    const request = listRequests.get(member, () => meetupApi.list(), { force: mustReload })
+    const isCurrent = () => request.isCurrent() &&
+      memberRef.current === member && listCacheEpoch === epoch
     setLoading(true)
 
     try {
       const data = await request.promise
-      if (!isCurrent()) return
+      if (!isCurrent()) return null
 
-      setMeetups(
-        Array.isArray(data) ? data : [],
-      )
+      const rows = Array.isArray(data) ? data : []
+      setMeetups(rows)
+      if (member != null) {
+        listCache = { memberId: member, rows, savedAt: Date.now() }
+      }
+      return rows
 
     } catch (err) {
-      if (!isCurrent()) return
+      if (!isCurrent()) return null
       console.error(err)
-
-      setError(
-        getErrorMessage(
-          err,
-          '모임 목록을 불러오지 못했습니다.',
-        ),
-      )
+      setError(getErrorMessage(err, '모임 목록을 불러오지 못했습니다.'))
+      return null
 
     } finally {
       if (isCurrent()) setLoading(false)
@@ -203,6 +240,11 @@ export default function useMeetups({
   // =========================================================
 
   useEffect(() => {
+    if (initializedMember.current.ready && initializedMember.current.id === currentMemberId) {
+      return
+    }
+    initializedMember.current = { ready: true, id: currentMemberId }
+
     // 기존 상세 조회 무효화
     detailRequest.current += 1
     detailAbortController.current?.abort()
@@ -227,8 +269,13 @@ export default function useMeetups({
     setError('')
     setActionMessage('')
 
-    // 모임 목록 새로 조회
-    loadMeetups()
+    // 상세 URL 진입 시 무거운 전체 목록 조회를 실행하지 않는다.
+    // 목록 화면으로 돌아올 때 goBack()에서 필요한 경우에만 조회한다.
+    if (isListPath(pathname)) {
+      void loadMeetups()
+    } else {
+      setLoading(false)
+    }
 
   }, [currentMemberId])
 
@@ -419,8 +466,8 @@ export default function useMeetups({
     recruitId,
     message,
   ) => {
+    invalidateListCache()
     await refreshDetail(recruitId)
-    await loadMeetups({ force: true })
 
     if (message) {
       setActionMessage(message)
@@ -513,6 +560,9 @@ export default function useMeetups({
     setError('')
     setActionMessage('')
 
+    // 상세 진입에서는 불러오지 않은 목록을 여기서 필요할 때만 조회한다.
+    void loadMeetups()
+
     // 목록 URL 이동
     if (changeUrl) {
       handledPath.current = '/meetup'
@@ -536,10 +586,7 @@ export default function useMeetups({
     handledPath.current = pathname
 
     // 모임 목록 화면
-    if (
-      pathname === '/meetup' ||
-      pathname === '/meetup/'
-    ) {
+    if (isListPath(pathname)) {
       goBack(false)
       return
     }
@@ -681,8 +728,8 @@ export default function useMeetups({
       created = await meetupApi.create(payload)
 
       setActionMessage('모임이 만들어졌어요.')
-      // 생성 후 목록 갱신
-      await loadMeetups({ force: true })
+      // 상세로 이동할 때 전체 목록을 다시 읽지 않는다.
+      invalidateListCache()
 
       if (created?.recruit_id) {
         const detail = await refreshDetail(
@@ -705,6 +752,7 @@ export default function useMeetups({
 
       } else {
         setView('list')
+        await loadMeetups({ force: true })
       }
 
       return created
@@ -714,6 +762,7 @@ export default function useMeetups({
 
       if (created?.recruit_id) {
         setView('list')
+        void loadMeetups({ force: true })
         setError('모임은 저장됐지만 상세 정보를 불러오지 못했어요. 목록에서 다시 열어주세요.')
         return created
       }
@@ -748,13 +797,12 @@ export default function useMeetups({
       )
 
       saved = true
+      // 저장이 성공한 시점에서 목록 캐시를 먼저 무효화한다.
+      invalidateListCache()
       // 수정된 상세 정보 다시 조회
       await refreshDetail(
         selectedMeetup.recruit_id,
       )
-
-      // 모임 목록도 갱신
-      await loadMeetups({ force: true })
 
       setView('detail')
       setActionMessage('모임을 수정했어요.')
@@ -813,7 +861,7 @@ export default function useMeetups({
 
       setJoined(false)
 
-      // 목록 새로고침
+      // 삭제 완료 후 목록으로 이동하므로 여기서는 최신 목록을 조회한다.
       await loadMeetups({ force: true })
 
       setView('list')
@@ -872,6 +920,8 @@ export default function useMeetups({
         liked_by_me: result.liked_by_me,
       } : prev)
 
+      // 목록 캐시도 무효화해 다음 진입 시 오래된 좋아요를 표시하지 않는다.
+      invalidateListCache()
       // 목록 좋아요 상태 갱신
       setMeetups((prev) =>
         prev.map((meetup) =>
@@ -914,6 +964,7 @@ export default function useMeetups({
     try {
       const result = await meetupApi[selectedMeetup.scrapped_by_me ? 'unscrap' : 'scrap'](selectedMeetup.recruit_id)
       setSelectedMeetup((prev) => prev?.recruit_id === id ? { ...prev, scrapped_by_me: result.scrapped_by_me } : prev)
+      invalidateListCache()
       setActionMessage(result.scrapped_by_me ? '스크랩에 저장했어요.' : '스크랩을 해제했어요.')
       return result
     } catch (err) {
@@ -987,12 +1038,11 @@ export default function useMeetups({
             selectedMeetup.recruit_id,
           )
 
-      // 참여 상태 다시 조회
+      // 서버에서 신청 변경이 성공했으므로, 상세 재조회가 실패해도 목록 캐시는 폐기한다.
+      invalidateListCache()
       await refreshDetail(
         selectedMeetup.recruit_id,
       )
-
-      await loadMeetups({ force: true })
 
       if (join) {
         const resultStatus = String(
@@ -1073,7 +1123,8 @@ export default function useMeetups({
         payload,
       )
 
-      // 권한/상태가 변경될 수 있으므로 작성 후 상세을 다시 확인한다.
+      // 활동 기록 성공 시 목록 캐시를 폐기하고 상세 권한/상태를 갱신한다.
+      invalidateListCache()
       await refreshDetail(selectedMeetup.recruit_id)
 
       setActionMessage(

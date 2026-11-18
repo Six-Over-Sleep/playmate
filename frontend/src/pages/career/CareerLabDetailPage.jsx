@@ -1,4 +1,3 @@
-import '../../styles/CareerLabDetailPage.css'
 
 const TYPE_LABELS = {
     QUESTION: '질문',
@@ -9,7 +8,6 @@ const TYPE_LABELS = {
 /** PostgreSQL에 저장된 커리어 연구소 게시글 상세 화면 */
 export default function CareerLabDetailPage({
     post,
-    onBack,
     onEdit,
     onDelete,
     onVote,
@@ -24,9 +22,6 @@ export default function CareerLabDetailPage({
 
     return (
         <div className="career-lab-detail">
-            <button type="button" className="career-lab-back" disabled={busy} onClick={onBack}>
-                ← 커리어 연구소 목록으로
-            </button>
             <article className="career-lab-detail-card">
                 <div className="career-lab-detail-top">
                     <span className="career-post-tag">{post.menu}</span>
@@ -86,22 +81,16 @@ export default function CareerLabDetailPage({
                         {voted && <p>투표가 완료되었습니다. 다른 선택지로 변경할 수 없습니다.</p>}
                     </section>
                 )}
-
-                <div className="career-lab-detail-actions">
-                    <button type="button" className="career-lab-cancel" disabled={busy} onClick={onBack}>
-                        목록
-                    </button>
-                    {post.is_owner && (
-                        <>
-                            <button type="button" className="career-lab-edit" disabled={busy} onClick={onEdit}>
-                                수정
-                            </button>
-                            <button type="button" className="career-lab-delete" disabled={busy} onClick={onDelete}>
-                                삭제
-                            </button>
-                        </>
-                    )}
-                </div>
+                {post.is_owner && (
+                    <div className="career-lab-detail-actions">
+                        <button type="button" className="career-lab-edit" disabled={busy} onClick={onEdit}>
+                            수정
+                        </button>
+                        <button type="button" className="career-lab-delete" disabled={busy} onClick={onDelete}>
+                            삭제
+                        </button>
+                    </div>
+                )}
 
                 {/* 좋아요·스크랩·댓글 (취업 4종 공통 영역) */}
                 {children}

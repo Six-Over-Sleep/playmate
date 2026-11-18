@@ -210,9 +210,14 @@ export default function MyActivity({ onOpenMeetup, onOpenPost }) {
 
   return (
     <section className="mypage-activity" aria-labelledby="mypage-activity-heading">
-      <div className="mypage-activity-heading">
-        <h3 id="mypage-activity-heading">활동 상세 내역</h3>
-        {!loading && !error && <span>{countLabel}</span>}
+      <div className="pm-mypage-card-heading pm-mypage-activity-titlebar">
+        <div className="pm-mypage-activity-titlegroup">
+          <h2 id="mypage-activity-heading">활동 기록</h2>
+          {!loading && !error && (
+            <span className="pm-mypage-activity-count" aria-live="polite">{countLabel}</span>
+          )}
+        </div>
+        <span className="pm-mypage-activity-helper">작성한 글과 참여한 활동을 확인해 보세요.</span>
       </div>
 
       <div className="mypage-activity-tabs" role="tablist" aria-label="활동 유형">
@@ -273,7 +278,7 @@ export default function MyActivity({ onOpenMeetup, onOpenPost }) {
                   </div>
                   <h3>{item.title}</h3>
                   <div className="mypage-meetup-details">
-                    <span>{isHost ? '👑 모임장' : '👤 참여자'}</span>
+                    <span>{isHost ? '모임장' : '참여자'}</span>
                     <span>{getMeetupMode(item.recruit_mode)}</span>
                   </div>
                   <div className="mypage-meetup-footer">

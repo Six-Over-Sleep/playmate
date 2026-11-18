@@ -12,7 +12,7 @@ const COURSE_NAMES = {
   'data-ml': '데이터 분석 & AI 머신러닝 캠프',
 }
 
-export default function ProfileCard({ avatarUrl, onWithdraw }) {
+export default function ProfileCard({ avatarUrl, onWithdraw, showWithdraw = true }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -155,15 +155,17 @@ export default function ProfileCard({ avatarUrl, onWithdraw }) {
         </div>
       </div>
 
-      <div className="mypage-profile-account-action">
-        <button
-          type="button"
-          className="mypage-withdraw-link"
-          onClick={() => onWithdraw?.()}
-        >
-          회원 탈퇴
-        </button>
-      </div>
+      {showWithdraw && (
+        <div className="mypage-profile-account-action">
+          <button
+            type="button"
+            className="mypage-withdraw-link"
+            onClick={() => onWithdraw?.()}
+          >
+            회원 탈퇴
+          </button>
+        </div>
+      )}
     </>
   )
 }

@@ -5,7 +5,8 @@ import {
   getMyAttendance,
   getMyLevel,
 } from '../../services/mypageApi'
-import { notifyMyLevelUpdated } from '../../utils/levelEvents'
+import { onMyLevelUpdated } from '../../utils/levelEvents'
+import { onMyAttendanceUpdated } from '../../utils/attendanceEvents'
 
 export default function OverallLevel() {
   const [levelData, setLevelData] = useState(null)
@@ -18,32 +19,54 @@ export default function OverallLevel() {
   const attendancePending = useRef(false)
 
   useEffect(() => {
-    getMyLevel()
-      .then(setLevelData)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false))
+    let active = true
+    let attendanceVersion = 0
 
-    // 출석 조회 실패는 레벨 표시를 막지 않습니다.
-    getMyAttendance()
-      .then(setAttendance)
-      .catch((err) => setAttendanceError(err.message))
+    getMyLevel()
+      .then((result) => { if (active) setLevelData(result) })
+      .catch((err) => { if (active) setError(err.message) })
+      .finally(() => { if (active) setLoading(false) })
+
+    const refreshAttendance = () => {
+      const version = ++attendanceVersion
+      getMyAttendance()
+        .then((result) => {
+          if (!active || attendanceVersion !== version) return
+          setAttendance(result)
+          setAttendanceError('')
+        })
+        .catch((err) => {
+          if (active && attendanceVersion === version) setAttendanceError(err.message)
+        })
+    }
+
+    refreshAttendance()
+
+    // 프로필 드롭다운에서 출석해도 버튼·연속 출석 현황을 즉시 반영합니다.
+    const unsubscribeAttendance = onMyAttendanceUpdated(() => {
+      if (!active) return
+      setAttendance((previous) => ({ ...previous, attended_today: true }))
+      refreshAttendance()
+    })
+    const unsubscribeLevel = onMyLevelUpdated((nextLevel) => {
+      if (active && nextLevel) setLevelData(nextLevel)
+    })
+
+    return () => {
+      active = false
+      unsubscribeAttendance()
+      unsubscribeLevel()
+    }
   }, [])
 
   const handleAttendance = async () => {
-    if (attendancePending.current) return
+    if (attendancePending.current || attendance?.attended_today) return
     attendancePending.current = true
     setChecking(true)
     setAttendanceError('')
     setAttendanceMessage('')
     try {
       const result = await checkMyAttendance()
-      const [nextLevel, nextAttendance] = await Promise.all([
-        getMyLevel(),
-        getMyAttendance(),
-      ])
-      setLevelData(nextLevel)
-      setAttendance(nextAttendance)
-      notifyMyLevelUpdated(nextLevel)
       setAttendanceMessage(
         result?.awarded
           ? `출석 완료! +${(result.earned_xp ?? 0) + (result.bonus_xp ?? 0)} XP`

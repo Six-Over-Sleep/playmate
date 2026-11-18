@@ -1,3 +1,4 @@
+/* --- header.css (preserved original rules) --- */
 
 @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap');
 
@@ -251,4 +252,136 @@
   .app-nav button {
     padding: 8px 7px;
   }
+}
+
+/* 알림 종 아이콘: 공통 디자인 CSS의 회전 효과와 상관없이 수직으로 표시 */
+.app-header .header-notification-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  line-height: 0;
+  transform: none !important;
+  rotate: 0deg !important;
+}
+
+.app-header .header-notification-icon .header-bell-svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  transform: none !important;
+  rotate: 0deg !important;
+}
+
+
+/* 프로필 드롭다운: 기존 레벨·XP 출석 기능을 공통 메뉴에서도 바로 사용 */
+.profile-dropdown.profile-dropdown--attendance {
+  width: 272px;
+  max-width: calc(100vw - 24px);
+  padding: 14px;
+}
+
+.profile-dropdown--attendance .profile-nickname {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.profile-dropdown--attendance .profile-attendance {
+  padding: 13px;
+  border: 1px solid #dbe7fa;
+  border-radius: 12px;
+  background: linear-gradient(125deg, #f4f8ff 0%, #edf5ff 100%);
+}
+
+.profile-attendance-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.profile-attendance-heading strong {
+  color: #273f65;
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.profile-attendance-badge {
+  flex: 0 0 auto;
+  border-radius: 99px;
+  padding: 4px 8px;
+  background: #e3e9f4;
+  color: #5b6c82;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.profile-attendance-badge.is-complete {
+  background: #dceee9;
+  color: #23715b;
+}
+
+.profile-attendance-description {
+  margin: 11px 0 10px;
+  color: #5a6e88;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.profile-dropdown--attendance .profile-attendance-action {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: #417acb;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 750;
+  text-align: center;
+  cursor: pointer;
+}
+
+.profile-dropdown--attendance .profile-attendance-action:hover:not(:disabled) {
+  background: #3065b0;
+}
+
+.profile-dropdown--attendance .profile-attendance-action:disabled {
+  background: #dde7f4;
+  color: #627991;
+  opacity: 1;
+  cursor: default;
+}
+
+.profile-attendance-feedback {
+  margin: 9px 0 0;
+  color: #246f57;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.profile-attendance-error {
+  margin-top: 8px;
+  color: #b34b4b;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.profile-dropdown--attendance .profile-attendance-retry {
+  width: auto;
+  margin-top: 6px;
+  padding: 4px 0;
+  color: #3c69aa;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: underline;
+  background: transparent;
+}
+
+.profile-dropdown--attendance .profile-attendance-retry:hover {
+  background: transparent;
 }

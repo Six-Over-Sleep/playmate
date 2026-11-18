@@ -98,9 +98,10 @@ class CareerReviewListItem(BaseModel):
 
     is_owner: bool
 
-    # 목록 카드용 좋아요 수·댓글 수 (삭제된 댓글 자리표시는 제외)
+    # 목록 카드용 좋아요·댓글·스크랩 수 (삭제된 댓글 자리표시는 제외)
     like_count: int = 0
     comment_count: int = 0
+    scrap_count: int = 0
     author_name: str
 
     subcategory_code: ReviewSubcategory
@@ -378,9 +379,10 @@ class CareerTalkListItem(BaseModel):
     author_name: str
     is_owner: bool
 
-    # 목록 카드용 좋아요 수·댓글 수 (삭제된 댓글 자리표시는 제외)
+    # 목록 카드용 좋아요·댓글·스크랩 수 (삭제된 댓글 자리표시는 제외)
     like_count: int = 0
     comment_count: int = 0
+    scrap_count: int = 0
     is_anonymous: bool
 
     subcategory_code: TalkSubcategory
@@ -610,9 +612,10 @@ class CareerLoungeListItem(BaseModel):
     author_name: str
     is_owner: bool
 
-    # 목록 카드용 좋아요 수·댓글 수 (삭제된 댓글 자리표시는 제외)
+    # 목록 카드용 좋아요·댓글·스크랩 수 (삭제된 댓글 자리표시는 제외)
     like_count: int = 0
     comment_count: int = 0
+    scrap_count: int = 0
     is_anonymous: bool
 
     subcategory_code: LoungeSubcategory
@@ -972,9 +975,10 @@ class CareerLabListItem(BaseModel):
 
     is_owner: bool
 
-    # 목록 카드용 좋아요 수·댓글 수 (삭제된 댓글 자리표시는 제외)
+    # 목록 카드용 좋아요·댓글·스크랩 수 (삭제된 댓글 자리표시는 제외)
     like_count: int = 0
     comment_count: int = 0
+    scrap_count: int = 0
 
     is_anonymous: bool
 

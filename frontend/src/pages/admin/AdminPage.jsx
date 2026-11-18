@@ -4,7 +4,6 @@ import { adminApi } from '../../services/adminApi'
 import AdminReportsPanel from '../../components/admin/AdminReportsPanel'
 import AdminUsagePanel from '../../components/admin/AdminUsagePanel'
 import AdminMeetupXPPanel from '../../components/admin/AdminMeetupXPPanel'
-import '../../styles/admin.css'
 
 const TABS = [
   { key: 'notices', label: '공지사항 관리', icon: '📢' },

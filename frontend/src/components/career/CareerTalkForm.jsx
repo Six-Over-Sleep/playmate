@@ -1,15 +1,7 @@
 import { useState } from 'react'
-import '../../styles/CareerTalkForm.css'
+import { getCareerMenuLabels } from '../../data/careerMenuGroups'
 
-// 기존 디자인과 선택지를 그대로 사용합니다.
-const TALK_TYPES = [
-    '취업 고민',
-    '이직 고민',
-    '진로 고민',
-    '취준 일상',
-    '취업 근황',
-    '연봉·처우 고민',
-]
+const TALK_TYPES = getCareerMenuLabels('talk')
 
 const JOB_CATEGORIES = [
     '소프트웨어 개발',
@@ -58,6 +50,8 @@ export default function CareerTalkForm({
             job_category: jobCategory || null,
             current_status: currentStatus || null,
             anonymous,
+            // 수정 시 기존 코드를 유지해 과거 게시글을 재분류하지 않습니다.
+            subcategory_code: initial?.menu === menu ? initial.subcategory_code : null,
         })
     }
 

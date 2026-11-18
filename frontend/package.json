@@ -12,7 +12,9 @@
     "@vitejs/plugin-react": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.30.6",
+    "remark-gfm": "^4.0.1",
     "vite": "latest"
   }
 }

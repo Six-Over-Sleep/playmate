@@ -35,6 +35,15 @@ function orderedBoards(items) {
   ]
 }
 
+// /board 진입 시 공지사항이 아니라 자유게시판을 메인으로 표시합니다.
+// 명시적으로 /board/:id를 방문한 경우에는 해당 게시판을 우선합니다.
+function findDefaultBoard(items) {
+  return items.find((item) => String(item.name || '').replace(/^[📢🏆🔥]\s*/u, '').trim() === '자유게시판')
+    || items.find((item) => !item.featured && item.name !== '공지사항')
+    || items[0]
+    || null
+}
+
 // 자유게시판 URL에서 게시판 ID와 게시글 ID 추출
 function parseBoardPath(pathname) {
   const parts = pathname.split('/').filter(Boolean)
@@ -128,10 +137,11 @@ export function useBoard(resetVersion) {
 
       const allBoards = orderedBoards(items)
       const firstBoard =
-        allBoards.find((item) => String(item.id) === String(route?.boardId))
-        || allBoards[0]
-        || null
-      // 공지사항, 명예의 전당, HOT을 맨 앞에 표시한다.
+        (route?.boardId != null
+          ? allBoards.find((item) => String(item.id) === String(route.boardId))
+          : null)
+        || findDefaultBoard(allBoards)
+      // 좌측 메뉴 순서는 유지하고, 기본 콘텐츠만 자유게시판으로 선택합니다.
       setBoards(allBoards)
       setBoard(firstBoard)
       setInitialized(true)
@@ -218,7 +228,17 @@ export function useBoard(resetVersion) {
   useEffect(() => {
     if (previousReset.current === resetVersion) return
     previousReset.current = resetVersion
-    backToList()
+    // 헤더 '게시판' 재선택 시 /board 루트 경로와 자유게시판 기본 선택을 유지합니다.
+    if (locationRef.current === '/board' && boards.length) {
+      const defaultBoard = findDefaultBoard(boards)
+      if (defaultBoard && String(board?.id) !== String(defaultBoard.id)) {
+        selectBoard(defaultBoard, false)
+      } else {
+        backToList(false)
+      }
+    } else {
+      backToList()
+    }
   }, [resetVersion])
 
   /** 같은 게시판의 정상 목록은 재사용하고, 실패·검색·변경 상태에서는 다시 조회한다. */
@@ -393,7 +413,7 @@ export function useBoard(resetVersion) {
       ? boards.find(
           (item) => String(item.id) === String(route.boardId)
         )
-      : board || boards[0]
+      : findDefaultBoard(boards)
 
     if (!targetBoard) {
       cancelDetail()
@@ -403,6 +423,7 @@ export function useBoard(resetVersion) {
 
     if (String(board?.id) !== String(targetBoard.id)) {
       selectBoard(targetBoard, false)
+      if (!route.postId) return
     }
 
     if (route.postId) {

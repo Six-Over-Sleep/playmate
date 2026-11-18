@@ -10,7 +10,7 @@ export default function BoardCreateModal({ open, busy, onClose, onCreate }) {
 
   return (
     <div
-      className="modal-backdrop"
+      className="modal-backdrop board-create-backdrop"
       role="presentation"
       onMouseDown={busy ? undefined : onClose}
     >

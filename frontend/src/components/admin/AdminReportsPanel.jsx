@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { adminApi } from '../../services/adminApi'
-import '../../styles/adminReports.css'
 
 const REASONS = {
   SPAM: '광고·도배',

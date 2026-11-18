@@ -7,12 +7,12 @@ commit/rollback 등 트랜잭션 처리는 Service에서 관리함.
 
 # func : SQL COUNT, COALESCE 등의 함수를 사용하기 위한 도구
 # or_ : 여러 조회 조건을 OR로 연결하는 도구
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, exists, func, literal, or_, select
 # insert : PostgreSQL의 INSERT ... ON CONFLICT 구문 생성 (좋아요·스크랩 중복 방지)
 from sqlalchemy.dialects.postgresql import insert
 
 # Session : DB 조회 및 데이터 등록에 사용하는 SQLAlchemy 세션
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 # 댓글 작성자 닉네임 조회에 사용하는 회원 ORM 모델
 from backend.app.models.member import Member
@@ -22,7 +22,11 @@ from backend.app.models.post import Post
 from backend.app.models.comment import Comment
 from backend.app.models.post_like import PostLike
 from backend.app.models.post_scrap import PostScrap
-from backend.app.models.recruit import Recruit, RecruitMember
+from backend.app.models.recruit import (
+    Recruit, RecruitMember, RecruitSportsDetail, RecruitGameDetail,
+    RecruitStudyDetail, RecruitGroupBuyDetail,
+)
+from backend.app.models.recruit_program import ApplicationRecord
 
 
 # =========================================================
@@ -41,6 +45,129 @@ def find_recruit_with_post(db: Session, recruit_id: int):
         .first()  # 조회 결과 중 첫 번째 항목 반환, 없으면 None
     )
 
+
+
+def legacy_detail_snapshot(
+    db: Session,
+    recruit_id: int,
+    member_id: int | None,
+    *,
+    include_program_history: bool = False,
+):
+    """기존 모임 상세를 한 번의 SELECT로 조회한다.
+
+    게시글·카테고리별 상세·내 참여 기록·좋아요/스크랩·타인 신청 이력을
+    스칼라 서브쿼리와 1:1 조인으로 함께 읽어 외부 DB 왕복을 줄인다.
+    모집 종류 변경 이력은 상태가 취소된 행도 포함해야 한다.
+    """
+    current_member = aliased(RecruitMember)
+
+    like_count = (
+        select(func.count(PostLike.member_id))
+        .where(PostLike.post_id == Post.post_id)
+        .correlate(Post)
+        .scalar_subquery()
+    )
+    if member_id is not None:
+        liked_by_me = exists(
+            select(PostLike.member_id).where(
+                PostLike.post_id == Post.post_id,
+                PostLike.member_id == member_id,
+            ).correlate(Post)
+        )
+        scrapped_by_me = exists(
+            select(PostScrap.member_id).where(
+                PostScrap.post_id == Post.post_id,
+                PostScrap.member_id == member_id,
+            ).correlate(Post)
+        )
+        member_role = current_member.role
+        member_status = current_member.status
+    else:
+        liked_by_me = literal(False)
+        scrapped_by_me = literal(False)
+        member_role = literal(None)
+        member_status = literal(None)
+
+    # 모임장이 아닌 회원이 가입했다가 취소했더라도 종류 변경은 불가능하다.
+    history = exists(
+        select(RecruitMember.member_id).where(
+            RecruitMember.recruit_id == Recruit.recruit_id,
+            RecruitMember.member_id != Post.author_member_id,
+        ).correlate(Recruit, Post)
+    )
+    if include_program_history:
+        history = or_(
+            history,
+            exists(
+                select(ApplicationRecord.member_id).where(
+                    ApplicationRecord.recruit_id == Recruit.recruit_id,
+                    ApplicationRecord.member_id != Post.author_member_id,
+                ).correlate(Recruit, Post)
+            ),
+        )
+
+    query = (
+        db.query(
+            Post, Recruit,
+            RecruitSportsDetail, RecruitGameDetail,
+            RecruitStudyDetail, RecruitGroupBuyDetail,
+            like_count.label("like_count"),
+            liked_by_me.label("liked_by_me"),
+            scrapped_by_me.label("scrapped_by_me"),
+            member_role.label("member_role"),
+            member_status.label("member_status"),
+            history.label("has_other_applicants"),
+        )
+        .join(Recruit, Post.post_id == Recruit.post_id)
+        .outerjoin(RecruitSportsDetail, RecruitSportsDetail.recruit_id == Recruit.recruit_id)
+        .outerjoin(RecruitGameDetail, RecruitGameDetail.recruit_id == Recruit.recruit_id)
+        .outerjoin(RecruitStudyDetail, RecruitStudyDetail.recruit_id == Recruit.recruit_id)
+        .outerjoin(RecruitGroupBuyDetail, RecruitGroupBuyDetail.recruit_id == Recruit.recruit_id)
+        .filter(
+            Recruit.recruit_id == recruit_id,
+            or_(Post.post_status != "DELETED", Post.post_status.is_(None)),
+        )
+    )
+    if member_id is not None:
+        query = query.outerjoin(
+            current_member,
+            and_(current_member.recruit_id == Recruit.recruit_id,
+                 current_member.member_id == member_id),
+        )
+    return query.first()
+
+
+def list_joined_members_with_profiles(db: Session, recruit_id: int):
+    """기존 /members 응답과 동일한 공개 참여자 정보를 한 번의 JOIN으로 조회."""
+    rows = (
+        db.query(
+            RecruitMember.member_id,
+            RecruitMember.role,
+            RecruitMember.joined_at,
+            Member.member_id.label("profile_member_id"),
+            Member.nickname,
+            Member.profile_image_url,
+        )
+        .outerjoin(Member, Member.member_id == RecruitMember.member_id)
+        .filter(
+            RecruitMember.recruit_id == recruit_id,
+            RecruitMember.status == "JOINED",
+        )
+        .all()
+    )
+    return [
+        {
+            "member_id": row.member_id,
+            **(
+                {"display_name": row.nickname, "profile_image_url": row.profile_image_url}
+                if row.profile_member_id is not None else {}
+            ),
+            "role": row.role,
+            "joined_at": row.joined_at,
+        }
+        for row in rows
+    ]
 
 def list_recruits_with_posts(db: Session, category: str | None = None):
     """삭제 상태가 아닌 모임 목록과 각 모임의 참여 인원·좋아요 수를 조회함."""

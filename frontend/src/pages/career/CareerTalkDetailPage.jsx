@@ -1,9 +1,7 @@
-import '../../styles/CareerTalkDetailPage.css'
 
 /** 커리어 톡톡 상세 화면. 실제 서버의 게시글만 표시합니다. */
 export default function CareerTalkDetailPage({
     talk,
-    onBack,
     onEdit,
     onDelete,
     busy = false,
@@ -13,14 +11,6 @@ export default function CareerTalkDetailPage({
 
     return (
         <div className="career-talk-detail">
-            <button
-                type="button"
-                className="career-talk-back"
-                onClick={onBack}
-                disabled={busy}
-            >
-                ← 커리어 톡톡 목록으로
-            </button>
 
             <article className="career-talk-detail-card">
                 <div className="career-talk-detail-top">
@@ -48,38 +38,26 @@ export default function CareerTalkDetailPage({
                 <div className="career-talk-detail-body">
                     {talk.body || talk.summary}
                 </div>
-
-                <div className="career-talk-detail-actions">
-                    <button
-                        type="button"
-                        className="career-talk-cancel"
-                        onClick={onBack}
-                        disabled={busy}
-                    >
-                        목록
-                    </button>
-
-                    {talk.is_owner && (
-                        <>
-                            <button
-                                type="button"
-                                className="career-talk-edit"
-                                onClick={onEdit}
-                                disabled={busy}
-                            >
-                                수정
-                            </button>
-                            <button
-                                type="button"
-                                className="career-talk-delete"
-                                onClick={onDelete}
-                                disabled={busy}
-                            >
-                                삭제
-                            </button>
-                        </>
-                    )}
-                </div>
+                {talk.is_owner && (
+                    <div className="career-talk-detail-actions">
+                        <button
+                            type="button"
+                            className="career-talk-edit"
+                            onClick={onEdit}
+                            disabled={busy}
+                        >
+                            수정
+                        </button>
+                        <button
+                            type="button"
+                            className="career-talk-delete"
+                            onClick={onDelete}
+                            disabled={busy}
+                        >
+                            삭제
+                        </button>
+                    </div>
+                )}
 
                 {/* 좋아요·스크랩·댓글 (취업 4종 공통 영역) */}
                 {children}

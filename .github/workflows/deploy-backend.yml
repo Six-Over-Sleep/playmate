@@ -70,8 +70,7 @@ jobs:
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
             --comment "PlayMate backend code synchronization" \
-            --parameters '{"commands":["set -eu","echo playmate-ssm-ok","systemctl is-active nginx","curl -fsS --max-time 5 http://127.0.0.1/_nginx_health","sudo -iu ubuntu /usr/local/bin/playmate-sync"]}' \
-            --query "Command.CommandId" \
+            --parameters '{"commands":["set -eu","echo playmate-ssm-ok","systemctl is-active nginx","curl -fsS --max-time 5 http://127.0.0.1/_nginx_health","sudo -iu ubuntu /usr/local/bin/playmate-sync","sudo /usr/local/bin/playmate-restart"]}' \            --query "Command.CommandId" \
             --output text)
 
           echo "SSM Command ID: $COMMAND_ID"

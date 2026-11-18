@@ -124,14 +124,16 @@ def _ensure_cohort_board(cursor, info: dict) -> None:
             WHERE board_id = 8 AND course_code = 'family-ai' AND cohort = 36
             """
         )
-        if cursor.fetchone() is None:
-            raise RuntimeError("기존 Family AI 36기 게시판이 없습니다. 운영 데이터를 확인해주세요.")
-        return
+        if cursor.fetchone() is not None:
+            return
+
+        # 신규 RDS에 레거시 게시판이 없다면
+        # 아래 공통 COHORT 게시판 생성 로직으로 진행합니다.
 
     # 신규 과정은 LEGACY course_code를 사용하지 않아 기관 간 쓰기 권한 충돌을 방지합니다.
     campus_suffix = f" {info['campus_name']}" if info.get("campus_name") else ""
     # boards.board_name은 VARCHAR(40). 기수 ID를 접미사로 넣어 충돌을 방지합니다.
-    tail = f" {info['cohort_no']}기 #{info['cohort_id']}"
+    tail = f" {info['cohort_no']}기"
     prefix = f"{info['institution_name']} {info['program_name']}{campus_suffix}"
     board_name = prefix[:40 - len(tail)] + tail
     if len(board_name) > 40 or len(tail) >= 40:

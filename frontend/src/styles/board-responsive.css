@@ -512,3 +512,40 @@
   outline: 2px solid #315ca6;
   outline-offset: 2px;
 }
+
+
+/* PLAYMATE_BOARD_SELECTED_STYLE_V3
+   Unselected: transparent
+   Selected: light blue
+*/
+
+/* ?? ??? ???? ??? ?? ?? */
+.board-shell .board-sidebar.board-directory
+.board-directory-item[aria-current="page"],
+.board-shell.pm-board-dashboard
+.board-directory-pinned
+.board-directory-item[aria-current="page"],
+.board-shell.pm-board-dashboard
+.board-directory-own-course
+.board-directory-item[aria-current="page"] {
+  background: #e7effc;
+  border-color: transparent;
+  color: #315ca6;
+  font-weight: 800;
+}
+
+/* ?? ?? ? ?? ???? ???? ?? */
+.board-shell .board-sidebar.board-directory
+.board-directory-item {
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-shell .board-sidebar.board-directory
+  .board-directory-item {
+    transition: none;
+  }
+}

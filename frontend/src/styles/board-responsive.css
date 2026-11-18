@@ -390,4 +390,94 @@
   }
 }
 
+/* PLAYMATE_UI_20261118_SIDEBAR */
+/* Desktop board directory: grouped sections and blue-tinted buttons. */
+@media (min-width: 1025px) {
+  .board-shell .board-sidebar.board-directory {
+    gap: 22px;
+    padding: 20px 14px;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-group {
+    gap: 12px;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-label {
+    box-sizing: border-box;
+    margin: 0 6px;
+    min-height: 28px;
+    padding: 2px 0 2px 12px;
+    border-left: 4px solid #91aedb;
+    color: #263d60;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.5;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 52px;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    background: #f1f5fc;
+    color: #5177bc;
+    font-weight: 750;
+    text-align: left;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-item:hover:not(:disabled) {
+    background: #eaf1fc;
+    color: #3d66ac;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-item.active {
+    border-color: #cadbf4;
+    background: #e7effc;
+    color: #315ca6;
+    font-weight: 800;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-item.board-my-course {
+    background: #f1f5fc;
+    color: #5177bc;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-item.board-my-course.active {
+    border-color: #cadbf4;
+    background: #e7effc;
+    color: #315ca6;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-own-course,
+  .board-shell .board-sidebar.board-directory .board-directory-general {
+    border-top: 1px solid #e7edf7;
+    padding-top: 18px;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-heading {
+    min-height: 32px;
+    align-items: center;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-heading .board-directory-label {
+    margin: 0 6px;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-collapse {
+    white-space: nowrap;
+    font-weight: 800;
+    color: #5c7ec1;
+  }
+
+  .board-shell .board-sidebar.board-directory .board-directory-search {
+    min-height: 42px;
+    border-color: #d8e4f7;
+    border-radius: 13px;
+    background: #fbfdff;
+  }
+}
 

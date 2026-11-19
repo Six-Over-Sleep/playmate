@@ -703,12 +703,37 @@ REVOKE ALL
 ON FUNCTION public.playmate_delete_career_attachments()
 FROM PUBLIC;
 
--- 기존 투표 검증 함수는 호출 계정의 권한으로 career를 읽는다.
--- 기존 투표 기록 테이블 사용 계정에 필요한 SELECT만 부여한다.
+-- 기존 취업 인터페이스의 읽기/쓰기 권한을 새 저장소에 이어 준다.
+-- 다른 게시판에만 쓰기 권한이 있는 계정에는 취업 쓰기를 부여하지 않는다.
 DO $$
 DECLARE
     permission_row RECORD;
+    target_role TEXT;
 BEGIN
+    FOR permission_row IN
+        SELECT DISTINCT grantee, privilege_type
+        FROM information_schema.table_privileges
+        WHERE table_schema = 'public'
+          AND table_name = 'career_posts'
+          AND privilege_type IN ('SELECT', 'INSERT', 'UPDATE')
+    LOOP
+        target_role := CASE WHEN permission_row.grantee = 'PUBLIC'
+            THEN 'PUBLIC' ELSE quote_ident(permission_row.grantee) END;
+        EXECUTE format('GRANT %s ON public.career TO %s',
+            permission_row.privilege_type, target_role);
+        IF permission_row.privilege_type IN ('INSERT', 'UPDATE') THEN
+            EXECUTE format('GRANT SELECT ON public.career TO %s', target_role);
+        END IF;
+        IF permission_row.privilege_type = 'INSERT' THEN
+            EXECUTE format(
+                'GRANT USAGE ON SEQUENCE public.career_poll_option_id_seq TO %s',
+                target_role);
+        END IF;
+    END LOOP;
+
+    -- FOR UPDATE에는 SELECT와 최소 한 컬럼의 UPDATE 권한이 필요하다.
+    -- 투표 전용 계정에 상세/선택지 수정 권한을 주지 않도록 post_id로 제한한다.
+    -- post_id 값 변경은 trg_career_parent_guard에서 차단한다.
     FOR permission_row IN
         SELECT DISTINCT grantee
         FROM information_schema.table_privileges
@@ -716,14 +741,10 @@ BEGIN
           AND table_name = 'career_lab_poll_votes'
           AND privilege_type IN ('INSERT', 'UPDATE')
     LOOP
-        EXECUTE format(
-            'GRANT SELECT ON public.career TO %s',
-            CASE
-                WHEN permission_row.grantee = 'PUBLIC'
-                    THEN 'PUBLIC'
-                ELSE quote_ident(permission_row.grantee)
-            END
-        );
+        target_role := CASE WHEN permission_row.grantee = 'PUBLIC'
+            THEN 'PUBLIC' ELSE quote_ident(permission_row.grantee) END;
+        EXECUTE format('GRANT SELECT, UPDATE (post_id) ON public.career TO %s',
+            target_role);
     END LOOP;
 END;
 $$;

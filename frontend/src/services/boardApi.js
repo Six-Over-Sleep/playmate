@@ -92,12 +92,15 @@ export const boardApi = {
 
   /**
    * 댓글 본문을 저장하고 생성 응답을 반환해 화면에서 추가 GET 없이 반영하게 한다.
-   * parentCommentId를 주면 그 댓글의 대댓글로 저장한다. (서버는 1단계 대댓글만 허용)
+   * replyToCommentId를 주면 그 댓글(대댓글 포함)에 답글로 저장한다. 원댓글은 서버가 계산한다.
+   * parentCommentId는 기존 호출 호환용(최상위 댓글에만 답글)이다.
    */
-  createComment(boardId, postId, body, parentCommentId = null, isAnonymous = false) {
+  createComment(boardId, postId, body, parentCommentId = null, isAnonymous = false, replyToCommentId = null) {
+    const payload = { body, parent_comment_id: parentCommentId, is_anonymous: isAnonymous }
+    if (replyToCommentId != null) payload.reply_to_comment_id = replyToCommentId
     return request(`/boards/${boardId}/posts/${postId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ body, parent_comment_id: parentCommentId, is_anonymous: isAnonymous }),
+      body: JSON.stringify(payload),
     })
   },
 

@@ -81,11 +81,12 @@ def test_comment_crud(monkeypatch):
 
 def test_reply_forwards_parent_comment_id(monkeypatch):
     seen = {}
-    def fake(board_id, post_id, body, member_id, parent_comment_id, is_anonymous=False):
-        seen.update(parent_comment_id=parent_comment_id); return {**comment(5), "parent_comment_id": parent_comment_id}
+    def fake(board_id, post_id, body, member_id, parent_comment_id, is_anonymous=False, reply_to_comment_id=None):
+        seen.update(parent_comment_id=parent_comment_id, reply_to_comment_id=reply_to_comment_id)
+        return {**comment(5), "parent_comment_id": parent_comment_id}
     monkeypatch.setattr(board_service, "create_comment", fake)
     assert routes.create_comment(1, 1, CommentWrite(body="답글", parent_comment_id=3), 1)["parent_comment_id"] == 3
-    assert seen == {"parent_comment_id": 3}
+    assert seen == {"parent_comment_id": 3, "reply_to_comment_id": None}
 
 def test_update_comment_rejects_parent_change(monkeypatch):
     monkeypatch.setattr(board_service, "update_comment", lambda *args: comment())

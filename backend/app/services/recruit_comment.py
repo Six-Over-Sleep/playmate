@@ -1,6 +1,7 @@
 """모임 댓글·대댓글 조회·작성·수정·삭제에 관한 비즈니스 로직.
 
-대댓글은 1단계까지만 허용함. (최상위 댓글에만 답글 가능)
+답글은 항상 2단계로 저장함. parent_comment_id = 최상위 원댓글, reply_to_comment_id = 실제 답글 대상.
+기존 parent_comment_id 방식은 최상위 댓글에만 답글 가능하고, reply_to_comment_id로는 대댓글에도 답글 가능.
 삭제는 deleted_at을 기록하는 논리삭제이며, 삭제된 부모 아래 살아 있는 대댓글이
 있으면 부모를 "삭제된 댓글" 자리표시로 남겨 대댓글이 고아가 되지 않게 함.
 """
@@ -18,6 +19,7 @@ from backend.app.repositories import recruit as recruit_repo
 from backend.app.schemas.recruit import RecruitCommentCreate, RecruitCommentUpdate
 from backend.app.services.recruit import get_recruit_post
 from backend.app.services.notification_writer import save_comment_notification
+from backend.app.services.comment_reply_rules import decide_reply_root
 
 
 logger = logging.getLogger(__name__)
@@ -38,20 +40,57 @@ def _aware(value, tz):
     return value.replace(tzinfo=tz) if isinstance(value, datetime) and value.tzinfo is None else value
 
 
-def _serialize_comment(comment: Comment, nickname: str | None, member_id: int | None, tz=timezone.utc):
-    """댓글 ORM 객체를 응답 형태로 바꿈. 삭제된 댓글은 본문·작성자를 숨김."""
+def _reply_target_fields(comment: Comment, target: Comment | None, target_nickname: str | None) -> dict:
+    """답글 대상 표시 정보를 게시판 댓글 응답과 같은 규칙으로 만듦.
+
+    - 원댓글: 대상 없음
+    - 대상 ID = reply_to_comment_id, 기존 데이터(NULL)는 parent_comment_id
+    - 대상이 없거나 삭제됨: 이름 None, reply_to_is_deleted True
+    - 익명 대상은 "익명", 탈퇴 회원은 "탈퇴한 사용자"(target_nickname에 반영됨). 회원 ID는 내보내지 않음
+    """
+    if comment.parent_comment_id is None:
+        return {"reply_to_comment_id": None, "reply_to_author_name": None, "reply_to_is_deleted": False}
+    target_id = comment.reply_to_comment_id or comment.parent_comment_id
+    if target is None or target.deleted_at is not None:
+        return {"reply_to_comment_id": target_id, "reply_to_author_name": None, "reply_to_is_deleted": True}
+    name = "익명" if target.is_anonymous else (target_nickname or "익명")
+    return {"reply_to_comment_id": target_id, "reply_to_author_name": name, "reply_to_is_deleted": False}
+
+
+def _serialize_comment(
+    comment: Comment,
+    nickname: str | None,
+    member_id: int | None,
+    tz=timezone.utc,
+    reply_target: Comment | None = None,
+    reply_target_nickname: str | None = None,
+):
+    """댓글 ORM 객체를 응답 형태로 바꿈. 삭제된 댓글은 본문·작성자를 숨기고, 익명 댓글은 작성자를 가림."""
     deleted = comment.deleted_at is not None
+    hidden = deleted or bool(comment.is_anonymous)
     return {
         "comment_id": comment.comment_id,
         "parent_comment_id": comment.parent_comment_id,
+        **_reply_target_fields(comment, reply_target, reply_target_nickname),
         "body": "" if deleted else comment.body,
-        "author_id": None if deleted else comment.author_member_id,
-        "author_name": "" if deleted else (nickname or "익명"),
+        "author_id": None if hidden else comment.author_member_id,
+        "author_name": "" if deleted else ("익명" if comment.is_anonymous else (nickname or "익명")),
         "created_at": _aware(comment.created_at, tz),
         "updated_at": _aware(comment.updated_at, tz),
         "is_owner": not deleted and comment.author_member_id == member_id,
         "is_deleted": deleted,
     }
+
+
+def _target_with_nickname(db: Session, comment: Comment, target: Comment | None = None):
+    """작성·수정 응답용으로 답글 대상과 그 작성자 표시 이름을 조회함. 원댓글이면 (None, None)."""
+    if comment.parent_comment_id is None:
+        return None, None
+    if target is None:
+        target = recruit_repo.get_active_comment(db, comment.reply_to_comment_id or comment.parent_comment_id)
+    if target is None or target.is_anonymous:
+        return target, None
+    return target, recruit_repo.get_member_nickname(db, target.author_member_id)
 
 
 def get_comments(db: Session, recruit_id: int, member_id: int | None = None):
@@ -64,6 +103,12 @@ def get_comments(db: Session, recruit_id: int, member_id: int | None = None):
     """
     post = get_recruit_post(db, recruit_id)
     rows = recruit_repo.list_post_comments(db, post.post_id)
+    # 답글 대상은 같은 게시글의 댓글이므로 이미 읽은 행(삭제 포함)에서 찾음. 추가 쿼리 없음.
+    by_id = {comment.comment_id: (comment, nickname) for comment, nickname in rows}
+
+    def serialize(comment, nickname, tz):
+        target, target_nickname = by_id.get(comment.reply_to_comment_id or comment.parent_comment_id, (None, None))
+        return _serialize_comment(comment, nickname, member_id, tz, target, target_nickname)
 
     parents = []
     replies_by_parent = {}
@@ -81,16 +126,13 @@ def get_comments(db: Session, recruit_id: int, member_id: int | None = None):
         replies = replies_by_parent.get(comment.comment_id, [])
         if comment.deleted_at is not None and not replies:
             continue
-        result.append(_serialize_comment(comment, nickname, member_id, tz))
-        result.extend(
-            _serialize_comment(reply, reply_nickname, member_id, tz)
-            for reply, reply_nickname in replies
-        )
+        result.append(serialize(comment, nickname, tz))
+        result.extend(serialize(reply, reply_nickname, tz) for reply, reply_nickname in replies)
     return result
 
 
-def _ensure_parent_comment(db: Session, post_id: int, parent_comment_id: int) -> None:
-    """대댓글의 부모가 같은 모임의 삭제되지 않은 최상위 댓글인지 검사함."""
+def _ensure_parent_comment(db: Session, post_id: int, parent_comment_id: int):
+    """대댓글의 부모가 같은 모임의 삭제되지 않은 최상위 댓글인지 검사하고 그 댓글을 반환함."""
     parent = recruit_repo.get_active_comment(db, parent_comment_id)
     if parent is None or parent.post_id != post_id:
         raise HTTPException(status_code=404, detail="부모 댓글이 없습니다.")
@@ -100,6 +142,37 @@ def _ensure_parent_comment(db: Session, post_id: int, parent_comment_id: int) ->
             status_code=400,
             detail="대댓글에는 답글을 달 수 없습니다.",
         )
+    return parent
+
+
+def _resolve_reply_target(
+    db: Session,
+    post_id: int,
+    parent_comment_id: int | None,
+    reply_to_comment_id: int | None,
+):
+    """저장할 (원댓글 ID, 답글 대상 ID, 대상 댓글)을 정함.
+
+    - 둘 다 없음: 원댓글 → (None, None, None)
+    - parent_comment_id만: 기존 방식과 기존 오류(404·400)를 그대로 유지 → (parent, None, 부모 댓글)
+    - reply_to_comment_id: 게시판·취업 댓글과 같은 규칙(decide_reply_root)으로 검증하고
+      서버가 원댓글을 계산함. 대상 행은 FOR SHARE로 잠금.
+    """
+    if reply_to_comment_id is None:
+        if parent_comment_id is None:
+            return None, None, None
+        return parent_comment_id, None, _ensure_parent_comment(db, post_id, parent_comment_id)
+
+    target, root = recruit_repo.get_reply_target(db, reply_to_comment_id)
+    checked = None if target is None else {
+        "comment_id": target.comment_id,
+        "post_id": target.post_id,
+        "parent_comment_id": target.parent_comment_id,
+        "root_post_id": None if root is None else root.post_id,
+        "root_parent_comment_id": None if root is None else root.parent_comment_id,
+    }
+    root_comment_id = decide_reply_root(post_id, parent_comment_id, checked)
+    return root_comment_id, reply_to_comment_id, target
 
 
 def create_comment(
@@ -114,20 +187,23 @@ def create_comment(
     """
     try:
         post = get_recruit_post(db, recruit_id)
-        if data.parent_comment_id is not None:
-            _ensure_parent_comment(db, post.post_id, data.parent_comment_id)
+        parent_comment_id, reply_to_comment_id, target = _resolve_reply_target(
+            db, post.post_id, data.parent_comment_id, data.reply_to_comment_id
+        )
 
         comment = Comment(
             post_id=post.post_id,
             author_member_id=member_id,
-            parent_comment_id=data.parent_comment_id,
+            parent_comment_id=parent_comment_id,
+            reply_to_comment_id=reply_to_comment_id,
             body=data.body,
         )
         recruit_repo.add_comment(db, comment)  # comment_id를 확보함.
 
         # commit 후 ORM 객체가 만료되기 전에 응답과 알림에 쓸 값을 만듦.
         nickname = recruit_repo.get_member_nickname(db, member_id)
-        result = _serialize_comment(comment, nickname, member_id, _db_timezone(db))
+        target, target_nickname = _target_with_nickname(db, comment, target)
+        result = _serialize_comment(comment, nickname, member_id, _db_timezone(db), target, target_nickname)
         post_id, comment_id = post.post_id, comment.comment_id
 
         db.commit()
@@ -137,8 +213,9 @@ def create_comment(
         raise
 
     # 댓글 커밋 후 Discord DM 알림 대기 행 저장 (별도 트랜잭션, 실패해도 댓글은 유지)
+    # 서버가 계산한 원댓글을 넘기고, 받는 사람은 notification_writer가 저장된 관계로 계산함.
     try:
-        save_comment_notification(post_id, comment_id, member_id, data.parent_comment_id)
+        save_comment_notification(post_id, comment_id, member_id, parent_comment_id)
     except Exception:
         logger.exception("모임 댓글 알림 저장 실패: comment_id=%s", comment_id)
 
@@ -181,7 +258,8 @@ def update_comment(
         db.refresh(comment)
 
         nickname = recruit_repo.get_member_nickname(db, member_id)
-        result = _serialize_comment(comment, nickname, member_id, _db_timezone(db))
+        target, target_nickname = _target_with_nickname(db, comment)
+        result = _serialize_comment(comment, nickname, member_id, _db_timezone(db), target, target_nickname)
 
         db.commit()
         return result

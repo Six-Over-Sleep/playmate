@@ -7,8 +7,12 @@ export const meetupApi = {
   scrap: (id) => apiRequest(`/recruits/${id}/scrap`, { method: 'PUT' }),
   unscrap: (id) => apiRequest(`/recruits/${id}/scrap`, { method: 'DELETE' }),
   comments: (id, options = {}) => apiRequest(`/recruits/${id}/comments`, options),
-  addComment: (id, body, parent_comment_id = null) => apiRequest(`/recruits/${id}/comments`, {
-    method: 'POST', body: JSON.stringify({ body, parent_comment_id }),
+  // reply_to_comment_id를 주면 그 댓글(대댓글 포함)에 답글로 저장함. 원댓글은 서버가 계산함.
+  addComment: (id, body, parent_comment_id = null, reply_to_comment_id = null) => apiRequest(`/recruits/${id}/comments`, {
+    method: 'POST',
+    body: JSON.stringify(reply_to_comment_id == null
+      ? { body, parent_comment_id }
+      : { body, parent_comment_id, reply_to_comment_id }),
   }),
   editComment: (id, commentId, body) => apiRequest(`/recruits/${id}/comments/${commentId}`, {
     method: 'PATCH', body: JSON.stringify({ body }),

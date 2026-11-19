@@ -267,10 +267,15 @@ def validate_comment_body(body: str) -> str:
 
 
 class RecruitCommentCreate(BaseModel):
-    """모임 댓글 작성 요청. parent_comment_id가 있으면 그 댓글의 대댓글로 저장함."""
+    """모임 댓글 작성 요청.
+
+    - parent_comment_id만: 기존 방식. 최상위 댓글에만 답글 가능
+    - reply_to_comment_id: 그 댓글(대댓글 포함)에 직접 답글. 원댓글은 서버가 계산함
+    """
 
     body: str = Field(min_length=1, max_length=2000)
     parent_comment_id: int | None = None
+    reply_to_comment_id: int | None = Field(default=None, gt=0)
 
     @field_validator("body")
     @classmethod
@@ -279,9 +284,19 @@ class RecruitCommentCreate(BaseModel):
 
 
 class RecruitCommentUpdate(BaseModel):
-    """모임 댓글 수정 요청. 본문만 바꿀 수 있고 부모 댓글은 바꿀 수 없음."""
+    """모임 댓글 수정 요청. 본문만 바꿀 수 있고 원댓글·답글 대상은 바꿀 수 없음."""
 
     body: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_relation_change(cls, data):
+        # 게시판 수정 API와 같이 위치 변경 요청은 무시하지 않고 422로 거부함.
+        if isinstance(data, dict) and any(
+            data.get(key) is not None for key in ("parent_comment_id", "reply_to_comment_id")
+        ):
+            raise ValueError("댓글 위치는 수정할 수 없습니다.")
+        return data
 
     @field_validator("body")
     @classmethod

@@ -839,4 +839,5 @@ async def create_comment(
         member_id,
         payload.parent_comment_id,
         payload.is_anonymous,
+        payload.reply_to_comment_id,
     )

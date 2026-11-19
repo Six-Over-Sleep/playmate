@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { formatDateTime } from '../../utils/meetup'
+import { canManageComment, canReplyTo } from '../../utils/commentReply'
+import CommentBodyText from '../comment/CommentBodyText'
 
 // 모임 댓글 목록과 작성·답글·수정·삭제 입력을 표시함.
 // 서버가 부모 → 대댓글 순서로 내려주므로 parent_comment_id가 있으면 들여쓰기만 함.
+// 원댓글·대댓글 모두에 답글 가능(reply_to_comment_id). 서버가 원댓글 아래 2단계로 저장하므로 들여쓰기는 한 단계뿐.
 export default function MeetupCommentList({
   comments = [],
   busy = false,
@@ -31,7 +34,8 @@ export default function MeetupCommentList({
     event.preventDefault()
     if (!replyBody.trim()) return
 
-    if (await onAdd(replyBody.trim(), replyTargetId)) {
+    // 선택한 댓글을 직접 대상으로 보냄. 원댓글(parent_comment_id)은 서버가 계산함.
+    if (await onAdd(replyBody.trim(), null, replyTargetId)) {
       setReplyTargetId(null)
       setReplyBody('')
     }
@@ -43,7 +47,7 @@ export default function MeetupCommentList({
     if (await onEdit(commentId, editBody.trim())) setEditingId(null)
   }
 
-  // 답글 입력창은 최상위 댓글 하나에만 열림. 같은 댓글을 다시 누르면 닫힘.
+  // 답글 입력창은 댓글 하나에만 열림. 다른 댓글을 누르면 대상이 바뀌고, 같은 댓글을 다시 누르면 닫힘.
   const toggleReply = (commentId) => {
     setReplyTargetId((prev) => (prev === commentId ? null : commentId))
     setReplyBody('')
@@ -141,11 +145,13 @@ export default function MeetupCommentList({
                   </div>
                 ) : (
                   <>
-                    <p className="meetup-comment-body">{comment.body}</p>
+                    <p className="meetup-comment-body">
+                      <CommentBodyText comment={comment} />
+                    </p>
 
-                    {/* 대댓글은 1단계까지만 허용되므로 최상위 댓글에만 답글 버튼을 둠. */}
+                    {/* 삭제된 댓글을 제외한 모든 댓글에 답글 버튼을 둠. */}
                     <div className="meetup-owner-actions">
-                      {!isReply && (
+                      {canReplyTo(comment) && (
                         <button
                           type="button"
                           disabled={busy}
@@ -157,7 +163,7 @@ export default function MeetupCommentList({
                         </button>
                       )}
 
-                      {comment.is_owner && (
+                      {canManageComment(comment) && (
                         <>
                           <button
                             type="button"
@@ -185,7 +191,7 @@ export default function MeetupCommentList({
                     replyBody,
                     setReplyBody,
                     submitReply,
-                    '답글을 입력해주세요.',
+                    `${comment.author_name || '익명'}님에게 답글을 입력해주세요.`,
                     '답글 작성',
                   )}
               </li>

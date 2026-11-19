@@ -11,6 +11,8 @@ import {
     unscrapCareerPost,
     updateCareerComment,
 } from '../../services/careerApi'
+import { canManageComment, canReplyTo } from '../../utils/commentReply'
+import CommentBodyText from '../comment/CommentBodyText'
 
 
 function formatCommentDate(value) {
@@ -32,7 +34,8 @@ function formatCommentDate(value) {
  * - 댓글과 대댓글의 익명 여부를 각각 선택
  * - 댓글 작성 후 서버에서 댓글 목록 재조회
  * - 댓글 수정·삭제 및 XP 기능 유지
- * - 대댓글은 1단계까지만 허용
+ * - 원댓글·대댓글 모두에 답글 가능 (reply_to_comment_id). 서버가 원댓글 아래 2단계로 저장하므로
+ *   들여쓰기는 한 단계뿐이고, 대댓글을 대상으로 한 답글에는 @대상 이름을 표시한다.
  */
 export default function CareerReactions({ post, onChange }) {
 
@@ -148,14 +151,16 @@ export default function CareerReactions({ post, onChange }) {
     function addComment(
         text,
         parentCommentId = null,
-        anonymous = false
+        anonymous = false,
+        replyToCommentId = null
     ) {
         return mutate(async () => {
             await createCareerComment(
                 post.id,
                 text,
                 parentCommentId,
-                anonymous
+                anonymous,
+                replyToCommentId
             )
 
             await loadComments()
@@ -218,10 +223,12 @@ export default function CareerReactions({ post, onChange }) {
             return
         }
 
+        // 선택한 댓글을 직접 대상으로 보낸다. 원댓글(parent_comment_id)은 서버가 계산한다.
         if (await addComment(
             replyBody.trim(),
-            replyTargetId,
-            replyAnonymous
+            null,
+            replyAnonymous,
+            replyTargetId
         )) {
             setReplyTargetId(null)
             setReplyBody('')
@@ -429,10 +436,12 @@ export default function CareerReactions({ post, onChange }) {
                                     </div>
                                 ) : (
                                     <>
-                                        <p>{comment.body}</p>
+                                        <p>
+                                            <CommentBodyText comment={comment} />
+                                        </p>
 
                                         <div className="career-comment-actions">
-                                            {!isReply && (
+                                            {canReplyTo(comment) && (
                                                 <button
                                                     type="button"
                                                     disabled={busy}
@@ -446,7 +455,7 @@ export default function CareerReactions({ post, onChange }) {
                                                 </button>
                                             )}
 
-                                            {comment.is_owner && (
+                                            {canManageComment(comment) && (
                                                 <>
                                                     <button
                                                         type="button"
@@ -480,7 +489,7 @@ export default function CareerReactions({ post, onChange }) {
                                     replyBody,
                                     setReplyBody,
                                     submitReply,
-                                    '답글을 입력해 주세요.',
+                                    `${comment.author_name || '익명'}님에게 답글을 입력해 주세요.`,
                                     '답글 작성',
                                     replyAnonymous,
                                     setReplyAnonymous,

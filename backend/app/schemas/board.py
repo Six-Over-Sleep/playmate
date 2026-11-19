@@ -126,8 +126,12 @@ class PostScrapResponse(BaseModel):
 class CommentWrite(StrictModel):
     body: str = Field(min_length=1, max_length=2000)
 
-    # 일반 댓글이면 None, 대댓글이면 부모 댓글 ID
+    # 일반 댓글이면 None, 대댓글이면 부모 댓글 ID (기존 방식: 최상위 원댓글 ID만 허용)
     parent_comment_id: int | None = Field(default=None, gt=0)
+
+    # 실제 답글 대상 댓글 ID (원댓글 또는 대댓글). 주면 서버가 최상위 원댓글을 계산해 2단계로 저장한다.
+    # parent_comment_id와 함께 주면 계산된 원댓글과 같아야 한다.
+    reply_to_comment_id: int | None = Field(default=None, gt=0)
 
     # 익명 작성 여부
     # 기본값 False: 닉네임 공개
@@ -140,6 +144,13 @@ class CommentResponse(BaseModel):
 
     # 대댓글 관계
     parent_comment_id: int | None = None
+
+    # 실제 답글 대상 (원댓글이면 None). 기존 대댓글(저장값 NULL)은 parent_comment_id와 같은 값으로 내려준다.
+    reply_to_comment_id: int | None = None
+    # 답글 대상 작성자 표시 이름. 작성자 이름과 같은 규칙으로 가린다(익명·탈퇴). 대상이 삭제됐으면 None.
+    reply_to_author_name: str | None = None
+    # 답글 대상 댓글이 삭제되었는지
+    reply_to_is_deleted: bool = False
     body: str
 
     # 작성자 정보

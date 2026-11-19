@@ -436,6 +436,25 @@ def get_active_comment(db: Session, comment_id: int):
     )
 
 
+def get_reply_target(db: Session, comment_id: int):
+    """답글 대상 댓글과 그 원댓글을 (대상, 원댓글) 형태로 조회함.
+
+    대상이 없거나 논리 삭제되었으면 (None, None). 대상이 원댓글이면 원댓글 자리는 None.
+    대상 행은 FOR SHARE로 잠가 검증 뒤 저장 전까지 동시 삭제를 막음 (SQLite에서는 무시됨).
+    원댓글은 삭제된 자리표시여도 반환함. 화면 정책상 살아 있는 대댓글이 있으면 원댓글 자리가 남음.
+    """
+    target = (
+        db.query(Comment)
+        .filter(Comment.comment_id == comment_id, Comment.deleted_at.is_(None))
+        .with_for_update(read=True, of=Comment)
+        .first()
+    )
+    if target is None or target.parent_comment_id is None:
+        return target, None
+    root = db.query(Comment).filter(Comment.comment_id == target.parent_comment_id).first()
+    return target, root
+
+
 def get_member_nickname(db: Session, member_id: int):
     """회원 닉네임만 조회함. 응답의 작성자 이름에 사용함."""
     return (

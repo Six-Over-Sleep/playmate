@@ -3,6 +3,7 @@
 // PLAYMATE_BOARD_ANONYMOUS_V1
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { boardApi } from '../../services/boardApi'
+import { markReplyTargetDeleted } from '../../utils/commentReply'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 /**
@@ -626,9 +627,9 @@ export function useBoard(resetVersion) {
    * 댓글 본문을 전송하고 성공 응답을 목록에 추가한다. 실패 시 폼이 초안을 유지하게 한다.
    * 일반 댓글은 목록 끝에, 대댓글은 같은 부모의 마지막 대댓글 뒤에 넣어 서버 순서와 맞춘다.
    */
-  function addComment(body, parentCommentId = null, isAnonymous = false) {
+  function addComment(body, parentCommentId = null, isAnonymous = false, replyToCommentId = null) {
     return mutate(
-      () => boardApi.createComment(board.id, post.id, body, parentCommentId, isAnonymous),
+      () => boardApi.createComment(board.id, post.id, body, parentCommentId, isAnonymous, replyToCommentId),
       (created) => {
         if (!created.parent_comment_id) {
           applyComments([...comments, created])
@@ -651,7 +652,11 @@ export function useBoard(resetVersion) {
   function editComment(id, body, isAnonymous = undefined) {
     return mutate(
       () => boardApi.updateComment(id, body, isAnonymous),
-      (saved) => applyComments(comments.map((item) => item.id === id ? saved : item)),
+      // 익명 여부를 바꾸면 이 댓글을 대상으로 한 답글의 @이름도 서버 마스킹 이름(author_name)으로 맞춘다.
+      (saved) => applyComments(comments.map((item) => {
+        if (item.id === id) return saved
+        return item.reply_to_comment_id === id ? { ...item, reply_to_author_name: saved.author_name } : item
+      })),
     )
   }
 
@@ -676,7 +681,8 @@ export function useBoard(resetVersion) {
         if (parentId && !next.some((item) => item.parent_comment_id === parentId)) {
           next = next.filter((item) => !(item.id === parentId && item.is_deleted))
         }
-        applyComments(next)
+        // 지운 댓글을 대상으로 한 답글은 서버 목록처럼 '삭제된 대상'으로 표시한다.
+        applyComments(markReplyTargetDeleted(next, id))
       },
     )
   }

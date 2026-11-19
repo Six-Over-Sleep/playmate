@@ -51,7 +51,8 @@ def prepare_board(monkeypatch, events, fail=False):
                         lambda cursor, board_id, member_id: None)
     monkeypatch.setattr(board_service, "_require_parent_comment", lambda cursor, post_id, parent_id: None)
     monkeypatch.setattr(board_service.repository, "create_comment",
-                        lambda cursor, post_id, body, member_id, parent_id=None, is_anonymous=False: 9)
+                        lambda cursor, post_id, body, member_id, parent_id=None, is_anonymous=False,
+                        reply_to_comment_id=None: 9)
     monkeypatch.setattr(board_service, "_comment_detail",
                         lambda cursor, comment_id, member_id: comment_row(comment_id))
     monkeypatch.setattr(board_service, "grant_xp", lambda member_id, kind, source_id: events.append(("xp", kind)))
@@ -92,7 +93,8 @@ def prepare_career(monkeypatch, events, fail=False):
     monkeypatch.setattr(career_reaction_service.board_service, "_require_parent_comment",
                         lambda cursor, post_id, parent_id: None)
     monkeypatch.setattr(career_reaction_service.board_repository, "create_comment",
-                        lambda cursor, post_id, body, member_id, parent_id=None, is_anonymous=False: 9)
+                        lambda cursor, post_id, body, member_id, parent_id=None, is_anonymous=False,
+                        reply_to_comment_id=None: 9)
     monkeypatch.setattr(career_reaction_service.board_service, "_comment_detail",
                         lambda cursor, comment_id, member_id: comment_row(comment_id))
     monkeypatch.setattr(career_reaction_service, "grant_xp",
@@ -132,7 +134,10 @@ class FakeSession:
 def prepare_recruit(monkeypatch, events, fail=False):
     # 모임 댓글은 recruit_id가 아닌 모임 게시글의 post_id(20)에 저장된다.
     monkeypatch.setattr(recruit_comment, "get_recruit_post", lambda db, recruit_id: SimpleNamespace(post_id=20))
-    monkeypatch.setattr(recruit_comment, "_ensure_parent_comment", lambda db, post_id, parent_id: None)
+    # _ensure_parent_comment는 검증한 부모 댓글을 반환한다 (답글 대상 표시용).
+    monkeypatch.setattr(recruit_comment, "_ensure_parent_comment", lambda db, post_id, parent_id: SimpleNamespace(
+        comment_id=parent_id, post_id=post_id, parent_comment_id=None, author_member_id=1,
+        is_anonymous=False, deleted_at=None))
 
     def add_comment(db, comment):
         comment.comment_id = 9

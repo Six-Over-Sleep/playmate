@@ -278,7 +278,7 @@ def create_comment(
     payload: CommentWrite,
     member_id: int = Depends(get_current_member_id),
 ):
-    # CommentWrite : 댓글 내용과 부모 댓글 ID(대댓글일 때)를 전달받는 요청 스키마
+    # CommentWrite : 댓글 내용과 부모 댓글 ID(기존 방식)·실제 답글 대상 ID(새 방식)를 전달받는 요청 스키마
     # member_id : 댓글 작성자의 회원 ID
     return board_service.create_comment(
         board_id,
@@ -287,6 +287,7 @@ def create_comment(
         member_id,
         payload.parent_comment_id,
         payload.is_anonymous,
+        payload.reply_to_comment_id,
     )
 
 
@@ -302,8 +303,8 @@ def update_comment(
     member_id: int = Depends(get_current_member_id),
 ):
     # comment_id : 수정할 댓글 고유 번호
-    # 본문만 수정할 수 있으며 부모 댓글(댓글 위치)은 바꿀 수 없음.
-    if payload.parent_comment_id is not None:
+    # 본문만 수정할 수 있으며 부모 댓글(댓글 위치)·답글 대상은 바꿀 수 없음.
+    if payload.parent_comment_id is not None or payload.reply_to_comment_id is not None:
         raise HTTPException(status_code=422, detail="댓글 위치는 수정할 수 없습니다.")
     # 익명 값이 생략되면 기존 상태를 유지합니다(기존 호출과 호환).
     is_anonymous = (

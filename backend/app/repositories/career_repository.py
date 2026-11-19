@@ -5,55 +5,10 @@
 """
 
 from app.repositories import board_repository
+from app.repositories.career_content_writer import create_content, update_content
 
 def create_review(cursor, member_id: int, data: dict) -> int:
-    """posts → career_posts → career_reviews 순서로 후기 저장 후 ID 반환."""
-    cursor.execute(
-        """
-        INSERT INTO posts (
-            board_id, author_member_id, post_type, title, body,
-            source_type, post_status, published_at
-        )
-        VALUES (NULL, %s, 'CAREER', %s, %s, 'USER', 'PUBLISHED', CURRENT_TIMESTAMP)
-        RETURNING post_id
-        """,
-        (member_id, data["title"], data["body"]),
-    )
-    post_id = cursor.fetchone()["post_id"]
-
-    cursor.execute(
-        """
-        INSERT INTO career_posts (
-            post_id, category_code, subcategory_code, is_anonymous
-        )
-        VALUES (%s, 'reviews', %s, %s)
-        """,
-        (post_id, data["subcategory_code"], data.get("is_anonymous", True)),
-    )
-
-    cursor.execute(
-        """
-        INSERT INTO career_reviews (
-            post_id, company_name, is_company_private,
-            job_category_code, application_type,
-            process_stage, process_result, process_date, interview_format
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            post_id,
-            data.get("company_name"),
-            data.get("is_company_private", False),
-            data["job_category_code"],
-            data.get("application_type"),
-            data["process_stage"],
-            data["process_result"],
-            data.get("process_date"),
-            data.get("interview_format"),
-        ),
-    )
-
-    return post_id
+    return create_content(cursor, member_id, "reviews", data)
 
 
 def get_review(cursor, post_id: int, member_id: int) -> dict | None:
@@ -285,77 +240,7 @@ def get_review_author_for_update(cursor, post_id: int) -> int | None:
 # =========================================
 
 def update_review(cursor, post_id: int, changes: dict) -> None:
-    """변경된 필드만 각 테이블에 반영한다.
-
-    호출한 Service에서 작성자 권한을 먼저 검증해야 한다.
-    테이블명과 컬럼명은 아래 고정 목록에서만 사용한다.
-    """
-
-    table_columns = {
-        "posts": (
-            "title",
-            "body",
-        ),
-        "career_posts": (
-            "subcategory_code",
-            "is_anonymous",
-        ),
-        "career_reviews": (
-            "company_name",
-            "is_company_private",
-            "job_category_code",
-            "application_type",
-            "process_stage",
-            "process_result",
-            "process_date",
-            "interview_format",
-        ),
-    }
-
-    # 변경된 컬럼만 UPDATE
-    for table_name, allowed_columns in table_columns.items():
-
-        columns = [
-            column
-            for column in allowed_columns
-            if column in changes
-        ]
-
-        if not columns:
-            continue
-
-        assignments = [
-            f"{column} = %s"
-            for column in columns
-        ]
-
-        values = [
-            changes[column]
-            for column in columns
-        ]
-
-        # posts 수정 시 수정일 갱신
-        if table_name == "posts":
-            assignments.append("updated_at = CURRENT_TIMESTAMP")
-
-        sql = f"""
-            UPDATE {table_name}
-            SET {", ".join(assignments)}
-            WHERE post_id = %s
-        """
-
-        cursor.execute(sql, (*values, post_id))
-
-    # 후기 상세 정보만 수정했더라도 게시글 수정일 갱신
-    if "title" not in changes and "body" not in changes:
-        cursor.execute(
-            """
-            UPDATE posts
-            SET updated_at = CURRENT_TIMESTAMP
-            WHERE post_id = %s
-            """,
-            (post_id,),
-        )
+    update_content(cursor, post_id, "reviews", changes)
 
 
 # =========================================
@@ -388,72 +273,7 @@ def delete_review(cursor, post_id: int, member_id: int) -> bool:
 # =========================================
 
 def create_talk(cursor, member_id: int, data: dict) -> int:
-    """게시글과 커리어 톡톡 상세 정보를 저장한다."""
-
-    # 1. 공통 게시글 저장
-    cursor.execute(
-        """
-        INSERT INTO posts (
-            board_id,
-            author_member_id,
-            post_type,
-            title,
-            body,
-            source_type,
-            post_status,
-            published_at
-        )
-        VALUES (
-            NULL, %s, 'CAREER', %s, %s,
-            'USER', 'PUBLISHED', CURRENT_TIMESTAMP
-        )
-        RETURNING post_id
-        """,
-        (
-            member_id,
-            data["title"],
-            data["body"],
-        ),
-    )
-
-    post_id = cursor.fetchone()["post_id"]
-
-    # 2. 취업 게시판 공통 분류 저장
-    cursor.execute(
-        """
-        INSERT INTO career_posts (
-            post_id,
-            category_code,
-            subcategory_code,
-            is_anonymous
-        )
-        VALUES (%s, 'talk', %s, %s)
-        """,
-        (
-            post_id,
-            data["subcategory_code"],
-            data.get("is_anonymous", True),
-        ),
-    )
-
-    # 3. 커리어 톡톡 추가 정보 저장
-    cursor.execute(
-        """
-        INSERT INTO career_talks (
-            post_id,
-            job_category_code,
-            current_status
-        )
-        VALUES (%s, %s, %s)
-        """,
-        (
-            post_id,
-            data.get("job_category_code"),
-            data.get("current_status"),
-        ),
-    )
-
-    return post_id
+    return create_content(cursor, member_id, "talk", data)
 
 
 # =========================================
@@ -686,80 +506,8 @@ def get_talk_author_for_update(
 # 커리어 톡톡 - 게시글 수정
 # =========================================
 
-def update_talk(
-    cursor,
-    post_id: int,
-    changes: dict,
-) -> None:
-    """전달된 필드만 수정한다.
-
-    Service에서 작성자 권한을 먼저 검사한 후 호출한다.
-    """
-
-    # 테이블별 수정 가능한 컬럼만 허용
-    table_columns = {
-        "posts": (
-            "title",
-            "body",
-        ),
-        "career_posts": (
-            "subcategory_code",
-            "is_anonymous",
-        ),
-        "career_talks": (
-            "job_category_code",
-            "current_status",
-        ),
-    }
-
-    # 변경된 필드를 각 테이블에 반영
-    for table_name, allowed_columns in table_columns.items():
-
-        columns = [
-            column
-            for column in allowed_columns
-            if column in changes
-        ]
-
-        if not columns:
-            continue
-
-        assignments = [
-            f"{column} = %s"
-            for column in columns
-        ]
-
-        values = [
-            changes[column]
-            for column in columns
-        ]
-
-        if table_name == "posts":
-            assignments.append(
-                "updated_at = CURRENT_TIMESTAMP"
-            )
-
-        sql = f"""
-            UPDATE {table_name}
-            SET {", ".join(assignments)}
-            WHERE post_id = %s
-        """
-
-        cursor.execute(
-            sql,
-            (*values, post_id),
-        )
-
-    # 게시글의 수정일은 모든 변경에 대해 갱신
-    if "title" not in changes and "body" not in changes:
-        cursor.execute(
-            """
-            UPDATE posts
-            SET updated_at = CURRENT_TIMESTAMP
-            WHERE post_id = %s
-            """,
-            (post_id,),
-        )
+def update_talk(cursor, post_id: int, changes: dict) -> None:
+    update_content(cursor, post_id, "talk", changes)
 
 
 # =========================================
@@ -1038,79 +786,8 @@ def delete_talk_attachment(
 # 1. 현직자 라운지 게시글 등록
 # =========================================================
 
-def create_lounge(
-    cursor,
-    member_id: int,
-    data: dict,
-) -> int:
-    """게시글과 현직자 라운지 정보를 저장한다."""
-
-    # 1. 공통 게시글 등록
-    cursor.execute(
-        """
-        INSERT INTO posts (
-            board_id,
-            author_member_id,
-            post_type,
-            title,
-            body,
-            source_type,
-            post_status,
-            published_at
-        )
-        VALUES (
-            NULL, %s, 'CAREER', %s, %s,
-            'USER', 'PUBLISHED', CURRENT_TIMESTAMP
-        )
-        RETURNING post_id
-        """,
-        (
-            member_id,
-            data["title"],
-            data["body"],
-        ),
-    )
-
-    post_id = cursor.fetchone()["post_id"]
-
-    # 2. 취업 게시판 분류 등록
-    cursor.execute(
-        """
-        INSERT INTO career_posts (
-            post_id,
-            category_code,
-            subcategory_code,
-            is_anonymous
-        )
-        VALUES (%s, 'lounge', %s, %s)
-        """,
-        (
-            post_id,
-            data["subcategory_code"],
-            data["is_anonymous"],
-        ),
-    )
-
-    # 3. 현직자 라운지 추가 정보 등록
-    cursor.execute(
-        """
-        INSERT INTO career_lounges (
-            post_id,
-            job_category_code,
-            experience_years,
-            company_name
-        )
-        VALUES (%s, %s, %s, %s)
-        """,
-        (
-            post_id,
-            data.get("job_category_code"),
-            data.get("experience_years"),
-            data.get("company_name"),
-        ),
-    )
-
-    return post_id
+def create_lounge(cursor, member_id: int, data: dict) -> int:
+    return create_content(cursor, member_id, "lounge", data)
 
 
 # =========================================================
@@ -1365,87 +1042,8 @@ def get_lounge_author_for_update(
 # 5. 현직자 라운지 게시글 수정
 # =========================================================
 
-def update_lounge(
-    cursor,
-    post_id: int,
-    changes: dict,
-) -> None:
-    """변경 요청에 포함된 필드만 수정한다.
-
-    작성자 권한 검사는 Service에서 먼저 처리한다.
-    """
-
-    # 테이블별 수정 가능한 컬럼
-    table_columns = {
-        "posts": (
-            "title",
-            "body",
-        ),
-        "career_posts": (
-            "subcategory_code",
-            "is_anonymous",
-        ),
-        "career_lounges": (
-            "job_category_code",
-            "experience_years",
-            "company_name",
-        ),
-    }
-
-    for table_name, allowed_columns in table_columns.items():
-
-        # 실제 변경 요청에 포함된 필드
-        columns = [
-            column
-            for column in allowed_columns
-            if column in changes
-        ]
-
-        if not columns:
-            continue
-
-        # UPDATE할 컬럼 목록 생성
-        assignments = [
-            f"{column} = %s"
-            for column in columns
-        ]
-
-        # UPDATE할 값 목록 생성
-        values = [
-            changes[column]
-            for column in columns
-        ]
-
-        if table_name == "posts":
-            assignments.append(
-                "updated_at = CURRENT_TIMESTAMP"
-            )
-
-        cursor.execute(
-            f"""
-            UPDATE {table_name}
-
-            SET {", ".join(assignments)}
-
-            WHERE post_id = %s
-            """,
-            (
-                *values,
-                post_id,
-            ),
-        )
-
-    # 제목과 본문 외의 정보만 수정한 경우에도
-    # 최종 수정일을 갱신한다.
-    if "title" not in changes and "body" not in changes:
-        cursor.execute(
-            """
-            UPDATE posts
-            SET updated_at = CURRENT_TIMESTAMP
-            WHERE post_id = %s
-            """,
-            (post_id,),
-        )
+def update_lounge(cursor, post_id: int, changes: dict) -> None:
+    update_content(cursor, post_id, "lounge", changes)
 
 
 # =========================================================
@@ -1502,104 +1100,8 @@ def delete_lounge(
 # 1. 커리어 연구소 게시글 등록
 # =========================================================
 
-def create_lab(
-    cursor,
-    member_id: int,
-    data: dict,
-) -> int:
-    """질문·토론 게시글과 투표 선택지를 등록한다."""
-
-    # 1. 공통 게시글 생성
-    cursor.execute(
-        """
-        INSERT INTO posts (
-            board_id,
-            author_member_id,
-            post_type,
-            title,
-            body,
-            source_type,
-            post_status,
-            published_at
-        )
-        VALUES (
-            NULL, %s, 'CAREER', %s, %s,
-            'USER', 'PUBLISHED', CURRENT_TIMESTAMP
-        )
-        RETURNING post_id
-        """,
-        (
-            member_id,
-            data["title"],
-            data["body"],
-        ),
-    )
-
-    post_id = cursor.fetchone()["post_id"]
-
-    # 2. 취업 게시판 공통 분류 저장
-    cursor.execute(
-        """
-        INSERT INTO career_posts (
-            post_id,
-            category_code,
-            subcategory_code,
-            is_anonymous
-        )
-        VALUES (%s, 'lab', %s, %s)
-        """,
-        (
-            post_id,
-            data["subcategory_code"],
-            data["is_anonymous"],
-        ),
-    )
-
-    # 3. 커리어 연구소 상세 정보 저장
-    # GUIDE 유형일 경우 경험 및 근거, 실질적인 조언도 저장
-    cursor.execute(
-        """
-        INSERT INTO career_labs (
-            post_id,
-            post_type,
-            is_resolved,
-            guide_experience,
-            guide_advice
-        )
-        VALUES (%s, %s, FALSE, %s, %s)
-        """,
-        (
-            post_id,
-            data["post_type"],
-            data.get("guide_experience"),
-            data.get("guide_advice"),
-        ),
-    )
-
-    # 4. 토론 게시글의 투표 선택지 저장
-    poll_options = data.get("poll_options", [])
-
-    for index, option_text in enumerate(
-        poll_options,
-        start=1,
-    ):
-        cursor.execute(
-            """
-            INSERT INTO career_lab_poll_options (
-                post_id,
-                option_text,
-                display_order
-            )
-            VALUES (%s, %s, %s)
-            """,
-            (
-                post_id,
-                option_text,
-                index,
-            ),
-        )
-
-    return post_id
+def create_lab(cursor, member_id: int, data: dict) -> int:
+    return create_content(cursor, member_id, "lab", data)
 
 
 # =========================================================
@@ -1933,89 +1435,8 @@ def get_lab_author_for_update(
 # 5. 커리어 연구소 게시글 수정
 # =========================================================
 
-def update_lab(
-    cursor,
-    post_id: int,
-    changes: dict,
-) -> None:
-    """제목·본문·분류·익명 여부를 수정한다.
-
-    게시글 유형과 투표 선택지는 수정할 수 없다.
-    작성자 권한 검사는 Service에서 수행한다.
-    """
-
-    # 수정 가능한 필드만 허용
-    table_columns = {
-        # 공통 게시글
-        "posts": (
-            "title",
-            "body",
-        ),
-
-        # 취업 게시판 공통 정보
-        "career_posts": (
-            "subcategory_code",
-            "is_anonymous",
-        ),
-
-        # 커리어 가이드 전용 정보
-        "career_labs": (
-            "guide_experience",
-            "guide_advice",
-        ),
-    }
-
-    for table_name, allowed_columns in table_columns.items():
-
-        columns = [
-            column
-            for column in allowed_columns
-            if column in changes
-        ]
-
-        if not columns:
-            continue
-
-        assignments = [
-            f"{column} = %s"
-            for column in columns
-        ]
-
-        values = [
-            changes[column]
-            for column in columns
-        ]
-
-        # 수정 시각 갱신
-        if table_name == "posts":
-            assignments.append(
-                "updated_at = CURRENT_TIMESTAMP"
-            )
-
-        cursor.execute(
-            f"""
-            UPDATE {table_name}
-
-            SET {", ".join(assignments)}
-
-            WHERE post_id = %s
-            """,
-            (
-                *values,
-                post_id,
-            ),
-        )
-
-    # 분류·익명 여부만 수정한 경우
-    if "title" not in changes and "body" not in changes:
-        cursor.execute(
-            """
-            UPDATE posts
-            SET updated_at = CURRENT_TIMESTAMP
-            WHERE post_id = %s
-            """,
-            (post_id,),
-        )
+def update_lab(cursor, post_id: int, changes: dict) -> None:
+    update_content(cursor, post_id, "lab", changes)
 
 
 # =========================================================

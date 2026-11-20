@@ -2,6 +2,7 @@
 from collections import Counter
 import json
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
 
 PREVIEW_PATH = Path(__file__).resolve().parents[3] / 'saramin_insights_preview.json'
 FIELDS = ('job_roles', 'specialties', 'tech_stacks', 'certifications', 'preferences')
@@ -45,8 +46,22 @@ def options(rows):
 
 
 def ranked(rows, field):
-    counts = Counter(item for row in rows for item in row[field])
+    counts = Counter(item for row in rows for item in set(row[field]))
     return [{'name': name, 'count': count} for name, count in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
+
+
+def scalar_ranked(rows, field):
+    counts = Counter(row[field] for row in rows if row.get(field))
+    return [{'name': name, 'count': count} for name, count in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))]
+
+
+def posting_quarter(value):
+    if not value:
+        return None
+    dt = value if isinstance(value, datetime) else datetime.fromisoformat(value)
+    if dt.tzinfo:
+        dt = dt.astimezone(timezone(timedelta(hours=9)))
+    return f'{dt.year}-Q{(dt.month - 1) // 3 + 1}'
 
 
 def summarize(rows, quarter=None, field=None, skill=None, source='preview'):
@@ -59,17 +74,31 @@ def summarize(rows, quarter=None, field=None, skill=None, source='preview'):
     trend_counts = Counter(f"{r['collection_year']}-Q{r['collection_quarter']}" for r in trend_basis)
     observed = options(rows)['quarters']
     times = [str(r['collected_at']) for r in rows if r.get('collected_at')]
+    posting_counts = Counter(q for r in trend_basis if (q := posting_quarter(r.get('posted_at'))))
     return {
         'source': source, 'count': len(selected), 'total': len(rows),
+        'data_sources': sorted({r.get('source', 'saramin_web') for r in rows}),
         'filters': {'quarter': quarter, 'field': field, 'skill': skill},
         'roles': ranked(selected, 'job_roles'), 'fields': ranked(selected, 'specialties'),
         'skills': ranked(selected, 'tech_stacks'),
         'certifications': ranked(selected, 'certifications'),
         'preferences': ranked(selected, 'preferences'),
+        'companies': scalar_ranked(selected, 'company'),
+        'categories': scalar_ranked(selected, 'job_category'),
+        'experience': scalar_ranked(selected, 'career'),
+        'locations': scalar_ranked(selected, 'location'),
+        'role_skills': {role: ranked([r for r in selected if role in r['job_roles']], 'tech_stacks')
+            for role in sorted({role for r in selected for role in r['job_roles']})},
         'coverage': {name: sum(bool(r[key]) for r in selected) for name, key in
                      [('field', 'specialties'), ('skill', 'tech_stacks'),
                       ('certification', 'certifications'), ('preference', 'preferences')]},
         'trend': [{'id': q, 'count': trend_counts[q]} for q in reversed(observed)],
+        'trend_basis': 'collection_snapshot',
+        'trend_description': '수집일 기준 스냅샷이며 과거 분기별 신규 채용 수요가 아닙니다.',
+        'posting_trend': [{'id': q, 'count': posting_counts[q]} for q in sorted(posting_counts)],
+        'posting_trend_basis': 'posted_at',
+        'posting_trend_timezone': 'Asia/Seoul',
+        'posted_at_coverage': sum(bool(r.get('posted_at')) for r in trend_basis),
         'collected_from': min(times) if times else None,
         'collected_to': max(times) if times else None,
     }

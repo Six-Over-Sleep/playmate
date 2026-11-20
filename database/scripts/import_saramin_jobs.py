@@ -27,20 +27,23 @@ def dedupe_jobs(jobs: Iterable[dict]) -> tuple[list[dict], int]:
         if not source_id or not title:
             skipped += 1
             continue
+        job = dict(job)
         key = (job.get('source', 'saramin_web'), source_id)
         if key in by_key:
+            skipped += 1
             previous = by_key[key]
             for column in ALLOWED_JSON_FIELDS:
-                if column != 'preferences':
-                    job[column] = list(dict.fromkeys([*(previous.get(column) or []), *(job.get(column) or [])]))
-            if job.get('detail_status') == 'not_requested' and previous.get('preferences'):
-                job['preferences'] = previous['preferences']
+                job[column] = list(dict.fromkeys([*(previous.get(column) or []), *(job.get(column) or [])]))
+            for column in ('company', 'deadline_text', 'location', 'career', 'education', 'employment_type'):
+                if not job.get(column):
+                    job[column] = previous.get(column)
+            if job.get('detail_status') in ('not_requested', 'unavailable', 'iframe_present_unparsed') and previous.get('preferences'):
                 job['detail_status'] = previous.get('detail_status', 'parsed')
         by_key[key] = job
     return list(by_key.values()), skipped
 
 def import_jobs(cursor, jobs: Iterable[dict]) -> ImportReport:
-    from psycopg.types.json import Jsonb
+    from psycopg2.extras import Json
     normalized, skipped = dedupe_jobs(jobs)
     report = ImportReport(total=len(normalized), skipped=skipped)
     if not normalized:
@@ -49,7 +52,7 @@ def import_jobs(cursor, jobs: Iterable[dict]) -> ImportReport:
     for job in normalized:
         payload = dict(job)
         for key in ALLOWED_JSON_FIELDS:
-            payload[key] = Jsonb(payload.get(key) or [])
+            payload[key] = Json(payload.get(key) or [])
         cursor.execute("""
             INSERT INTO saramin_job_postings (
                 source, source_id, title, company, url, deadline_text,
@@ -66,24 +69,29 @@ def import_jobs(cursor, jobs: Iterable[dict]) -> ImportReport:
             )
             ON CONFLICT (source, source_id) DO UPDATE SET
                 title = EXCLUDED.title,
-                company = EXCLUDED.company,
+                company = COALESCE(EXCLUDED.company, saramin_job_postings.company),
                 url = EXCLUDED.url,
-                deadline_text = EXCLUDED.deadline_text,
-                location = EXCLUDED.location,
-                career = EXCLUDED.career,
-                education = EXCLUDED.education,
-                employment_type = EXCLUDED.employment_type,
-                job_roles = EXCLUDED.job_roles,
-                specialties = EXCLUDED.specialties,
-                tech_stacks = EXCLUDED.tech_stacks,
-                preferences = CASE WHEN EXCLUDED.detail_status = 'not_requested'
-                    THEN saramin_job_postings.preferences ELSE EXCLUDED.preferences END,
-                raw_tags = EXCLUDED.raw_tags,
+                deadline_text = COALESCE(EXCLUDED.deadline_text, saramin_job_postings.deadline_text),
+                location = COALESCE(EXCLUDED.location, saramin_job_postings.location),
+                career = COALESCE(EXCLUDED.career, saramin_job_postings.career),
+                education = COALESCE(EXCLUDED.education, saramin_job_postings.education),
+                employment_type = COALESCE(EXCLUDED.employment_type, saramin_job_postings.employment_type),
+                job_roles = (SELECT COALESCE(jsonb_agg(DISTINCT item), '[]'::jsonb)
+                    FROM jsonb_array_elements(saramin_job_postings.job_roles || EXCLUDED.job_roles) AS item),
+                specialties = (SELECT COALESCE(jsonb_agg(DISTINCT item), '[]'::jsonb)
+                    FROM jsonb_array_elements(saramin_job_postings.specialties || EXCLUDED.specialties) AS item),
+                tech_stacks = (SELECT COALESCE(jsonb_agg(DISTINCT item), '[]'::jsonb)
+                    FROM jsonb_array_elements(saramin_job_postings.tech_stacks || EXCLUDED.tech_stacks) AS item),
+                preferences = CASE WHEN (EXCLUDED.detail_status IN ('not_requested', 'unavailable', 'iframe_present_unparsed') OR EXCLUDED.preferences = '[]'::jsonb)
+                    THEN saramin_job_postings.preferences ELSE
+                    (SELECT COALESCE(jsonb_agg(DISTINCT item), '[]'::jsonb)
+                    FROM jsonb_array_elements(saramin_job_postings.preferences || EXCLUDED.preferences) AS item) END,
+                raw_tags = (SELECT COALESCE(jsonb_agg(DISTINCT item), '[]'::jsonb)
+                    FROM jsonb_array_elements(saramin_job_postings.raw_tags || EXCLUDED.raw_tags) AS item),
                 role_classification_source = EXCLUDED.role_classification_source,
                 specialty_classification_source = EXCLUDED.specialty_classification_source,
-                detail_status = CASE WHEN EXCLUDED.detail_status = 'not_requested'
+                detail_status = CASE WHEN (EXCLUDED.detail_status IN ('not_requested', 'unavailable', 'iframe_present_unparsed') OR EXCLUDED.preferences = '[]'::jsonb)
                     THEN saramin_job_postings.detail_status ELSE EXCLUDED.detail_status END,
-                collected_at = EXCLUDED.collected_at,
                 last_seen_at = NOW()
             RETURNING (xmax = 0) AS inserted
         """, payload)

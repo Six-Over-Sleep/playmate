@@ -37,3 +37,6 @@ uploads/
 crawler/career_news_crawler/data/
 
 *.bak
+data/saramin/
+data/itchaeyong/
+.uv-test-cache/

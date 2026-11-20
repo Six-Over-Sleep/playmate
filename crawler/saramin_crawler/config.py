@@ -12,5 +12,6 @@ TECH_STACKS = [
     '어셈블리','와이어샤크','임베디드리눅스','파워빌더','풀스택','.NET','ABAP','AIX',
     'Ajax','Android','Angular','Linux','Excel','Looker','dbt','Snowflake','BigQuery',
 ]
+JOB_ROLES += ['DevOps', '풀스택', 'AI엔지니어', '클라우드엔지니어']
 CATEGORY_URL = 'https://www.saramin.co.kr/zf_user/jobs/list/job-category'
 CATEGORY_PARAMS = {'cat_mcls': '2'}  # IT개발·데이터 카테고리 공식 웹페이지의 공개 URL

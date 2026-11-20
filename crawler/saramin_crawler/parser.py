@@ -1,7 +1,7 @@
 """웹페이지 HTML 파싱: 접근 권한 없는 페이지/로그인 제한 우회하지 않음."""
 from __future__ import annotations
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse, parse_qs
 from bs4 import BeautifulSoup
 from config import SPECIALTIES, JOB_ROLES, TECH_STACKS
@@ -29,11 +29,16 @@ ROLE_ALIASES = {
     '웹개발': ('웹 개발', 'web developer'),
     '앱개발': ('앱 개발', '모바일 앱 개발', 'android developer', 'ios developer'),
     '게임개발': ('게임 개발', 'game developer'),
-    '정보보안': ('정보 보안', 'cybersecurity'),
     '개발PM': ('개발 PM', '테크니컬 PM', 'technical pm'),
     'BI엔지니어': ('BI 엔지니어', 'business intelligence engineer'),
     'DBA': ('database administrator',),
-    'DevOps': ('데브옵스',),
+    'DevOps': ('데브옵스', 'devops engineer'),
+    '풀스택': ('풀 스택', 'fullstack', 'full-stack'),
+    'AI엔지니어': ('AI 엔지니어', 'AI engineer', '머신러닝 엔지니어', '딥러닝 엔지니어', 'machine learning engineer'),
+    '클라우드엔지니어': ('클라우드 엔지니어', 'cloud engineer'),
+    'SE(시스템엔지니어)': ('시스템 엔지니어', '시스템엔지니어', 'system engineer'),
+    'QA/테스터': ('QA 엔지니어', 'QA engineer', 'SW 테스트', '테스트 자동화'),
+    '정보보안': ('정보 보안', 'cybersecurity', '보안 엔지니어'),
 }
 # '회계'처럼 공고 태그가 전혀 다른 직군을 나타내는 경우 오분류 방지.
 NON_IT_TAGS = (
@@ -64,7 +69,7 @@ def extract_roles(title, tags):
     tag_roles = match_terms(tags, JOB_ROLES, ROLE_ALIASES)
     title_roles = match_terms(title, JOB_ROLES, ROLE_ALIASES)
     if tag_roles:
-        return tag_roles, 'tag'
+        return list(dict.fromkeys(tag_roles + title_roles)), 'tag_and_title' if set(title_roles) - set(tag_roles) else 'tag'
     if title_roles:
         return title_roles, 'title_estimate'
     return [], 'unknown'
@@ -73,7 +78,7 @@ def is_it_listing(title, tags, roles, source):
     """IT 직무가 확인된 공고만 남긴다. 불명확하면 수집 대상에서 제외."""
     if not roles:
         return False
-    if source == 'tag':
+    if source in ('tag', 'tag_and_title'):
         return True
     # 제목에 IT 직무만 있고 태그는 회계 등 비IT 직무일 경우 제외.
     if any(term in tags for term in NON_IT_TAGS):
@@ -147,7 +152,7 @@ def _extract_listing_tags(card):
     return tags
 
 
-def parse_listing(html: str, crawled_at: datetime | None = None):
+def parse_listing(html: str, crawled_at: datetime | None = None, stats=None):
     """Parse deduplicated recruit links, then keep only confirmed IT job roles.
 
     No fake classification values: a role must be confirmed by tags/title.
@@ -155,7 +160,9 @@ def parse_listing(html: str, crawled_at: datetime | None = None):
     """
     soup = BeautifulSoup(html, 'html.parser')
     result, seen = [], set()
-    now = crawled_at or datetime.now()
+    now = crawled_at or datetime.now(timezone.utc).replace(tzinfo=None)
+    if stats is not None:
+        stats.update(candidate_count=0, filtered_count=0, passed_count=0, source_ids=[])
     for card, candidate in _candidate_cards(soup):
         a = _job_anchor(card, candidate)
         title = clean(a)
@@ -170,6 +177,9 @@ def parse_listing(html: str, crawled_at: datetime | None = None):
         if parsed_url.hostname not in ('www.saramin.co.kr', 'saramin.co.kr'):
             continue
         seen.add(rec_idx)
+        if stats is not None:
+            stats['candidate_count'] += 1
+            stats['source_ids'].append(rec_idx)
         company = clean(find_first(card, 'div.area_corp strong.corp_name a', 'strong.corp_name a', '.corp_name'))
         deadline = clean(find_first(card, 'div.job_date span.date', '.job_date .date', '.date'))
         spans = card.select('div.area_job div.job_condition > span')
@@ -178,7 +188,11 @@ def parse_listing(html: str, crawled_at: datetime | None = None):
         combined_tags = ' '.join(tags)
         roles, role_source = extract_roles(title, combined_tags)
         if not is_it_listing(title, combined_tags, roles, role_source):
+            if stats is not None:
+                stats['filtered_count'] += 1
             continue
+        if stats is not None:
+            stats['passed_count'] += 1
         specialties = match_terms(combined_tags, SPECIALTIES)
         title_specialties = match_terms(title, SPECIALTIES) if not specialties else []
         # Also inspect local job card text (not the entire page) to catch skills

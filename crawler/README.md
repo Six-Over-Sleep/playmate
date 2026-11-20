@@ -4,6 +4,10 @@
 
 현재 프로젝트에서는 맛집 정보, IT 뉴스, 취업정보 등을 수집함.
 
+IT 채용 레이더 로컬 CSV 수집은 [실행 가이드](../docs/itchaeyong_local_collection.md)를 참고함.
+`database/scripts/collect_itchaeyong_jobs.py`로 실행하며 RunPod을 사용하지 않음.
+기존 사람인 크롤러는 별도 경로로 보존함.
+
 ## 폴더 구조
 
 | 폴더 | 설명 |

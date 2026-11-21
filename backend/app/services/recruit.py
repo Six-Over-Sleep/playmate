@@ -99,7 +99,7 @@ def create_recruit(
     """
     try:
         # 카테고리를 먼저 검사해 잘못된 요청은 DB에 쓰기 전에 차단함.
-        detail_model, detail_values = _get_detail_model_and_values(data)
+        _, detail_values = _get_detail_model_and_values(data)
 
         # 1단계 : 모임과 연결할 게시글 객체를 먼저 생성함.
         # post_type="RECRUIT"로 일반 게시판 글과 모임 모집 글을 구분함.
@@ -119,6 +119,7 @@ def create_recruit(
             recruit_mode=data.recruit_mode,
             category=data.category,
             capacity=data.capacity,
+            details=dict(detail_values),  # 042: 상세는 recruits 안에서 함께 저장
             regular_days=data.regular_days,
             regular_time=data.regular_time,
             regular_start_date=data.regular_start_date,
@@ -133,15 +134,7 @@ def create_recruit(
         # add_recruit() 내부의 flush()로 상세 테이블에서 사용할 recruit_id를 확보함.
         recruit_repo.add_recruit(db, recruit)  # recruit_id를 확보함.
 
-        # 3단계 : 카테고리에 맞는 상세 테이블 객체를 생성함.
-        # **detail_values는 딕셔너리 값을 해당 모델의 키워드 인자로 펼치는 문법임.
-        detail = detail_model(
-            recruit_id=recruit.recruit_id,
-            **detail_values,
-        )
-        # 상세 정보도 동일한 DB 세션에 등록해 함께 저장되도록 함.
-        recruit_repo.add_category_detail(db, detail)
-
+        # 3단계 : recruits.details에 상세가 함께 저장되었으므로 별도 INSERT는 없다.
         # 4단계 : 모임 생성자를 참여자 테이블에 HOST(모임장)로 자동 등록함.
         # status="JOINED"이므로 현재 참여 인원 집계에도 포함됨.
         host = RecruitMember(
@@ -205,17 +198,9 @@ def get_recruit(
         raise HTTPException(status_code=404, detail="모임이 없습니다.")
 
     (
-        post, recruit, sports_detail, game_detail, study_detail,
-        group_buy_detail, like_count, liked_by_me, scrapped_by_me,
+        post, recruit, like_count, liked_by_me, scrapped_by_me,
         member_role, member_status, history,
     ) = row
-
-    category_details = {
-        "sports": sports_detail,
-        "game": game_detail,
-        "study": study_detail,
-        "group_buy": group_buy_detail,
-    }
     if recruit.category not in DETAIL_MODELS:
         raise HTTPException(status_code=400, detail="지원하지 않는 모임 카테고리입니다.")
 
@@ -241,7 +226,7 @@ def get_recruit(
         "place": recruit.place,
         "is_online": recruit.is_online,
         "contact_method": recruit.contact_method,
-        "detail": _serialize_category_detail(category_details[recruit.category]),
+        "detail": _serialize_category_detail(recruit.details),
         "like_count": int(like_count or 0),
         "liked_by_me": bool(liked_by_me),
         "scrapped_by_me": bool(scrapped_by_me),
@@ -263,19 +248,8 @@ def get_recruit(
 
 
 def _serialize_category_detail(detail):
-    """카테고리 모델의 컬럼을 사전으로 변환하고 연결용 recruit_id는 제외함."""
-    # 카테고리 상세 정보가 등록되어 있지 않으면 빈 딕셔너리를 반환함.
-    if detail is None:
-        return {}
-
-    # __table__.columns : ORM 모델에 정의된 DB 컬럼 목록
-    # getattr() : 각 컬럼 이름에 해당하는 실제 객체 값 조회
-    # recruit_id는 연결용 키이므로 API 응답의 상세 필드에서 제외함.
-    return {
-        column.name: getattr(detail, column.name)
-        for column in detail.__table__.columns
-        if column.name != "recruit_id"
-    }
+    """042 통합 컬럼을 기존 API `detail` 형식의 딕셔너리로 반환한다."""
+    return dict(detail) if detail is not None else {}
 
 
 def get_recruits(db: Session, category: str | None = None):
@@ -357,17 +331,25 @@ def update_recruit(db: Session, recruit_id: int, data: RecruitUpdate):
 
     # 변경 대상이 제목/본문이면 Post에, 그 외에는 Recruit에 반영함.
     # setattr(객체, 필드명, 값) : 지정한 객체 속성을 동적으로 수정함.
-    detail_fields = {"sport_name", "game_name", "study_topic", "study_period", "study_method", "product_name", "purchase_url", "estimated_price_per_person", "pickup_method"}
-    detail_model = DETAIL_MODELS.get(recruit.category)
-    detail = recruit_repo.get_category_detail(db, detail_model, recruit_id) if detail_model else None
+    detail_fields = {
+        "sport_name", "game_name", "study_topic", "study_period", "study_method",
+        "product_name", "purchase_url", "estimated_price_per_person", "pickup_method",
+    }
+    # 기존 상세 행이 없으면 변경을 건너뛰는 기존 동작 유지.
+    # SQLAlchemy JSONB는 내부 key 변경을 자동 추적하지 않으므로 반드시 새 dict를 할당.
+    detail_values = dict(recruit.details) if recruit.details is not None else None
+    detail_changed = False
     for field_name, value in changes.items():
         if field_name in ("title", "body"):
             setattr(post, field_name, value)
         elif field_name in detail_fields:
-            if detail is not None and hasattr(detail, field_name):
-                setattr(detail, field_name, value)
+            if detail_values is not None and field_name in detail_values:
+                detail_values[field_name] = value
+                detail_changed = True
         else:
             setattr(recruit, field_name, value)
+    if detail_changed:
+        recruit.details = detail_values
 
     # 일정 유형이 바뀌면 사용하지 않는 방식의 이전 일정 정보를 비움.
     # 정기 모임은 단기 시작·종료 일시를, 단기 모임은 정기 요일·시간·시작 날짜를 제거함.

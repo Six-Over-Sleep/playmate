@@ -14,12 +14,6 @@ import pytest
 
 from app.main import app
 import app.main as main_module
-from backend.app.core.database import Base
-from backend.app.models.recruit import (
-    RecruitSportsDetail,
-    RecruitGameDetail,
-    RecruitGroupBuyDetail,
-)
 from backend.app.routers import recruit as routes
 from backend.app.routers.recruit_program import build_program_service
 
@@ -35,15 +29,6 @@ def runtime(service, monkeypatch):
         recruit_member,
         "kst_now",
         lambda: service.clock().astimezone(ZoneInfo("Asia/Seoul")).replace(tzinfo=None),
-    )
-    engine = service.repository.session.get_bind()
-    Base.metadata.create_all(
-        engine,
-        tables=[
-            RecruitSportsDetail.__table__,
-            RecruitGameDetail.__table__,
-            RecruitGroupBuyDetail.__table__,
-        ],
     )
     monkeypatch.setenv("ENABLE_RECRUIT_PROGRAMS", "true")
     app.dependency_overrides[build_program_service] = lambda: service

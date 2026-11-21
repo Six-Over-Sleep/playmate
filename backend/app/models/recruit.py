@@ -2,8 +2,9 @@
 # 모임 모집 정보, 참여 회원 및 카테고리별 상세 정보를 관리하는 모델
 from sqlalchemy import (
     ARRAY, BigInteger, Boolean, Column, Date, DateTime,
-    ForeignKey, Integer, Numeric, String, Time
+    ForeignKey, Integer, Numeric, String, Time, JSON
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from backend.app.core.database import Base
 
 
@@ -24,6 +25,13 @@ class Recruit(Base):
     recruit_mode = Column(String, nullable=False)
     category = Column(String, nullable=False)
     capacity = Column(Integer, nullable=False)
+    # 042: 운동·게임·스터디·공동구매의 1:1 상세 자료를 JSONB 한 컬럼에 저장한다.
+    # 내용이 없는 모임은 NULL, 상세 행이 있으면 dict(모든 필드가 NULL이어도 dict).
+    # 하위 키 변경은 직접 수행하지 않고 매번 새 dict를 할당해 ORM 변경을 추적한다.
+    details = Column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
+        nullable=True,
+    )
 
     # meeting_datetime : 모임 진행 예정 일시
     # place : 모임 진행 장소
@@ -82,6 +90,7 @@ class RecruitMember(Base):
     updated_at = Column(DateTime)
 
 
+# 042 이후 이 이름은 물리 테이블이 아니라 레거시 호환 뷰이다. (Base.metadata.create_all 금지)
 # 운동 모임의 상세 정보를 관리하는 모델
 class RecruitSportsDetail(Base):
     __tablename__ = "recruit_sports_details"

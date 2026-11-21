@@ -24,10 +24,9 @@ def api(service, monkeypatch):
     session = service.repository.session
     from backend.app.core.database import Base
     from backend.app.models.comment import Comment
-    from backend.app.models.recruit import RecruitGameDetail, RecruitGroupBuyDetail, RecruitSportsDetail
 
     Base.metadata.create_all(session.get_bind(), tables=[
-        RecruitSportsDetail.__table__, RecruitGameDetail.__table__, RecruitGroupBuyDetail.__table__, Comment.__table__,
+        Comment.__table__,
     ])
     columns = {row[1] for row in session.execute(text("PRAGMA table_info(members)"))}
     if "discord_id" not in columns:  # 테스트 ORM 스키마에 없는 운영 컬럼을 테스트 DB에만 추가

@@ -13,7 +13,7 @@ from backend.app.models.member import Member
 from backend.app.models.post import Post
 from backend.app.models.post_like import PostLike
 from backend.app.models.post_scrap import PostScrap
-from backend.app.models.recruit import Recruit, RecruitMember, RecruitStudyDetail
+from backend.app.models.recruit import Recruit, RecruitMember
 from backend.app.models import recruit_program
 from backend.app.repositories.recruit_program_repository import ProgramRepository
 from backend.app.services.recruit_program_service import ProgramService
@@ -48,7 +48,6 @@ def service(monkeypatch):
         Post.__table__,
         Recruit.__table__,
         RecruitMember.__table__,
-        RecruitStudyDetail.__table__,
         PostLike.__table__,
         PostScrap.__table__,
     ]
@@ -63,6 +62,7 @@ def service(monkeypatch):
             "recruit_game_details",
             "recruit_study_details",
             "recruit_group_buy_details",
+            "recruit_curricula",
         }
     ]
     Base.metadata.create_all(engine, tables=tables)

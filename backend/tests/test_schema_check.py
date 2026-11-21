@@ -33,6 +33,9 @@ class FakeCursor:
                 ("member_xp_history", "history_id"), ("member_xp_history", "created_at"),
                 ("comments", "parent_comment_id"), ("comments", "reply_to_comment_id"),
                 ("boards", "course_code"), ("boards", "cohort"),
+                ("recruits", "details"),
+                ("recruit_programs", "meetup_curriculum_version"),
+                ("recruit_programs", "meetup_curriculum_items"),
             ]
             if self.missing_column in self.result:
                 self.result.remove(self.missing_column)
@@ -53,7 +56,7 @@ class FakeCursor:
 
 ALL_TABLES = set(schema_check.BASE_TABLES) | {
     "xp_award_policies", "member_board_visits", "member_board_visit_events",
-    "level_policies", "xp_limit_policies",
+    "level_policies", "xp_limit_policies", "recruit_programs",
 }
 
 
@@ -81,6 +84,17 @@ def test_missing_reply_target_column_points_to_041():
     # 출처도 000·001이 아니라 041로 표시한다(운영 기동 로그에서 원인 파일을 바로 알 수 있게).
     assert report.errors[0].step == "041"
     assert "[오류][041] comments.reply_to_comment_id 컬럼 없음" in "\n".join(report.lines())
+
+
+@pytest.mark.parametrize("table,column,step", [
+    ("recruits", "details", "042"),
+    ("recruit_programs", "meetup_curriculum_version", "043"),
+    ("recruit_programs", "meetup_curriculum_items", "043"),
+])
+def test_missing_meetup_column_points_to_migration(table, column, step):
+    report = check_schema(FakeCursor(ALL_TABLES, missing_column=(table, column)))
+    assert not report.ok
+    assert any(i.step == step and f"{table}.{column}" in i.message for i in report.errors)
 
 
 def test_missing_base_column_keeps_baseline_source():

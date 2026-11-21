@@ -1,5 +1,6 @@
 """신규 모임 저장 모델. 기존 모임/회원 테이블과 외래키로 연결하며 DDL은 실행하지 않는다."""
 
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -25,6 +26,11 @@ class ProgramRecord(Base):
     lifecycle_status = Column(String, nullable=False, index=True)
     payload = Column(JSON, nullable=False)
     details = Column(JSON, nullable=False, default=dict)
+    # 043: 커리큘럼이 작성되기 전에는 둘 다 NULL (기존 별도 행 부재와 동일).
+    meetup_curriculum_version = Column(Integer, nullable=True)
+    meetup_curriculum_items = Column(
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"), nullable=True
+    )
     __table_args__ = (
         CheckConstraint("ends_at > starts_at", name="program_period_valid"),
         CheckConstraint("schedule_version >= 1", name="program_version_positive"),
@@ -91,6 +97,7 @@ class WithdrawalRecord(Base):
 
 
 class CurriculumRecord(Base):
+    """043 이후 호환 뷰. 신규 코드에서는 ProgramRecord 컬럼을 사용한다."""
     __tablename__ = "recruit_curricula"
     recruit_id = Column(
         BigInteger, ForeignKey("recruit_programs.recruit_id"), primary_key=True

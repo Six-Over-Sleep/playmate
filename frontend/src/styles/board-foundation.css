@@ -438,6 +438,16 @@ textarea:focus-visible {
 .comment.reply {
   padding-left: 50px;
 }
+/* 대댓글을 대상으로 한 답글의 @대상 표시 (게시판·모임, 취업은 career.css에서 색만 바꿈). 본문에는 저장하지 않음.
+   본문과의 간격은 CommentBodyText가 넣는 실제 공백 문자로 만든다(복사·스크린리더에서도 구분). */
+.comment-mention {
+  color: #6c5ce7;
+  font-weight: 600;
+}
+.comment-mention.deleted {
+  color: #9aa3b5;
+  font-weight: 500;
+}
 .comment.deleted .comment-content p {
   color: #9aa3b5;
 }

@@ -27,7 +27,13 @@ BASE_COLUMNS = (
     ("member_xp_history", "history_id"),
     ("member_xp_history", "created_at"),
     ("comments", "parent_comment_id"),
+    ("comments", "reply_to_comment_id"),
 )
+# 위 컬럼 중 000·026이 아닌 별도 마이그레이션이 만드는 것: 누락 시 표시할 (출처, 안내할 SQL 파일)
+COLUMN_FIXES = {
+    ("comments", "reply_to_comment_id"): ("041", "database/sql/041_comment_reply_target.sql 적용"),
+}
+BASE_COLUMN_FIX = ("000·001", "database/sql/000_baseline_schema.sql·026_baseline_followups.sql 재실행")
 # 027 지급 한도
 REQUIRED_LIMITS = ("POST_DAILY_COUNT", "COMMENT_DAILY_COUNT", "POST_LIKE_XP_PER_POST")
 
@@ -98,8 +104,8 @@ def check_schema(cursor) -> Report:
                                        "database/sql/000_baseline_schema.sql, 001_board_mvp.sql 적용"))
     for table, column in BASE_COLUMNS:
         if table in tables and (table, column) not in columns:
-            report.issues.append(Issue("error", "000·001", f"{table}.{column} 컬럼 없음",
-                                       "database/sql/000_baseline_schema.sql·026_baseline_followups.sql 재실행"))
+            step, fix = COLUMN_FIXES.get((table, column), BASE_COLUMN_FIX)
+            report.issues.append(Issue("error", step, f"{table}.{column} 컬럼 없음", fix))
     if "boards" in tables:
         for column in ("course_code", "cohort"):
             if ("boards", column) not in columns:

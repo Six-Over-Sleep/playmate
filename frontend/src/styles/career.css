@@ -488,6 +488,9 @@
   background: #416fae;
 }
 .career-page .career-comment-anonymous { color: #637f9b; }
+/* 답글 대상 @표시: 취업 화면은 보라색 대신 기존 파란 계열(익명 선택 강조색)을 쓴다. */
+.career-page .career-comment .comment-mention { color: #3474b4; }
+.career-page .career-comment .comment-mention.deleted { color: #7e94ab; }
 
 /* 커리어 브리핑: 기사 목록 / 스크랩 / 뉴스 상세 */
 .career-page .career-briefing-intro,

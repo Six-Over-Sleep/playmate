@@ -411,6 +411,7 @@ def create_comment(
     모임 댓글 또는 대댓글 작성.
 
     parent_comment_id가 존재하면 대댓글로 처리함.
+    reply_to_comment_id가 존재하면 그 댓글(대댓글 포함)에 직접 답글로 처리하고 원댓글은 서버가 계산함.
     """
 
     return comment_service.create_comment(

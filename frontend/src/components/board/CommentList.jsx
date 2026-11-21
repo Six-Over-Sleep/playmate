@@ -5,13 +5,16 @@
 import { useState } from 'react'
 import { useCommentEditor } from '../../hooks/board/useBoardForms'
 import { formatBoardDate } from '../../utils/board'
+import { canManageComment, canReplyTo } from '../../utils/commentReply'
+import CommentBodyText from '../comment/CommentBodyText'
 import CommentForm from './CommentForm'
 
 import { mediaUrl } from '../../services/boardApi'
 /**
  * 댓글 한 개의 표시와 편집 UI. 서버가 내려준 is_owner로 기존 버튼 표시를 유지한다.
  * 서버가 부모 → 대댓글 순서로 내려주므로 parent_comment_id가 있으면 들여쓰기만 한다.
- * 대댓글은 1단계까지만 허용되므로 최상위 댓글에만 답글 버튼을 둔다.
+ * 원댓글·대댓글 모두에 답글을 달 수 있지만 서버가 원댓글 아래 2단계로 저장하므로 들여쓰기는 한 단계뿐이다.
+ * 답글 입력창은 목록 전체에서 하나만 열린다(대상을 바꾸면 새 대상으로 옮겨진다).
  */
 /** 익명 댓글은 사진을 공개하지 않습니다. 이미지 실패 시 글자로 대체합니다. */
 function CommentAvatar({ comment }) {
@@ -37,15 +40,17 @@ function CommentAvatar({ comment }) {
   )
 }
 
-function Comment({ comment, busy, onEdit, onDelete, onReply, canReply }) {
+function Comment({ comment, busy, onEdit, onDelete, onReply, canReply, replying, onToggleReply }) {
   const editor = useCommentEditor(comment, busy, onEdit)
-  const [replying, setReplying] = useState(false)
   const isReply = Boolean(comment.parent_comment_id)
 
-  /** 답글 성공 응답을 받았을 때만 입력창을 닫는다. 실패하면 초안이 남는다. */
+  /**
+   * 이 댓글을 직접 대상으로 답글을 보낸다(reply_to_comment_id). 원댓글은 서버가 계산한다.
+   * 성공 응답을 받았을 때만 입력창을 닫는다. 실패하면 초안이 남는다.
+   */
   async function submitReply(body, _parentCommentId, isAnonymous = false) {
-    const result = await onReply(body, comment.id, isAnonymous)
-    if (result) setReplying(false)
+    const result = await onReply(body, null, isAnonymous, comment.id)
+    if (result) onToggleReply(null)
     return result
   }
 
@@ -93,16 +98,16 @@ function Comment({ comment, busy, onEdit, onDelete, onReply, canReply }) {
             <button type="button" disabled={busy} onClick={editor.cancelEditing}>취소</button>
           </div>
         ) : (
-          <p>{comment.body}</p>
+          <p><CommentBodyText comment={comment} /></p>
         )}
         {!editor.editing && (
           <div className="comment-actions">
-            {canReply && !isReply && (
-              <button disabled={busy} onClick={() => setReplying((open) => !open)}>
+            {canReply && canReplyTo(comment) && (
+              <button disabled={busy} onClick={() => onToggleReply(replying ? null : comment.id)}>
                 {replying ? '답글 취소' : '답글'}
               </button>
             )}
-            {canReply && comment.is_owner && (
+            {canReply && canManageComment(comment) && (
               <div className="owner-actions">
                 <button disabled={busy} onClick={editor.startEditing}>수정</button>
                 <button disabled={busy} onClick={() => onDelete(comment.id)}>삭제</button>
@@ -114,7 +119,7 @@ function Comment({ comment, busy, onEdit, onDelete, onReply, canReply }) {
           <CommentForm
             busy={busy}
             onSubmit={submitReply}
-            placeholder="답글을 입력해주세요."
+            placeholder={`${comment.author_name || '익명'}님에게 답글을 입력해주세요.`}
             submitLabel="답글 작성"
           />
         )}
@@ -125,6 +130,9 @@ function Comment({ comment, busy, onEdit, onDelete, onReply, canReply }) {
 
 /** 서버의 댓글 순서와 id를 유지해 편집 중인 댓글의 상태가 다른 댓글로 이동하지 않게 한다. */
 export default function CommentList({ comments, busy, onEdit, onDelete, onReply, canReply = true }) {
+  // 답글 대상 댓글 id. 다른 댓글의 답글을 누르면 대상이 바뀌고, 취소·작성 성공 시 null로 초기화한다.
+  const [replyTargetId, setReplyTargetId] = useState(null)
+
   if (!comments.length) return <p className="empty-state compact">첫 댓글을 남겨보세요.</p>
 
   return (
@@ -138,6 +146,8 @@ export default function CommentList({ comments, busy, onEdit, onDelete, onReply,
           onDelete={onDelete}
           onReply={onReply}
           canReply={canReply}
+          replying={replyTargetId === comment.id}
+          onToggleReply={setReplyTargetId}
         />
       ))}
     </div>

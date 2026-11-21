@@ -199,9 +199,10 @@ def test_get_recruits_adds_like_count(monkeypatch):
 # =========================================================
 # 댓글·대댓글
 # =========================================================
-def comment(comment_id, parent=None, author=1, deleted=False, post_id=20):
+def comment(comment_id, parent=None, author=1, deleted=False, post_id=20, reply_to=None, anonymous=False):
     return SimpleNamespace(
         comment_id=comment_id, post_id=post_id, parent_comment_id=parent,
+        reply_to_comment_id=reply_to, is_anonymous=anonymous,
         author_member_id=author, body=f"댓글{comment_id}", created_at=NOW,
         updated_at=NOW, deleted_at=NOW if deleted else None,
     )

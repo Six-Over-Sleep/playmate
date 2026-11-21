@@ -388,23 +388,31 @@ export function getCareerComments(postId) {
 
 
 // 7-6. 댓글·대댓글 작성 (익명 여부 포함)
+// replyToCommentId를 주면 그 댓글(대댓글 포함)에 답글로 저장한다. 원댓글은 서버가 계산한다.
+// parentCommentId는 기존 호출 호환용(최상위 댓글에만 답글)이다.
 
 export function createCareerComment(
     postId,
     body,
     parentCommentId = null,
-    isAnonymous = false
+    isAnonymous = false,
+    replyToCommentId = null
 ) {
+    const payload = {
+        body,
+        parent_comment_id: parentCommentId,
+        is_anonymous: isAnonymous,
+    }
+    if (replyToCommentId != null) {
+        payload.reply_to_comment_id = replyToCommentId
+    }
+
     return request(`${POST_URL}/${postId}/comments`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-            body,
-            parent_comment_id: parentCommentId,
-            is_anonymous: isAnonymous,
-        }),
+        body: JSON.stringify(payload),
     })
 }
 

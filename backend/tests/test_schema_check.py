@@ -31,7 +31,7 @@ class FakeCursor:
         elif "information_schema.columns" in text:
             self.result = [
                 ("member_xp_history", "history_id"), ("member_xp_history", "created_at"),
-                ("comments", "parent_comment_id"),
+                ("comments", "parent_comment_id"), ("comments", "reply_to_comment_id"),
                 ("boards", "course_code"), ("boards", "cohort"),
             ]
             if self.missing_column in self.result:
@@ -70,6 +70,25 @@ def test_missing_board_column_points_to_018(column):
     assert not report.ok
     assert f"boards.{column}" in report.errors[0].message
     assert "018_course_cohort_boards.sql" in report.errors[0].fix
+
+
+def test_missing_reply_target_column_points_to_041():
+    """답글 대상 컬럼이 없으면(041 미적용) 기동 전에 오류로 알리고 041 파일을 안내한다."""
+    report = check_schema(FakeCursor(ALL_TABLES, missing_column=("comments", "reply_to_comment_id")))
+    assert not report.ok
+    assert "comments.reply_to_comment_id" in report.errors[0].message
+    assert "041_comment_reply_target.sql" in report.errors[0].fix
+    # 출처도 000·001이 아니라 041로 표시한다(운영 기동 로그에서 원인 파일을 바로 알 수 있게).
+    assert report.errors[0].step == "041"
+    assert "[오류][041] comments.reply_to_comment_id 컬럼 없음" in "\n".join(report.lines())
+
+
+def test_missing_base_column_keeps_baseline_source():
+    """041 외 기본 컬럼의 출처·안내 문구는 기존 그대로다."""
+    report = check_schema(FakeCursor(ALL_TABLES, missing_column=("comments", "parent_comment_id")))
+    assert not report.ok
+    assert report.errors[0].step == "000·001"
+    assert report.errors[0].fix == "database/sql/000_baseline_schema.sql·026_baseline_followups.sql 재실행"
 
 
 def test_missing_027_table_is_error_with_sql_file():

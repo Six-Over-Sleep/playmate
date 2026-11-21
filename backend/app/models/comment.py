@@ -61,8 +61,16 @@ class Comment(Base):
         nullable=True
     )
 
-    # 부모 댓글 ID (일반 댓글이면 NULL)
+    # 부모 댓글 ID (일반 댓글이면 NULL). 답글은 항상 최상위 원댓글을 가리킴.
     parent_comment_id = Column(
+        BigInteger,
+        ForeignKey("comments.comment_id"),
+        nullable=True
+    )
+
+    # 실제 답글 대상 댓글 ID (041_comment_reply_target.sql).
+    # NULL이면 기존 데이터·기존 방식 답글이며 parent_comment_id를 대상으로 해석함.
+    reply_to_comment_id = Column(
         BigInteger,
         ForeignKey("comments.comment_id"),
         nullable=True

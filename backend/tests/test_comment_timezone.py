@@ -15,7 +15,8 @@ APP = Path(__file__).resolve().parents[1] / "app"
 
 def test_recruit_comment_serializes_aware_times():
     comment = SimpleNamespace(
-        comment_id=1, parent_comment_id=None, body="본문", author_member_id=3,
+        comment_id=1, parent_comment_id=None, reply_to_comment_id=None, is_anonymous=False,
+        body="본문", author_member_id=3,
         created_at=datetime(2026, 11, 15, 4, 15), updated_at=datetime(2026, 11, 15, 4, 16),
         deleted_at=None,
     )

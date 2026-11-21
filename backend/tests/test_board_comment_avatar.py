@@ -80,6 +80,8 @@ def comment_db():
             (106, 10, NULL, '삭제된 부모', 5, 0, '2026-11-02 09:00', '2026-11-01 10:05', NULL),
             (107, 10, 106, '남은 답글', 1, 0, NULL, '2026-11-01 10:06', NULL),
             (108, 10, NULL, '답글 없는 삭제 댓글', 5, 0, '2026-11-02 09:00', '2026-11-01 10:07', NULL);
+        -- 041_comment_reply_target.sql과 같이 기존 행이 있는 상태에서 추가한다(기존 행은 NULL).
+        ALTER TABLE comments ADD COLUMN reply_to_comment_id INTEGER;
         """
     )
     yield connection

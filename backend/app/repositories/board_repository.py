@@ -578,6 +578,31 @@ def get_post_scrap(cursor, post_id: int, member_id: int) -> dict[str, Any]:
     return row
 
 
+# 답글 대상 정보. 저장값이 NULL인 기존 대댓글은 parent_comment_id를 답글 대상으로 해석한다.
+# 대상 작성자 이름은 작성자 이름과 같은 규칙으로 가리고(익명·탈퇴), 대상이 삭제됐으면 이름을 내보내지 않는다.
+# 대상 작성자의 회원 ID는 어떤 경우에도 내보내지 않는다. 닉네임은 본문에 저장하지 않고 조회할 때 계산한다.
+_REPLY_TARGET_COLUMNS = """
+            COALESCE(c.reply_to_comment_id, c.parent_comment_id) AS reply_to_comment_id,
+
+            CASE
+                WHEN c.parent_comment_id IS NULL OR target.comment_id IS NULL
+                    OR target.deleted_at IS NOT NULL THEN NULL
+                WHEN target.is_anonymous THEN '익명'
+                WHEN target_member.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
+                ELSE COALESCE(NULLIF(target_member.nickname, ''), '익명')
+            END AS reply_to_author_name,
+
+            (c.parent_comment_id IS NOT NULL
+                AND (target.comment_id IS NULL OR target.deleted_at IS NOT NULL)) AS reply_to_is_deleted
+"""
+_REPLY_TARGET_JOINS = """
+        LEFT JOIN comments AS target
+            ON target.comment_id = COALESCE(c.reply_to_comment_id, c.parent_comment_id)
+        LEFT JOIN members AS target_member
+            ON target_member.member_id = target.author_member_id
+"""
+
+
 def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
     """댓글과 대댓글을 조회한다. 익명 작성자의 정보를 공개하지 않는다."""
     cursor.execute(
@@ -618,13 +643,13 @@ def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
             c.updated_at,
 
             (c.deleted_at IS NULL AND c.author_member_id = %s) AS is_owner,
-            (c.deleted_at IS NOT NULL) AS is_deleted
-
+            (c.deleted_at IS NOT NULL) AS is_deleted,
+""" + _REPLY_TARGET_COLUMNS + """
         FROM comments AS c
         JOIN members AS m ON m.member_id = c.author_member_id
         LEFT JOIN comments AS parent
             ON parent.comment_id = c.parent_comment_id
-
+""" + _REPLY_TARGET_JOINS + """
         WHERE c.post_id = %s
             AND (
                 c.deleted_at IS NULL
@@ -660,7 +685,37 @@ def create_comment(
     member_id: int,
     parent_comment_id: int | None = None,
     is_anonymous: bool = False,
+    reply_to_comment_id: int | None = None,
 ) -> int:
+    """댓글을 저장하고 comment_id를 반환한다.
+
+    reply_to_comment_id가 없으면(원댓글·기존 방식 대댓글) 기존 INSERT를 그대로 쓰고 저장값은 NULL이다.
+    있으면 서비스가 계산한 최상위 원댓글(parent_comment_id)과 실제 대상을 함께 저장한다.
+    """
+    if reply_to_comment_id is not None:
+        cursor.execute(
+            """
+            INSERT INTO comments (
+                post_id,
+                author_member_id,
+                body,
+                parent_comment_id,
+                reply_to_comment_id,
+                is_anonymous
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING comment_id
+            """,
+            (
+                post_id,
+                member_id,
+                body,
+                parent_comment_id,
+                reply_to_comment_id,
+                is_anonymous,
+            ),
+        )
+        return cursor.fetchone()["comment_id"]
 
     # 댓글 내용과 익명 여부 저장
     cursor.execute(
@@ -707,6 +762,33 @@ def get_parent_comment(cursor, comment_id: int) -> dict[str, Any] | None:
     return row
 
 
+def get_reply_target(cursor, comment_id: int) -> dict[str, Any] | None:
+    """답글 대상 댓글과 그 원댓글(있으면)의 게시글·상위 댓글 ID를 조회한다.
+
+    없거나 삭제된 대상은 None이다. 대상 행은 트랜잭션이 끝날 때까지 FOR SHARE로 잠가,
+    검증과 저장 사이에 대상의 논리 삭제(삭제 시각 기록)가 끼어들지 않게 한다.
+    원댓글은 삭제된 자리표시여도 스레드가 살아 있으므로 삭제 여부를 보지 않는다.
+    """
+    cursor.execute(
+        """
+        SELECT
+            target.comment_id,
+            target.post_id,
+            target.parent_comment_id,
+            root.post_id AS root_post_id,
+            root.parent_comment_id AS root_parent_comment_id
+        FROM comments AS target
+        LEFT JOIN comments AS root
+            ON root.comment_id = target.parent_comment_id
+        WHERE target.comment_id = %s
+            AND target.deleted_at IS NULL
+        FOR SHARE OF target
+        """,
+        (comment_id,),
+    )
+    return cursor.fetchone()
+
+
 # 댓글 ID에 해당하는 댓글 한 건을 조회함
 def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | None:
     """댓글 한 건을 조회한다. 익명 여부와 작성자 권한을 함께 반환한다."""
@@ -738,11 +820,11 @@ def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | Non
             c.created_at,
             c.updated_at,
 
-            (c.author_member_id = %s) AS is_owner
-
+            (c.author_member_id = %s) AS is_owner,
+""" + _REPLY_TARGET_COLUMNS + """
         FROM comments AS c
         JOIN members AS m ON m.member_id = c.author_member_id
-
+""" + _REPLY_TARGET_JOINS + """
         WHERE c.comment_id = %s
           AND c.deleted_at IS NULL
         """,

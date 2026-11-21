@@ -24,6 +24,7 @@ from backend.app.services.xp_service import (
     grant_post_like_xp,
 )
 from backend.app.services.notification_writer import save_comment_notification
+from backend.app.services.comment_reply_rules import decide_reply_root
 
 logger = logging.getLogger(__name__)
 
@@ -181,10 +182,22 @@ def _require_course_board_writer(cursor, board_id: int, member_id: int) -> None:
 
 
 def _require_comment_board_writer(cursor, comment_id: int, member_id: int) -> None:
-    """댓글 수정·삭제 API는 댓글 ID만 받으므로 부모 게시판을 추적합니다."""
+    """댓글 수정·삭제 API는 댓글 ID만 받으므로 부모 게시판을 추적합니다.
+
+    취업 게시글(4종 공통)은 게시판이 없어 board_id가 NULL이다. 취업 댓글 작성에도 게시판 쓰기 정책이
+    없으므로(_require_career_post만 확인) 같은 정책으로 게시판 검사를 건너뛴다.
+    작성자 본인 여부는 이후 repository의 UPDATE 조건(author_member_id)이 그대로 검사한다(타인 403).
+    """
     cursor.execute(
         """
-        SELECT p.board_id
+        SELECT
+            p.board_id,
+            (
+                p.board_id IS NULL
+                AND p.post_type = 'CAREER'
+                AND p.deleted_at IS NULL
+                AND EXISTS (SELECT 1 FROM career_posts AS cp WHERE cp.post_id = p.post_id)
+            ) AS is_career_post
         FROM comments AS c
         JOIN posts AS p ON p.post_id = c.post_id
         WHERE c.comment_id = %s AND c.deleted_at IS NULL
@@ -192,8 +205,10 @@ def _require_comment_board_writer(cursor, comment_id: int, member_id: int) -> No
         (comment_id,),
     )
     comment = cursor.fetchone()
-    if comment is not None:
-        _require_course_board_writer(cursor, comment["board_id"], member_id)
+    # 표시값이 없으면 취업 글이 아닌 것으로 보고 기존 게시판 검사를 그대로 한다(안전한 쪽).
+    if comment is None or comment.get("is_career_post") is True:
+        return
+    _require_course_board_writer(cursor, comment["board_id"], member_id)
 
 
 def _require_notice_admin(cursor, board_id: int, member_id: int):
@@ -667,6 +682,31 @@ def _require_parent_comment(cursor, post_id: int, parent_comment_id: int) -> Non
         )
 
 
+def resolve_reply_target(
+    cursor,
+    post_id: int,
+    parent_comment_id: int | None,
+    reply_to_comment_id: int | None,
+) -> tuple[int | None, int | None]:
+    """요청의 답글 관계를 검증하고 저장할 (parent_comment_id, reply_to_comment_id)를 정한다.
+
+    - 둘 다 없음: 원댓글 → (None, None)
+    - parent_comment_id만: 기존 방식. 최상위 댓글만 허용하는 기존 규칙·오류를 그대로 쓴다 → (parent, None)
+    - reply_to_comment_id: 그 댓글에 직접 답글. 서버가 최상위 원댓글을 계산해 항상 2단계로 저장한다.
+      대상이 없거나 삭제됐으면 404, 다른 게시글·깨진 스레드·parent_comment_id와 불일치면 422.
+    일반 게시판과 취업 게시판이 함께 쓴다.
+    """
+    if reply_to_comment_id is None:
+        if parent_comment_id is not None:
+            _require_parent_comment(cursor, post_id, parent_comment_id)
+        return parent_comment_id, None
+
+    # 대상 행을 FOR SHARE로 잠근 뒤 모임 댓글과 같은 규칙으로 검증한다.
+    target = repository.get_reply_target(cursor, reply_to_comment_id)
+    root_comment_id = decide_reply_root(post_id, parent_comment_id, target)
+    return root_comment_id, reply_to_comment_id
+
+
 # 댓글 및 대댓글 작성
 def create_comment(
     board_id: int,
@@ -675,16 +715,18 @@ def create_comment(
     member_id: int,
     parent_comment_id: int | None = None,
     is_anonymous: bool = False,
+    reply_to_comment_id: int | None = None,
 ) -> dict[str, Any]:
-    """게시글·부모 댓글 확인, 댓글 저장, 응답 조회를 한 트랜잭션에서 수행한다."""
+    """게시글·답글 대상 확인, 댓글 저장, 응답 조회를 한 트랜잭션에서 수행한다."""
     with db_cursor(commit=True) as cursor:
         # 1. 게시글 및 과정·기수 작성 권한 확인
         _require_post(cursor, board_id, post_id)
         _require_course_board_writer(cursor, board_id, member_id)
 
-        # 2. 대댓글이면 부모 댓글 검증
-        if parent_comment_id is not None:
-            _require_parent_comment(cursor, post_id, parent_comment_id)
+        # 2. 대댓글이면 답글 관계 검증 → 저장할 원댓글·실제 대상 결정
+        parent_comment_id, reply_to_comment_id = resolve_reply_target(
+            cursor, post_id, parent_comment_id, reply_to_comment_id
+        )
 
         # 3. 댓글 또는 대댓글 저장
         comment_id = repository.create_comment(
@@ -694,6 +736,7 @@ def create_comment(
             member_id,
             parent_comment_id,
             is_anonymous,
+            reply_to_comment_id,
         )
 
         comment = _comment_detail(
@@ -716,6 +759,8 @@ def create_comment(
             )
 
     # 5. DB 저장 완료 후 Discord DM 알림 대기 행 저장 (실패해도 댓글은 유지)
+    #    parent_comment_id는 서버가 계산한 원댓글이다. 받는 사람(실제 답글 대상 작성자)은
+    #    notification_writer가 저장된 댓글 관계로 다시 계산한다.
     try:
         save_comment_notification(post_id, comment_id, member_id, parent_comment_id)
     except Exception:

@@ -101,15 +101,17 @@ def create_comment(
     member_id: int,
     parent_comment_id: int | None = None,
     is_anonymous: bool = False,
+    reply_to_comment_id: int | None = None,
 ) -> dict[str, Any]:
-    """게시글·부모 댓글 확인, 댓글 저장, 응답 조회 후 게시판과 같이 XP를 지급한다."""
+    """게시글·답글 대상 확인, 댓글 저장, 응답 조회 후 게시판과 같이 XP를 지급한다."""
     with db_cursor(commit=True) as cursor:
         # 1. 취업 게시글 존재 확인
         _require_career_post(cursor, post_id)
 
-        # 2. 대댓글이면 게시판과 같은 규칙으로 부모 댓글 검증 (1단계까지만 허용)
-        if parent_comment_id is not None:
-            board_service._require_parent_comment(cursor, post_id, parent_comment_id)
+        # 2. 대댓글이면 게시판과 같은 규칙으로 답글 관계 검증 → 저장할 원댓글·실제 대상 결정 (항상 2단계)
+        parent_comment_id, reply_to_comment_id = board_service.resolve_reply_target(
+            cursor, post_id, parent_comment_id, reply_to_comment_id
+        )
 
         # 3. 댓글 또는 대댓글 저장
         comment_id = board_repository.create_comment(
@@ -119,6 +121,7 @@ def create_comment(
             member_id,
             parent_comment_id,
             is_anonymous,
+            reply_to_comment_id,
         )
         comment = board_service._comment_detail(cursor, comment_id, member_id)
 

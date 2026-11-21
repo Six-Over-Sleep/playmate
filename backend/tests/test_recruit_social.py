@@ -140,7 +140,7 @@ def detail_repo(repo, monkeypatch):
         recruit_id=7, category="study", capacity=5, state="OPEN", recruit_mode="short",
         deadline_at=NOW, regular_days=None, regular_time=None, meeting_start=NOW,
         regular_start_date=None, meeting_end=NOW, place=None, is_online=True,
-        contact_method=None,
+        contact_method=None, details=None,
     )
     post = SimpleNamespace(post_id=20, author_member_id=3, title="스터디", body="본문")
     monkeypatch.setattr(recruit_repo, "find_recruit_with_post", lambda db, rid: (post, recruit))
@@ -148,7 +148,6 @@ def detail_repo(repo, monkeypatch):
         assert rid == 7
         return (
             post, recruit,
-            None, None, None, None,
             repo.state["likes"],
             bool(repo.state["liked"]) if member_id is not None else False,
             bool(repo.state["scrapped"]) if member_id is not None else False,

@@ -19,7 +19,7 @@ import discord
 
 import config
 from discord_rest import inactivity
-from discord_rest.errors import DiscordAuthError, DiscordError, DiscordForbidden, DiscordNotFound
+from discord_rest.errors import DiscordAuthError, DiscordError, DiscordNotFound
 from services.career_notice_service import build_notice_embed
 from services.db_sync import _joined_ok, _revoked_ok
 from services.hot_content_service import build_hot_embed
@@ -115,13 +115,55 @@ def find_meeting_channels(channels: list[dict], recruit_id: int) -> list[dict]:
     return [c for c in channels if c.get("type") == 0 and (c.get("topic") or "").startswith(marker)]
 
 
-def safe_delete_meeting_channel(client, channel_id: int, recruit_id: int, protected_ids=frozenset()) -> bool:
-    """기존 `meeting_space.delete_meeting_channel`과 같은 안전 확인 후 채널 하나만 삭제한다 (REST, 캐시 없음).
+def _positive_int(value, name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name}은 양의 정수여야 합니다.")
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"{name}은 양의 정수여야 합니다.") from None
+    if number <= 0:
+        raise ValueError(f"{name}은 양의 정수여야 합니다.")
+    return number
 
-    보호 목록, 텍스트 채널 여부, 주제 표지를 확인한다. 반환: 삭제됐거나 이미 없으면 True, 지우지 않았거나 실패면 False.
-    인증 오류(401)는 설정 문제라 삼키지 않고 올린다. 호출자는 반환값을 믿지 말고 다시 조회해 확인해야 한다.
+
+def _protected_set(protected_ids) -> frozenset[int]:
+    """보호 채널 ID 목록을 정수 집합으로 바꾼다. 문자열 ID(환경변수 등)도 받고, 잘못된 값은 거부한다."""
+    if protected_ids is None or isinstance(protected_ids, (str, bytes)):
+        raise ValueError("protected_ids는 채널 ID의 컬렉션이어야 합니다 (None, 문자열 불가).")
+    try:
+        return frozenset(_positive_int(item, "protected_ids 항목") for item in protected_ids)
+    except TypeError:
+        raise ValueError("protected_ids는 채널 ID의 컬렉션이어야 합니다.") from None
+
+
+def safe_delete_meeting_channel(client, channel_id: int, recruit_id: int, *, guild_id: int, protected_ids,
+                                activity: str, should_abort=None) -> bool:
+    """기존 `meeting_space.delete_meeting_channel`의 보호 조건을 모두 유지하고 더 얹어 채널 하나만 삭제한다 (REST, 캐시 없음).
+
+    기존과 같은 조건 (하나라도 어긋나면 삭제하지 않음): ① 보호 목록에 없음 ② 텍스트 채널(type 0) ③ 채널 주제가 이 모임
+    표지로 시작 ④ should_abort()가 삭제 직전에 True가 아님.
+    추가한 조건: ⑤ 조회한 채널 JSON의 id가 요청한 ID와 같음 ⑥ 채널의 guild_id가 지정한 guild_id와 같음 (다른 서버나
+    guild_id가 없는 DM 채널은 거부) ⑦ activity가 삭제를 허용하는 값일 때만.
+
+    인자 (모두 필수, 기본값 없음 → 빠뜨리면 TypeError. 보호 장치를 깜빡해 지우는 일을 막는다):
+      guild_id      삭제를 허용할 서버 ID.
+      protected_ids 지우면 안 되는 채널 ID 컬렉션 (상시 오픈채팅, HOT/취업 소식 채널 등. 문자열 ID도 가능). 빈 컬렉션도
+                    허용하지만 **호출자가 의도적으로 넘겨야 한다.** Lambda에는 Gateway Bot의 PROTECTED_CHANNEL_IDS 같은
+                    메모리 목록이 없으므로 설정에서 직접 구성해야 한다. 값이 잘못되면 ValueError.
+      activity      inactivity.check_activity_for_deletion의 결과. **inactivity.NO_ACTIVITY일 때만** 삭제한다
+                    (ACTIVE, UNKNOWN, 그 밖의 값은 REST 호출 없이 False). 비활성 정책과 무관한 정리(예: 방금 만든 채널의
+                    롤백)는 inactivity.ACTIVITY_NOT_APPLICABLE를 명시한다.
+    반환: 채널이 지금 없으면 True(삭제했거나 이미 없었음, 재시도 뒤 404 포함), 지우지 않았거나 삭제 여부가 불명확하면 False.
+    삭제 요청이 5xx/타임아웃으로 끝난 경우는 False이며 "실패 확정"이 아니다: 호출자는 get_channel로 다시 확인해야 한다.
+    인증 오류(401)는 설정 문제라 삼키지 않고 올린다. 락(meeting_lock)과 삭제 직전 활동 재확인은 호출자의 책임이다.
     """
-    if channel_id in protected_ids:
+    channel_id = _positive_int(channel_id, "channel_id")
+    guild_id = _positive_int(guild_id, "guild_id")
+    protected = _protected_set(protected_ids)
+    if activity not in (inactivity.NO_ACTIVITY, inactivity.ACTIVITY_NOT_APPLICABLE):
+        return False
+    if channel_id in protected:
         return False
     try:
         channel = client.get_channel(channel_id)
@@ -131,14 +173,20 @@ def safe_delete_meeting_channel(client, channel_id: int, recruit_id: int, protec
         raise
     except DiscordError:
         return False
+    if not isinstance(channel, dict) or str(channel.get("id")) != str(channel_id):
+        return False
+    if str(channel.get("guild_id")) != str(guild_id):
+        return False
     if channel.get("type") != 0:
         return False
     if not (channel.get("topic") or "").startswith(topic_marker(recruit_id)):
+        return False
+    if should_abort is not None and should_abort():
         return False
     try:
         client.delete_channel(channel_id, reason="PlayMate 모임 채널 비활성 삭제", missing_ok=True)
     except DiscordAuthError:
         raise
-    except (DiscordForbidden, DiscordError):
-        return False
+    except DiscordError:
+        return False  # 삭제 여부 불명확 (5xx/타임아웃/403 등): True로 확정하지 않는다
     return True

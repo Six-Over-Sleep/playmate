@@ -24,13 +24,20 @@ class DiscordError(Exception):
 
     def __init__(self, message: str, *, status: int | None = None, code: int | None = None,
                  method: str | None = None, route: str | None = None,
-                 retry_after: float | None = None, outcome_unknown: bool = False):
+                 retry_after: float | None = None, outcome_unknown: bool = False, attempts: int = 1,
+                 after_ambiguous: bool = False):
         self.status = status
         self.code = code  # Discord JSON 오류 코드 (예: 50007 = DM을 보낼 수 없는 사용자)
         self.method = method
         self.route = route
         self.retry_after = retry_after
         self.outcome_unknown = outcome_unknown
+        # 이 오류가 나기까지 보낸 요청 수. 1보다 크면 앞선 시도(5xx/타임아웃/429)가 있었다는 뜻이라,
+        # 예를 들어 DELETE의 404가 "처음부터 없었음"인지 "우리 앞선 시도가 지웠을 수 있음"인지 가를 수 있다.
+        self.attempts = attempts
+        # 앞선 시도 중에 5xx/타임아웃/전달 여부 불명 연결 오류처럼 **실행 여부가 불명확하게** 끝난 것이 있었는가.
+        # 429(실행되지 않음)만 있었다면 False다. DELETE 재시도 뒤의 404 해석에 쓴다.
+        self.after_ambiguous = after_ambiguous
         super().__init__(message)
 
 
@@ -52,6 +59,14 @@ class DiscordNotFound(DiscordError):
 
 class DiscordRequestError(DiscordError):
     """400 등 그 밖의 4xx: 요청 형식 오류. 코드 버그이므로 재시도하지 않는다."""
+
+
+class DiscordRedirectError(DiscordRequestError):
+    """3xx: 리다이렉트는 따라가지 않는다 (Authorization이 다른 출처로 가거나 POST가 GET으로 바뀌는 것을 막는다).
+
+    Discord API는 리다이렉트하지 않으므로 프록시/포털 같은 비정상 경로의 신호다. 요청은 실행되지 않았다.
+    Location 값은 메시지에 넣지 않는다.
+    """
 
 
 class DiscordRateLimited(DiscordError):

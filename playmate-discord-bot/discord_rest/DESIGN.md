@@ -9,6 +9,10 @@
 - Lambda 핸들러가 시크릿에서 토큰을 읽어 `DiscordRestClient(token, time_budget=<Lambda 남은 시간 - 여유>)`를 만든다.
 - 부작용 요청(`send_message`, `create_guild_channel`)이 `outcome_unknown=True`로 실패하면 **다시 보내지 말고**
   먼저 결과를 확인한다 (`get_recent_messages` / `list_guild_channels` + `reuse.find_meeting_channels`).
+- `nonce`(+`enforce_nonce`)는 공식 문서에 "같은 작성자가 같은 nonce로 최근 몇 분 안에 만든 메시지가 있으면 새로 만들지 않고
+  기존 메시지를 돌려준다"고 적혀 있지만 **실제 Discord에서 검증하기 전**이다. 그래서 nonce를 보내도 자동 재시도 정책은
+  바꾸지 않았다. 검증 뒤에 "nonce가 있을 때만 제한적 재시도"를 결정한다.
+- 리다이렉트(3xx)는 따라가지 않고 `DiscordRedirectError`로 실패한다. 기본 전송은 환경변수 프록시를 쓰지 않는다.
 - 상태 전이는 기존 DB 조건부 SQL(선점, 확정)이 계속 담당한다. REST 클라이언트는 상태를 갖지 않는다.
 
 ## 기능별 인터페이스
@@ -34,7 +38,9 @@ def deliver_notification(client, repo, notification_id) -> Literal["SENT", "SKIP
     # if plan.skip_reason: repo.mark_skipped(...)
     # try: client.send_dm(plan.discord_id, content=plan.text, nonce=f"n-{notification_id}")
     # except DiscordForbidden as e: e.is_dm_blocked -> record_failure("DM 수신 차단 (403)")
-    # except DiscordNotFound: mark_skipped("Discord 사용자 없음")
+    # 존재하지 않는 사용자: 공식 문서의 오류 코드는 10013(Unknown user) / 50033(Invalid Recipient(s)).
+    #   HTTP 상태(404인지 400인지)는 실제 Discord에서 확인하기 전이라 모른다 → 상태가 아니라 e.code 로 분기한다.
+    #   (이전 초안의 "DiscordNotFound = 사용자 없음"은 검증되지 않은 가정이었다.)
     # except DiscordError as e: e.outcome_unknown -> 재시도하지 않고 UNKNOWN 표시 (중복 DM 방지), 아니면 record_failure
 
 # 4. 모임 채널 생성 / 참여 권한 (EventBridge 1분, 예약 동시성 1)
@@ -53,9 +59,19 @@ def sync_participant(client, channel_id, user_id, wanted: Literal["JOINED", "CAN
 def check_inactivity(client, repo, meeting, now) -> None:
     # msgs = client.get_recent_messages(channel_id, 50); active = inactivity.latest_user_message_at(msgs, since)
     #   active 가 있으면 repo.record_activity(...)  (on_message 대체, 최대 1시간 지연)
-    # action, scheduled = reuse.decide_inactivity(meeting, now)
+    # action, scheduled = reuse.decide_inactivity(meeting, now)   # 시간대(tz) 있는 datetime만 허용 (naive 는 ValueError)
     # WARN -> client.send_message(channel_id, content=INACTIVITY_WARNING_TEXT) 후 repo.record_warning(...)   # 경고 중복 주의
-    # DELETE_DUE -> repo.meeting_lock(...) 안에서 reuse.safe_delete_meeting_channel(...) 후 lock.mark_deleted(...)
+    # CANCEL_SCHEDULE -> repo.cancel_schedule(...)   (예약 시각이 지났지만 경고 이후 활동이 기록됨)
+    # DELETE_DUE -> **바로 삭제하지 않는다.** 삭제 직전에 다시 조회해 확인한다:
+    #   msgs = client.get_recent_messages(channel_id, 50)  (실패하면 None)
+    #   ch = client.get_channel(channel_id)
+    #   verdict = inactivity.check_activity_for_deletion(msgs, warned_at, limit=50, last_message_id=ch.get("last_message_id"))
+    #   verdict 가 NO_ACTIVITY 일 때만 삭제한다. ACTIVE(활동 발견 -> record_activity) / UNKNOWN(확인 불가 -> 다음 주기)은 삭제 금지.
+    #   repo.meeting_lock(...) 안에서 reuse.safe_delete_meeting_channel(client, channel_id, recruit_id,
+    #       guild_id=GUILD, protected_ids=<설정에서 구성>, activity=verdict)  후 lock.mark_deleted(...)
+    #   (Discord는 READ_MESSAGE_HISTORY 가 없으면 오류 없이 빈 목록을 준다. 빈 목록을 "활동 없음"으로 읽으면 안 된다.)
+    #   delete_channel 의 반환: deleted / already_gone / gone_after_retry. 예외(5xx/타임아웃)는 "삭제 여부 불명확"이라
+    #   get_channel 로 재확인 전까지 mark_deleted 를 기록하지 않는다.
 
 # 6. /알림설정 Interactions (API Gateway -> Lambda)
 def handle_interaction(event) -> dict:

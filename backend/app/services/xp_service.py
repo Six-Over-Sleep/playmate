@@ -625,8 +625,8 @@ def grant_post_like_xp(cursor, post_id: int, liker_member_id: int) -> dict:
     # 실제로 좋아요가 등록되어 있는지 확인한다.
     cursor.execute(
         """
-        SELECT 1 FROM post_likes
-        WHERE post_id = %s AND member_id = %s
+        SELECT 1 FROM post_reactions
+        WHERE reaction_type = 'LIKE' AND post_id = %s AND member_id = %s
         """,
         (post_id, liker_member_id),
     )

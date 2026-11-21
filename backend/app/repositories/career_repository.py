@@ -1707,8 +1707,8 @@ def attach_list_reactions(cursor, items: list[dict]) -> list[dict]:
             p.post_id,
             (
                 SELECT COUNT(*)
-                FROM post_likes AS l
-                WHERE l.post_id = p.post_id
+                FROM post_reactions AS l
+                WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id
             )::int AS like_count,
             (
                 SELECT COUNT(*)
@@ -1718,8 +1718,8 @@ def attach_list_reactions(cursor, items: list[dict]) -> list[dict]:
             )::int AS comment_count,
             (
                 SELECT COUNT(*)
-                FROM post_scraps AS s
-                WHERE s.post_id = p.post_id
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = p.post_id
             )::int AS scrap_count
         FROM posts AS p
         WHERE p.post_id = ANY(%s)

@@ -22,6 +22,7 @@ from backend.app.models.post import Post
 from backend.app.models.comment import Comment
 from backend.app.models.post_like import PostLike
 from backend.app.models.post_scrap import PostScrap
+from backend.app.models.post_reaction import LIKE, SCRAP
 from backend.app.models.recruit import Recruit, RecruitMember
 from backend.app.models.recruit_program import ApplicationRecord
 
@@ -341,8 +342,9 @@ def add_post_like(db: Session, post_id: int, member_id: int) -> None:
     """
     db.execute(
         insert(PostLike)
-        .values(post_id=post_id, member_id=member_id)
-        .on_conflict_do_nothing(index_elements=["post_id", "member_id"])
+        # 045: post_reactions에 저장한다. INSERT에는 종류 값이 자동으로 붙지 않아 직접 넣는다.
+        .values(post_id=post_id, member_id=member_id, reaction_type=LIKE)
+        .on_conflict_do_nothing(index_elements=["post_id", "reaction_type", "member_id"])
     )
 
 
@@ -375,8 +377,8 @@ def add_post_scrap(db: Session, post_id: int, member_id: int) -> None:
     """스크랩을 등록함. 좋아요와 같이 중복 요청은 무시함."""
     db.execute(
         insert(PostScrap)
-        .values(post_id=post_id, member_id=member_id)
-        .on_conflict_do_nothing(index_elements=["post_id", "member_id"])
+        .values(post_id=post_id, member_id=member_id, reaction_type=SCRAP)
+        .on_conflict_do_nothing(index_elements=["post_id", "reaction_type", "member_id"])
     )
 
 

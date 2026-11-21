@@ -65,7 +65,7 @@ class CareerReviewResponse(BaseModel):
     updated_at: datetime | None = None
     is_owner: bool
 
-    # 좋아요·스크랩 (게시판 공통 post_likes·post_scraps 기준, 스크랩 수는 제공하지 않음)
+    # 좋아요·스크랩 (게시판 공통 post_reactions LIKE·SCRAP 기준, 스크랩 수는 제공하지 않음)
     like_count: int = 0
     liked_by_me: bool = False
     scrapped_by_me: bool = False
@@ -349,7 +349,7 @@ class CareerTalkResponse(BaseModel):
     author_name: str
     is_owner: bool
 
-    # 좋아요·스크랩 (게시판 공통 post_likes·post_scraps 기준, 스크랩 수는 제공하지 않음)
+    # 좋아요·스크랩 (게시판 공통 post_reactions LIKE·SCRAP 기준, 스크랩 수는 제공하지 않음)
     like_count: int = 0
     liked_by_me: bool = False
     scrapped_by_me: bool = False
@@ -581,7 +581,7 @@ class CareerLoungeResponse(BaseModel):
     author_name: str
     is_owner: bool
 
-    # 좋아요·스크랩 (게시판 공통 post_likes·post_scraps 기준, 스크랩 수는 제공하지 않음)
+    # 좋아요·스크랩 (게시판 공통 post_reactions LIKE·SCRAP 기준, 스크랩 수는 제공하지 않음)
     like_count: int = 0
     liked_by_me: bool = False
     scrapped_by_me: bool = False
@@ -920,7 +920,7 @@ class CareerLabResponse(BaseModel):
 
     is_owner: bool
 
-    # 좋아요·스크랩 (게시판 공통 post_likes·post_scraps 기준, 스크랩 수는 제공하지 않음)
+    # 좋아요·스크랩 (게시판 공통 post_reactions LIKE·SCRAP 기준, 스크랩 수는 제공하지 않음)
     like_count: int = 0
     liked_by_me: bool = False
     scrapped_by_me: bool = False

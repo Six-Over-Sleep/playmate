@@ -225,24 +225,26 @@ def read_most_visited_board(cursor) -> dict | None:
 
 
 
+# 회원별 정렬에서 빼는 고정 게시판. 이 게시판 방문은 board_id 없이 중복 방지용으로만 기록한다.
+PERSONAL_SORT_EXCLUDED_BOARDS = ("공지사항", "명예의 전당", "HOT 게시판", "자유게시판")
+
+
 def record_tracked_board_view(cursor, member_id, visit_id, board_key, board_id):
-    """Record an eligible visit and both counters atomically."""
+    """방문 1건을 기록하고 일일 방문 수를 함께 올린다(같은 visit_id는 한 번만).
+
+    회원별 게시판 방문 횟수는 member_board_visit_events의 board_id를 집계해 구한다(044).
+    """
     cursor.execute(
         """
         WITH target AS (
             SELECT board_id, board_name FROM boards WHERE board_id = %(board_id)s
         ), claimed AS (
-            INSERT INTO member_board_visit_events (member_id, visit_id)
-            SELECT %(member_id)s, %(visit_id)s
+            INSERT INTO member_board_visit_events (member_id, visit_id, board_id)
+            SELECT %(member_id)s, %(visit_id)s,
+                   (SELECT board_id FROM target WHERE board_name <> ALL(%(excluded)s))
             WHERE %(board_id)s::bigint IS NULL OR EXISTS (SELECT 1 FROM target)
             ON CONFLICT DO NOTHING
             RETURNING visit_id
-        ), personal AS (
-            INSERT INTO member_board_visits (member_id, board_id, visit_count)
-            SELECT %(member_id)s, board_id, 1 FROM target CROSS JOIN claimed
-            WHERE board_name NOT IN ('공지사항', '명예의 전당', 'HOT 게시판', '자유게시판')
-            ON CONFLICT (member_id, board_id) DO UPDATE
-            SET visit_count = member_board_visits.visit_count + 1
         ), daily AS (
         INSERT INTO board_daily_visits (board_key, visit_date, visit_count)
         SELECT %(board_key)s, (NOW() AT TIME ZONE 'Asia/Seoul')::date, 1 FROM claimed
@@ -253,6 +255,9 @@ def record_tracked_board_view(cursor, member_id, visit_id, board_key, board_id):
         SELECT (%(board_id)s::bigint IS NULL OR EXISTS (SELECT 1 FROM target)) AS board_found,
                EXISTS (SELECT 1 FROM daily) AS recorded
         """,
-        dict(member_id=member_id, visit_id=str(visit_id), board_key=board_key, board_id=board_id),
+        dict(
+            member_id=member_id, visit_id=str(visit_id), board_key=board_key, board_id=board_id,
+            excluded=list(PERSONAL_SORT_EXCLUDED_BOARDS),
+        ),
     )
     return cursor.fetchone()

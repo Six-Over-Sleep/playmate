@@ -148,7 +148,7 @@ uv run --with pytest pytest backend/tests/test_auth_flow.py -q
 ## 9. 베타 배포 체크
 
 - [ ] `APP_ENV=production`, HTTPS, 정확한 `FRONTEND_ORIGINS`·`FRONTEND_URL`
-- [ ] `020_member_withdrawal.sql`, `021_recruit_skills.sql`, `023`→`024`→`025`→`027` 등 필요한 마이그레이션 적용
+- [ ] `020_member_withdrawal.sql`, `021_recruit_skills.sql`, `023`→`024`→`025`→`027`, 037~043, `044_board_table_cleanup.sql`, `045_post_reactions.sql` 등 필요한 마이그레이션 적용
   - 번호가 같은 파일이 있다: `012_member_dm_default_on`·`012_recruit_programs`, `013_career_discord_announcements`·`013_member_activity`,
     develop의 `020_member_withdrawal`·`020_saramin_job_postings`. 같은 번호끼리는 서로 의존하지 않으므로
     `database/sql`을 파일 이름순으로 실행하면 된다. 이미 적용한 DB가 있어 파일 이름은 바꾸지 않는다.

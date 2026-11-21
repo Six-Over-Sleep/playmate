@@ -54,7 +54,9 @@ def test_admin_report_details_and_hidden_visible(monkeypatch):
     assert result[1]['post_status'] == 'HIDDEN'
     assert result[1]['reports'][0]['reason'] == 'PRIVACY'
     assert cursor.params[1] == ([10, 11],)
-    assert "FROM post_reports AS r" in cursor.sql[0]
+    # 045: 신고는 post_reactions의 REPORT 행을 기존 컬럼 이름으로 꺼낸 하위 쿼리로 읽는다.
+    assert "FROM post_reactions" in cursor.sql[0] and "reaction_type = 'REPORT'" in cursor.sql[0]
+    assert "reaction_id AS report_id" in cursor.sql[0] and ") AS r" in cursor.sql[0]
     assert "p.deleted_at IS NULL" in cursor.sql[0]
 
 

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from psycopg2.errors import UndefinedTable
+from psycopg2.errors import UndefinedColumn, UndefinedTable
 
 from app.core import uploads
 
@@ -56,12 +56,12 @@ def images_by_post(cursor, post_ids: list[int]) -> dict[int, list[dict[str, Any]
         """
         SELECT
             post_id,
-            image_id AS id,
-            stored_name,
-            original_name
-        FROM post_images
-        WHERE post_id = ANY(%s)
-        ORDER BY post_id, display_order, image_id
+            attachment_id AS id,
+            stored_path AS stored_name,
+            original_filename AS original_name
+        FROM post_attachments
+        WHERE attachment_scope = 'BOARD' AND post_id = ANY(%s)
+        ORDER BY post_id, display_order, attachment_id
         """,
         (post_ids,),
     )
@@ -99,9 +99,12 @@ def _board_post_guard(alias: str = "p") -> str:
 def list_boards(cursor, member_id: int | None = None) -> list[dict[str, Any]]:
     """기본 게시판 우선·생성 시간·ID 순으로 게시판 응답 목록을 조회한다."""
     def query(personalized):
+        # 회원별 방문 횟수는 방문 기록(member_board_visit_events.board_id)을 집계한다(044).
         join = (
-            "LEFT JOIN member_board_visits AS v "
-            "ON v.board_id = b.board_id AND v.member_id = %s"
+            "LEFT JOIN ("
+            "SELECT board_id, COUNT(*) AS visit_count FROM member_board_visit_events "
+            "WHERE member_id = %s AND board_id IS NOT NULL GROUP BY board_id"
+            ") AS v ON v.board_id = b.board_id"
             if personalized else ""
         )
         order = "COALESCE(v.visit_count, 0) DESC," if personalized else ""
@@ -120,9 +123,11 @@ def list_boards(cursor, member_id: int | None = None) -> list[dict[str, Any]]:
 
     try:
         return query(member_id is not None)
-    except UndefinedTable as exc:
+    except (UndefinedTable, UndefinedColumn) as exc:
         # The list uses an autocommit read cursor, so a failed SELECT can be retried.
-        if 'relation "member_board_visits"' not in exc.diag.message_primary:
+        # 024(테이블) 또는 044(board_id 컬럼) 미적용이면 기본 정렬로 응답한다.
+        message = exc.diag.message_primary
+        if 'relation "member_board_visit_events"' not in message and "board_id" not in message:
             raise
         return query(False)
 
@@ -225,18 +230,18 @@ def list_posts(
             (p.author_member_id = %s) AS is_owner,
             (
                 SELECT COUNT(*)
-                FROM post_likes AS l
-                WHERE l.post_id = p.post_id
+                FROM post_reactions AS l
+                WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id
             )::int AS like_count,
             (
                 SELECT COUNT(*)
-                FROM post_scraps AS s
-                WHERE s.post_id = p.post_id
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = p.post_id
             )::int AS scrap_count,
             EXISTS (
                 SELECT 1
-                FROM post_likes AS l
-                WHERE l.post_id = p.post_id
+                FROM post_reactions AS l
+                WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id
                       AND l.member_id = %s
             ) AS liked_by_me
         FROM posts AS p
@@ -301,6 +306,8 @@ def create_post(
     return post_id
 
 
+# 게시판 이미지는 취업 톡톡 첨부와 같은 post_attachments에 attachment_scope = 'BOARD'로 저장한다(037·044).
+# board_created_at은 BOARD 행 필수 컬럼(게시글 시각과 같은 세션 시간대의 TIMESTAMP)이다.
 def insert_post_images(cursor, post_id, images, start_order=0):
     """이미지 메타데이터를 표시 순서대로 저장한다(최대 3장, 장마다 1회 실행).
 
@@ -310,11 +317,12 @@ def insert_post_images(cursor, post_id, images, start_order=0):
     for order, image in enumerate(images or [], start_order):
         cursor.execute(
             """
-            INSERT INTO post_images (
-                post_id, stored_name, original_name,
-                content_type, file_size, display_order
+            INSERT INTO post_attachments (
+                attachment_scope, post_id, stored_path, original_filename,
+                attachment_type, content_type, file_size_bytes, display_order,
+                board_created_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s)
+            VALUES ('BOARD', %s, %s, %s, 'IMAGE', %s, %s, %s, LOCALTIMESTAMP)
             """,
             (
                 post_id, image["stored_name"], image["original_name"],
@@ -324,16 +332,20 @@ def insert_post_images(cursor, post_id, images, start_order=0):
 
 
 def post_image_ids(cursor, post_id):
-    cursor.execute("SELECT image_id FROM post_images WHERE post_id = %s", (post_id,))
+    cursor.execute(
+        "SELECT attachment_id AS image_id FROM post_attachments "
+        "WHERE attachment_scope = 'BOARD' AND post_id = %s",
+        (post_id,),
+    )
     return {row["image_id"] for row in cursor.fetchall()}
 
 
 def remove_post_images(cursor, post_id, keep_ids):
     cursor.execute(
         """
-        DELETE FROM post_images
-        WHERE post_id = %s AND NOT (image_id = ANY(%s))
-        RETURNING stored_name
+        DELETE FROM post_attachments
+        WHERE attachment_scope = 'BOARD' AND post_id = %s AND NOT (attachment_id = ANY(%s))
+        RETURNING stored_path AS stored_name
         """,
         (post_id, keep_ids),
     )
@@ -341,13 +353,17 @@ def remove_post_images(cursor, post_id, keep_ids):
     cursor.execute(
         """
         WITH ordered AS (
-            SELECT image_id, row_number() OVER (ORDER BY display_order, image_id) - 1 AS position
-            FROM post_images WHERE post_id = %s
+            SELECT attachment_id,
+                   row_number() OVER (ORDER BY display_order, attachment_id) - 1 AS position
+            FROM post_attachments
+            WHERE attachment_scope = 'BOARD' AND post_id = %s
         )
-        UPDATE post_images AS image
+        UPDATE post_attachments AS image
         SET display_order = ordered.position
         FROM ordered
-        WHERE image.image_id = ordered.image_id AND image.display_order <> ordered.position
+        WHERE image.attachment_scope = 'BOARD'
+          AND image.attachment_id = ordered.attachment_id
+          AND image.display_order <> ordered.position
         """,
         (post_id,),
     )
@@ -382,24 +398,24 @@ def get_post(
             (p.author_member_id = %s) AS is_owner,
             (
                 SELECT COUNT(*)
-                FROM post_likes AS l
-                WHERE l.post_id = p.post_id
+                FROM post_reactions AS l
+                WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id
             )::int AS like_count,
             (
                 SELECT COUNT(*)
-                FROM post_scraps AS s
-                WHERE s.post_id = p.post_id
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = p.post_id
             )::int AS scrap_count,
             EXISTS (
                 SELECT 1
-                FROM post_likes AS l
-                WHERE l.post_id = p.post_id
+                FROM post_reactions AS l
+                WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id
                       AND l.member_id = %s
             ) AS liked_by_me,
             EXISTS (
                 SELECT 1
-                FROM post_scraps AS s
-                WHERE s.post_id = p.post_id
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = p.post_id
                       AND s.member_id = %s
             ) AS scrapped_by_me
         FROM posts AS p
@@ -488,9 +504,9 @@ def post_exists(cursor, board_id: int, post_id: int) -> bool:
 def like_post(cursor, post_id: int, member_id: int) -> bool:
     cursor.execute(
         """
-        INSERT INTO post_likes (post_id, member_id)
-        VALUES (%s, %s)
-        ON CONFLICT (post_id, member_id) DO NOTHING
+        INSERT INTO post_reactions (post_id, member_id, reaction_type)
+        VALUES (%s, %s, 'LIKE')
+        ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING
         """,
         (post_id, member_id),
     )
@@ -504,8 +520,9 @@ def like_post(cursor, post_id: int, member_id: int) -> bool:
 def unlike_post(cursor, post_id: int, member_id: int) -> bool:
     cursor.execute(
         """
-        DELETE FROM post_likes
-        WHERE post_id = %s
+        DELETE FROM post_reactions
+        WHERE reaction_type = 'LIKE'
+          AND post_id = %s
           AND member_id = %s
         """,
         (post_id, member_id),
@@ -523,8 +540,8 @@ def get_post_like(cursor, post_id: int, member_id: int) -> dict[str, Any]:
             %s AS post_id,
             COUNT(*)::int AS like_count,
             COALESCE(BOOL_OR(l.member_id = %s), FALSE) AS liked_by_me
-        FROM post_likes AS l
-        WHERE l.post_id = %s
+        FROM post_reactions AS l
+        WHERE l.reaction_type = 'LIKE' AND l.post_id = %s
         """,
         (post_id, member_id, post_id),
     )
@@ -537,9 +554,9 @@ def scrap_post(cursor, post_id: int, member_id: int) -> None:
     """게시글 스크랩을 저장한다. 이미 스크랩한 글은 기본키 충돌을 무시한다."""
     cursor.execute(
         """
-        INSERT INTO post_scraps (post_id, member_id)
-        VALUES (%s, %s)
-        ON CONFLICT (post_id, member_id) DO NOTHING
+        INSERT INTO post_reactions (post_id, member_id, reaction_type)
+        VALUES (%s, %s, 'SCRAP')
+        ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING
         """,
         (post_id, member_id),
     )
@@ -550,8 +567,9 @@ def unscrap_post(cursor, post_id: int, member_id: int) -> None:
     """회원의 게시글 스크랩을 삭제한다. 스크랩이 없으면 아무것도 변경하지 않는다."""
     cursor.execute(
         """
-        DELETE FROM post_scraps
-        WHERE post_id = %s
+        DELETE FROM post_reactions
+        WHERE reaction_type = 'SCRAP'
+            AND post_id = %s
             AND member_id = %s
         """,
         (post_id, member_id),
@@ -567,8 +585,8 @@ def get_post_scrap(cursor, post_id: int, member_id: int) -> dict[str, Any]:
             %s AS post_id,
             EXISTS (
                 SELECT 1
-                FROM post_scraps AS s
-                WHERE s.post_id = %s
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = %s
                       AND s.member_id = %s
             ) AS scrapped_by_me
         """,
@@ -894,7 +912,7 @@ def comment_exists(cursor, comment_id: int) -> bool:
     return cursor.fetchone() is not None
 
 
-# 명예의 전당·HOT: 실제 게시글을 복사하지 않고 post_likes 집계로 조회
+# 명예의 전당·HOT: 실제 게시글을 복사하지 않고 좋아요(post_reactions LIKE) 집계로 조회
 # 두 목록에 동시에 선정될 수 있으며 원래 board_id를 그대로 반환한다.
 def list_featured_posts(
     cursor,
@@ -938,7 +956,8 @@ def list_featured_posts(
                 COUNT(*) FILTER (
                     WHERE l.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
                 )::int AS recent_likes
-            FROM post_likes AS l
+            FROM post_reactions AS l
+            WHERE l.reaction_type = 'LIKE'
             GROUP BY l.post_id
         )
         SELECT
@@ -961,12 +980,12 @@ def list_featured_posts(
             likes.total_likes AS like_count,
             (
                 SELECT COUNT(*)
-                FROM post_scraps AS s
-                WHERE s.post_id = p.post_id
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = p.post_id
             )::int AS scrap_count,
             EXISTS (
-                SELECT 1 FROM post_likes AS my_likes
-                WHERE my_likes.post_id = p.post_id
+                SELECT 1 FROM post_reactions AS my_likes
+                WHERE my_likes.reaction_type = 'LIKE' AND my_likes.post_id = p.post_id
                   AND my_likes.member_id = %s
             ) AS liked_by_me
         FROM posts AS p

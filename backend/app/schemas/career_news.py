@@ -100,7 +100,7 @@ class CareerNewsMyScrapItem(BaseModel):
     category: str  # 대표 분야 이름 (분야가 없으면 빈 문자열)
     field_code: CareerNewsFieldCode | None
     published_at: str | None  # 한국 시간 기준 발행일 'YYYY-MM-DD'
-    # 스크랩 시각: 게시글 스크랩(post_scraps.created_at)과 같은 DB 기본값(CURRENT_TIMESTAMP)을 그대로 보낸다
+    # 스크랩 시각: 게시글 스크랩(post_reactions.created_at)과 같은 DB 기본값(CURRENT_TIMESTAMP)을 그대로 보낸다
     scrapped_at: datetime
     is_hidden: bool  # 운영자가 숨긴 뉴스 (브리핑 목록에는 없고, 스크랩 해제만 가능)
 

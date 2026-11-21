@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from psycopg2.errors import UndefinedTable
+from psycopg2.errors import UndefinedColumn, UndefinedTable
 
 from app.core.db_connect import db_cursor
 from app.repositories import activity_repository as repository
@@ -53,10 +53,12 @@ def visit_board(member_id: int, board_key: str, visit_id=None) -> dict:
                     raise HTTPException(status_code=404, detail="게시판을 찾을 수 없습니다.")
                 return {"recorded": result["recorded"]}
         except UndefinedTable as exc:
-            if not any(
-                f'relation "{table}"' in exc.diag.message_primary
-                for table in ("member_board_visits", "member_board_visit_events")
-            ):
+            # 024 미적용: 회원별 기록 없이 일일 방문만 기록한다.
+            if 'relation "member_board_visit_events"' not in exc.diag.message_primary:
+                raise
+        except UndefinedColumn as exc:
+            # 044 미적용(board_id 컬럼 없음): 일일 방문만 기록한다. 운영은 기동 검사가 막는다.
+            if "board_id" not in exc.diag.message_primary:
                 raise
 
     with db_cursor(commit=True) as cursor:

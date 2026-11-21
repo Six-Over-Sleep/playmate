@@ -12,6 +12,16 @@ router = APIRouter(prefix="/api", tags=["board-reports"])
 admin_router = APIRouter(prefix="/api/admin", tags=["board-reports-admin"])
 REPORT_THRESHOLD = 3
 
+# 045: 신고는 post_reactions(reaction_type = 'REPORT')에 저장한다.
+# 아래 조회문은 기존 post_reports와 같은 컬럼 이름으로 꺼낸 이 하위 쿼리를 쓴다
+# (PostgreSQL이 실행 계획에서 펼치므로 테이블을 직접 읽는 것과 비용이 같다).
+_REPORTS = """(
+    SELECT reaction_id AS report_id, post_id, member_id AS reporter_member_id,
+           reason, details, created_at
+    FROM post_reactions
+    WHERE reaction_type = 'REPORT'
+)"""
+
 
 class ReportCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -45,16 +55,19 @@ def submit_report(cursor, board_id: int, post_id: int, member_id: int, payload: 
 
     cursor.execute(
         """
-        INSERT INTO post_reports (post_id, reporter_member_id, reason, details)
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT (post_id, reporter_member_id) DO NOTHING
-        RETURNING report_id
+        INSERT INTO post_reactions (post_id, member_id, reaction_type, reason, details)
+        VALUES (%s, %s, 'REPORT', %s, %s)
+        ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING
+        RETURNING reaction_id AS report_id
         """,
         (post_id, member_id, payload.reason, payload.details or None),
     )
     if cursor.fetchone() is None:
         raise HTTPException(status_code=409, detail="이미 신고한 게시글입니다.")
-    cursor.execute("SELECT COUNT(*)::int AS count FROM post_reports WHERE post_id = %s", (post_id,))
+    cursor.execute(
+        "SELECT COUNT(*)::int AS count FROM post_reactions WHERE reaction_type = 'REPORT' AND post_id = %s",
+        (post_id,),
+    )
     count = cursor.fetchone()["count"]
     hidden = count >= REPORT_THRESHOLD
     if hidden:
@@ -91,7 +104,7 @@ def list_reported_posts(member_id: int = Depends(get_current_member_id)):
             SELECT p.post_id, p.board_id, p.title, p.post_status,
                    COUNT(r.report_id)::int AS report_count,
                    MAX(r.created_at)::timestamptz AS last_reported_at
-            FROM post_reports r
+            FROM """ + _REPORTS + """ AS r
             JOIN posts p ON p.post_id = r.post_id
             GROUP BY p.post_id, p.board_id, p.title, p.post_status
             ORDER BY last_reported_at DESC
@@ -125,7 +138,7 @@ def list_reported_posts_details(
                 p.created_at::timestamptz AS created_at,
                 COUNT(r.report_id)::int AS report_count,
                 MAX(r.created_at)::timestamptz AS last_reported_at
-            FROM post_reports AS r
+            FROM """ + _REPORTS + """ AS r
             JOIN posts AS p ON p.post_id = r.post_id
             JOIN boards AS b ON b.board_id = p.board_id
             LEFT JOIN members AS m ON m.member_id = p.author_member_id
@@ -145,7 +158,7 @@ def list_reported_posts_details(
             """
             SELECT r.post_id, r.report_id, r.reason, r.details, r.created_at::timestamptz AS created_at,
                    COALESCE(NULLIF(m.nickname, ''), '탈퇴 회원') AS reporter_name
-            FROM post_reports AS r
+            FROM """ + _REPORTS + """ AS r
             LEFT JOIN members AS m ON m.member_id = r.reporter_member_id
             WHERE r.post_id = ANY(%s)
             ORDER BY r.created_at DESC, r.report_id DESC
@@ -163,7 +176,7 @@ def list_reported_posts_details(
 
 
 _REPORTS_FILTER_SQL = """
-FROM post_reports AS r
+FROM """ + _REPORTS + """ AS r
 JOIN posts AS p ON p.post_id = r.post_id
 JOIN boards AS b ON b.board_id = p.board_id
 LEFT JOIN members AS m ON m.member_id = p.author_member_id
@@ -238,7 +251,7 @@ def _reports_paged(page: int, search: str, state: str) -> dict:
                        r.created_at::timestamptz AS created_at,
                        COALESCE(NULLIF(m.nickname, ''), 'Withdrawn member')
                            AS reporter_name
-                FROM post_reports AS r
+                FROM """ + _REPORTS + """ AS r
                 LEFT JOIN members AS m
                     ON m.member_id = r.reporter_member_id
                 WHERE r.post_id = ANY(%s)

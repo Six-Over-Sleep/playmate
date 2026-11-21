@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from psycopg.errors import UndefinedTable as PsycopgUndefinedTable
 from psycopg2.errors import UndefinedTable as Psycopg2UndefinedTable
 
-from backend.app.core.database import get_db_connection
+from backend.app.core.database import pooled_db_connection as get_db_connection
 
 # 레벨 기준은 level_policies 테이블에서 읽는다 (database/sql/025_level_policies.sql)
 LEVEL_POLICY_UNAVAILABLE = "레벨 정책을 사용할 수 없습니다."
@@ -625,8 +625,8 @@ def grant_post_like_xp(cursor, post_id: int, liker_member_id: int) -> dict:
     # 실제로 좋아요가 등록되어 있는지 확인한다.
     cursor.execute(
         """
-        SELECT 1 FROM post_likes
-        WHERE post_id = %s AND member_id = %s
+        SELECT 1 FROM post_reactions
+        WHERE reaction_type = 'LIKE' AND post_id = %s AND member_id = %s
         """,
         (post_id, liker_member_id),
     )

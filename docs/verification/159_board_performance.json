@@ -1,0 +1,665 @@
+{
+  "environment": {
+    "database": "disposable PostgreSQL 16, local TCP",
+    "dataset": {
+      "boards": 10,
+      "posts": 50000,
+      "comments": 200000,
+      "reactions": 480000,
+      "visits": 300000
+    },
+    "authentication": "signed synthetic local session; no Discord/Aiven writes"
+  },
+  "http": {
+    "legacy": {
+      "median_ms": 420.422,
+      "response_bytes": 7685991,
+      "rows": 5007
+    },
+    "page": {
+      "median_ms": 20.574,
+      "response_bytes": 25128,
+      "rows": 31
+    },
+    "notice_legacy": {
+      "median_ms": 368.961,
+      "response_bytes": 7682879,
+      "rows": 5000
+    },
+    "notice_preview": {
+      "median_ms": 8.417,
+      "response_bytes": 1845,
+      "rows": 2
+    }
+  },
+  "repository": {
+    "list_before": {
+      "median_ms": 605.8,
+      "sql": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "rows": 5000,
+      "bytes": 7773086
+    },
+    "comments_before": {
+      "median_ms": 2.77,
+      "sql": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "rows": 4,
+      "bytes": 1614
+    },
+    "list_after_legacy": {
+      "median_ms": 572.03,
+      "sql": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "rows": 5000,
+      "bytes": 7773086
+    },
+    "list_after_page": {
+      "median_ms": 24.52,
+      "sql": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "rows": 31,
+      "bytes": 29267
+    },
+    "comments_after": {
+      "median_ms": 3.76,
+      "sql": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "rows": 4,
+      "bytes": 1614
+    },
+    "hot_before": {
+      "median_ms": 174.46,
+      "sql": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "rows": 100,
+      "bytes": 155127
+    },
+    "hot_after": {
+      "median_ms": 169.31,
+      "sql": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "rows": 3,
+      "bytes": 4641
+    },
+    "hall-of-fame_before": {
+      "median_ms": 79.35,
+      "sql": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "rows": 100,
+      "bytes": 155127
+    },
+    "hall-of-fame_after": {
+      "median_ms": 64.88,
+      "sql": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "rows": 3,
+      "bytes": 4641
+    },
+    "api_page": {
+      "status": 200,
+      "rows": 31,
+      "sql": 4,
+      "bytes": 28710
+    },
+    "api_oldest": {
+      "status": 200,
+      "rows": 30,
+      "sql": 4,
+      "bytes": 46122
+    },
+    "api_search": {
+      "status": 200,
+      "rows": 30,
+      "sql": 4,
+      "bytes": 46249
+    },
+    "api_hot": {
+      "status": 200,
+      "rows": 3,
+      "sql": 5,
+      "bytes": 4588
+    }
+  },
+  "comment_explain": {
+    "before": {
+      "median_ms": 336.302,
+      "nodes": [
+        "Index Scan",
+        "Materialize",
+        "Nested Loop",
+        "Seq Scan",
+        "Sort"
+      ],
+      "indexes": [
+        "comments_pkey",
+        "idx_comments_parent_comment_id"
+      ]
+    },
+    "after": {
+      "median_ms": 0.167,
+      "nodes": [
+        "Hash",
+        "Hash Join",
+        "Index Scan",
+        "Memoize",
+        "Nested Loop",
+        "Seq Scan",
+        "Sort"
+      ],
+      "indexes": [
+        "comments_pkey",
+        "idx_comments_parent_comment_id",
+        "idx_comments_post_id",
+        "members_pkey"
+      ]
+    }
+  },
+  "search_explain": {
+    "before": {
+      "median_ms": 79.448,
+      "nodes": [
+        "Bitmap Heap Scan",
+        "Bitmap Index Scan",
+        "Limit",
+        "Sort"
+      ],
+      "indexes": [
+        "idx_posts_board_active_latest"
+      ]
+    },
+    "after": {
+      "median_ms": 0.851,
+      "nodes": [
+        "Bitmap Heap Scan",
+        "Bitmap Index Scan",
+        "BitmapOr",
+        "Limit",
+        "Sort"
+      ],
+      "indexes": [
+        "quality_body_trgm",
+        "quality_title_trgm"
+      ]
+    }
+  },
+  "storage_lock": {
+    "before": {
+      "competing_lock_ms": 504.359,
+      "images": 1,
+      "delay_ms": 500
+    },
+    "after": {
+      "competing_lock_ms": 22.741,
+      "images": 1,
+      "delay_ms": 500
+    }
+  },
+  "connections": {
+    "post_before": {
+      "connect2": 1,
+      "connect3": 1,
+      "board_checkouts": 1,
+      "xp_checkouts": 0,
+      "ms": 176.22,
+      "sql_count": 15
+    },
+    "post_after_cold": {
+      "connect2": 0,
+      "connect3": 1,
+      "board_checkouts": 1,
+      "xp_checkouts": 1,
+      "ms": 123.23,
+      "sql_count": 19
+    },
+    "post_after_warm": {
+      "connect2": 0,
+      "connect3": 0,
+      "board_checkouts": 1,
+      "xp_checkouts": 1,
+      "ms": 50.13,
+      "sql_count": 15
+    },
+    "edit_json_before": {
+      "connect2": 0,
+      "connect3": 0,
+      "board_checkouts": 1,
+      "xp_checkouts": 0,
+      "ms": 18.96,
+      "sql_count": 5
+    },
+    "edit_json_after": {
+      "connect2": 0,
+      "connect3": 0,
+      "board_checkouts": 1,
+      "xp_checkouts": 0,
+      "ms": 22.6,
+      "sql_count": 4
+    },
+    "comment_after_warm": {
+      "connect2": 0,
+      "connect3": 0,
+      "board_checkouts": 2,
+      "xp_checkouts": 1,
+      "ms": 66.83,
+      "sql_count": 16
+    },
+    "visit": {
+      "connect2": 0,
+      "connect3": 0,
+      "board_checkouts": 2,
+      "xp_checkouts": 0,
+      "status": 200,
+      "sql_count": 2
+    },
+    "like": {
+      "connect2": 0,
+      "connect3": 0,
+      "board_checkouts": 2,
+      "xp_checkouts": 0,
+      "status": 200,
+      "sql_count": 6
+    }
+  },
+  "browser": {
+    "initial": [
+      {
+        "url": "/api/boards",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/1/posts?sort=latest&q=&limit=31&offset=0&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/featured/hot/posts?q=&limit=3",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/featured/hall-of-fame/posts?q=&limit=3",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/2/posts?sort=latest&q=&limit=2&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/activity/board-view",
+        "method": "POST",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "nextPage": [
+      {
+        "url": "/api/boards/1/posts?sort=latest&q=&limit=31&offset=30&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "oldest": [
+      {
+        "url": "/api/boards/1/posts?sort=oldest&q=&limit=31&offset=0&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "detail": [
+      {
+        "url": "/api/boards/1/posts/50000",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/1/posts/50000/comments",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "backToList": []
+  },
+  "browser_initial_dom": {
+    "cards": 30,
+    "elements": 741
+  },
+  "browser_mutations": {
+    "search": [
+      {
+        "url": "/api/boards/1/posts?sort=latest&q=%ED%9D%AC%EA%B7%80%EA%B2%80%EC%83%89%EC%96%B4&limit=31&offset=0&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "searchTitles": [
+      "게시글 1000",
+      "게시글 2000",
+      "게시글 3000",
+      "게시글 4000",
+      "게시글 5000",
+      "게시글 6000",
+      "게시글 7000",
+      "게시글 8000",
+      "게시글 9000",
+      "게시글 10000",
+      "게시글 11000",
+      "게시글 12000",
+      "게시글 13000",
+      "게시글 14000",
+      "게시글 15000",
+      "게시글 16000",
+      "게시글 17000",
+      "게시글 18000",
+      "게시글 19000",
+      "게시글 20000",
+      "게시글 21000",
+      "게시글 22000",
+      "게시글 23000",
+      "게시글 24000",
+      "게시글 25000",
+      "게시글 26000",
+      "게시글 27000",
+      "게시글 28000",
+      "게시글 29000",
+      "게시글 30000"
+    ],
+    "like": [
+      {
+        "url": "/api/boards/1/posts/1000/like",
+        "method": "PUT",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "scrap": [
+      {
+        "url": "/api/boards/1/posts/1000/scrap",
+        "method": "PUT",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "comment": [
+      {
+        "url": "/api/boards/1/posts/1000/comments",
+        "method": "POST",
+        "status": 201,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "backAfterMutations": [
+      {
+        "url": "/api/boards/featured/hot/posts?q=&limit=3",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/featured/hall-of-fame/posts?q=&limit=3",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/2/posts?sort=latest&q=&limit=2&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "directBoard3": [
+      {
+        "url": "/api/boards",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/3/posts?sort=latest&q=&limit=31&offset=0&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/2/posts?sort=latest&q=&limit=2&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/activity/board-view",
+        "method": "POST",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "returnBoard1": [
+      {
+        "url": "/api/boards/1/posts?sort=latest&q=&limit=31&offset=0&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/featured/hot/posts?q=&limit=3",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/featured/hall-of-fame/posts?q=&limit=3",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/activity/board-view",
+        "method": "POST",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "createdStatus": 201,
+    "cancelImageEdit": [],
+    "doubleSaveImageEdit": [
+      {
+        "url": "/api/boards/1/posts/50581/images",
+        "method": "PATCH",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "imageRefresh": [
+      {
+        "url": "/api/boards",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/1/posts/50581",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/1/posts/50581/comments",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/activity/board-view",
+        "method": "POST",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ],
+    "images": [
+      {
+        "url": "/uploads/posts/30d6ba4791524b75b3cb5a5720b70868.png",
+        "complete": true,
+        "width": 1
+      },
+      {
+        "url": "/uploads/posts/fd78d3c2cc844859a17eff63872ec7e9.png",
+        "complete": true,
+        "width": 1
+      }
+    ],
+    "deleteAndRefill": [
+      {
+        "url": "/api/boards/1/posts/50581",
+        "method": "DELETE",
+        "status": 204,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/1/posts?sort=latest&q=&limit=31&offset=0&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/featured/hot/posts?q=&limit=3",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/featured/hall-of-fame/posts?q=&limit=3",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      },
+      {
+        "url": "/api/boards/2/posts?sort=latest&q=&limit=2&summary=true",
+        "method": "GET",
+        "status": 200,
+        "done": true,
+        "canceled": false
+      }
+    ]
+  },
+  "visit_db_snapshot": {
+    "before": {
+      "board": 3,
+      "member": 1,
+      "events": 37503
+    },
+    "after": {
+      "board": 3,
+      "member": 1,
+      "events": 37504
+    },
+    "note": "Snapshot from the preceding complete Chrome pass; later replays created further visits."
+  },
+  "tests": {
+    "backend_full": {
+      "passed": 939,
+      "failed": 0,
+      "skipped": 81
+    },
+    "frontend_node": {
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0
+    },
+    "frontend_build": "passed; existing chunk size warning",
+    "diff_check": "passed",
+    "known_separate_news_fixture_failures": 13
+  }
+}

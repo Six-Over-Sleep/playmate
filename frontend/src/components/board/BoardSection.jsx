@@ -71,6 +71,13 @@ export default function BoardSection({ resetVersion, memberCourse, memberCohort 
               busy={busy || !initialized}
               onSelectBoard={boardState.selectBoard}
               onCreateBoard={boardState.openModal}
+              page={boardState.page}
+              sort={boardState.sort}
+              hasNext={boardState.hasNext}
+              onPage={boardState.changePage}
+              onSort={boardState.changeSort}
+              loadPreview={boardState.loadPreview}
+              previewVersion={boardState.previewVersion}
               onSearch={boardState.searchPosts}
               onWrite={boardState.openEditor}
               onPost={boardState.openPost}

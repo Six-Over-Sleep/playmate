@@ -30,9 +30,11 @@ CREATE TABLE posts (post_id BIGINT PRIMARY KEY, author_member_id BIGINT REFERENC
                     deleted_at TIMESTAMP);
 CREATE TABLE comments (comment_id BIGINT PRIMARY KEY, post_id BIGINT REFERENCES posts,
                        author_member_id BIGINT REFERENCES members, deleted_at TIMESTAMP);
-CREATE TABLE post_likes (post_id BIGINT REFERENCES posts, member_id BIGINT REFERENCES members);
-CREATE TABLE post_scraps (post_id BIGINT REFERENCES posts, member_id BIGINT REFERENCES members,
-                          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (post_id, member_id));
+-- 045: 좋아요·스크랩은 post_reactions 한 테이블(reaction_type으로 구분)
+CREATE TABLE post_reactions (post_id BIGINT REFERENCES posts, member_id BIGINT REFERENCES members,
+                             reaction_type VARCHAR(10) NOT NULL,
+                             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                             PRIMARY KEY (post_id, reaction_type, member_id));
 CREATE TABLE recruits (recruit_id BIGINT PRIMARY KEY, post_id BIGINT REFERENCES posts);
 CREATE TABLE recruit_members (recruit_id BIGINT REFERENCES recruits, member_id BIGINT REFERENCES members,
                               status VARCHAR(20));
@@ -42,7 +44,7 @@ INSERT INTO member_levels VALUES (1, 50);
 INSERT INTO posts VALUES (10, 1, 'p10', NULL), (11, 1, 'p11', NULL), (12, 1, 'p12', NULL),
                          (13, 2, 'p13', NULL), (14, 2, 'deleted', now());
 INSERT INTO comments VALUES (1, 13, 1, NULL), (2, 13, 1, NULL), (3, 14, 1, NULL);
-INSERT INTO post_likes VALUES (10, 2);
+INSERT INTO post_reactions (post_id, member_id, reaction_type) VALUES (10, 2, 'LIKE');
 INSERT INTO recruits VALUES (1, 13);
 INSERT INTO recruit_members VALUES (1, 1, 'JOINED');
 """
@@ -121,7 +123,7 @@ def summary(client, member):
 
 def scrap_posts(schema, member, post_ids):
     for post_id in post_ids:
-        run(schema, "INSERT INTO post_scraps (post_id, member_id) VALUES (%s, %s)", (post_id, member))
+        run(schema, "INSERT INTO post_reactions (post_id, member_id, reaction_type) VALUES (%s, %s, 'SCRAP')", (post_id, member))
 
 
 def scrap_news(member, news_ids):

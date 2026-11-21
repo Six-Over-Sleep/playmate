@@ -29,11 +29,11 @@ def main() -> None:
             raise RuntimeError("검증용 게시글 제목이 아니므로 정리를 중단합니다.")
         cursor.execute("SELECT 1 FROM recruits WHERE post_id=%s", (post_id,))
         if cursor.fetchone(): raise RuntimeError("모임 참조가 있어 정리를 중단합니다.")
-        cursor.execute("SELECT stored_name FROM post_images WHERE post_id=%s", (post_id,))
+        cursor.execute("SELECT stored_path AS stored_name FROM post_attachments WHERE attachment_scope='BOARD' AND post_id=%s", (post_id,))
         stored_names = [row["stored_name"] for row in cursor.fetchall()]
         if comment_id is not None:
             cursor.execute("DELETE FROM comments WHERE comment_id=%s AND post_id=%s", (comment_id, post_id))
-        cursor.execute("DELETE FROM post_images WHERE post_id=%s", (post_id,))
+        cursor.execute("DELETE FROM post_attachments WHERE attachment_scope='BOARD' AND post_id=%s", (post_id,))
         cursor.execute("DELETE FROM posts WHERE post_id=%s AND board_id=%s", (post_id, board_id))
         cursor.execute("DELETE FROM boards WHERE board_id=%s", (board_id,))
     for stored_name in stored_names:

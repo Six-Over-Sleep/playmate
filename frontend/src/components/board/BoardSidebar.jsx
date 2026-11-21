@@ -1,3 +1,4 @@
+import { NOTICE_BOARD_NAME, FREE_BOARD_NAME } from '../../utils/boardPolicy'
 import { useState } from 'react'
 
 // 일반 게시판을 처음에 보여줄 개수
@@ -5,10 +6,10 @@ const DEFAULT_VISIBLE_COUNT = 5
 
 // 공지사항, 인기 게시판, 자유게시판은 항상 상단에 표시한다.
 const SPECIAL_BOARD_ORDER = {
-  '공지사항': 0,
+  [NOTICE_BOARD_NAME]: 0,
   '명예의 전당': 1,
   'HOT 게시판': 2,
-  '자유게시판': 3,
+  [FREE_BOARD_NAME]: 3,
 }
 
 // 화면에만 사용하는 이모지를 제외한 게시판 이름
@@ -22,10 +23,10 @@ function getOriginalName(board) {
 function getDisplayName(board) {
   const name = getOriginalName(board)
 
-  if (name === '공지사항') return '📢 공지사항'
+  if (name === NOTICE_BOARD_NAME) return '📢 공지사항'
   if (name === '명예의 전당') return '🏆 명예의 전당'
   if (name === 'HOT 게시판') return '🔥 HOT 게시판'
-  if (name === '자유게시판') return '💬 자유게시판'
+  if (name === FREE_BOARD_NAME) return '💬 자유게시판'
 
   return board.name
 }
@@ -121,16 +122,16 @@ export default function BoardSidebar({
     const isMine = isMyCourseBoard(board)
     const boardName = getOriginalName(board)
     const boardClass = ({
-      '자유게시판': 'free',
-      '공지사항': 'notice',
+      FREE_BOARD_NAME: 'free',
+      NOTICE_BOARD_NAME: 'notice',
       'HOT 게시판': 'hot',
       '명예의 전당': 'hall',
     })[boardName]
     const icon = isMine ? '🎓' : ({
-      '공지사항': '📢',
+      NOTICE_BOARD_NAME: '📢',
       '명예의 전당': '🏆',
       'HOT 게시판': '🔥',
-      '자유게시판': '💬',
+      FREE_BOARD_NAME: '💬',
     })[boardName]
 
     return (

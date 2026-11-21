@@ -1,5 +1,6 @@
 """업로드 검증과 부분 파일·DB 실패 정리를 임시 디렉터리에서 확인한다."""
 
+import json
 import asyncio
 import re
 from io import BytesIO
@@ -19,15 +20,22 @@ PNG = b"\x89PNG\r\n\x1a\nexample"
 def test_post_image_limits_match_frontend_and_schema():
     root = Path(__file__).resolve().parents[2]
     frontend = (root / "frontend/src/hooks/board/useBoardForms.js").read_text(encoding="utf-8")
-    limits = frontend.split("export const postImageLimits = {", 1)[1].split("}", 1)[0]
-    assert int(re.search(r"count:\s*(\d+)", limits)[1]) == uploads.MAX_POST_IMAGES
-    assert int(re.search(r"sizeMb:\s*(\d+)", limits)[1]) * 1024**2 == uploads.MAX_IMAGE_SIZE
-    assert set(re.findall(r"'(image/[^']+)'", limits)) == set(uploads.ALLOWED)
+    limits = json.loads((root / "shared/boardPolicy.json").read_text(encoding="utf-8"))["images"]
+    assert "utils/boardPolicy" in frontend
+    assert limits["count"] == uploads.MAX_POST_IMAGES
+    assert limits["sizeMb"] * 1024**2 == uploads.MAX_IMAGE_SIZE
+    assert set(limits["mimeTypes"]) == set(uploads.ALLOWED)
 
     sql = (root / "database/sql/001_board_mvp.sql").read_text(encoding="utf-8")
     schema = sql.split("CREATE TABLE IF NOT EXISTS post_images", 1)[1]
     assert int(re.search(r"file_size BETWEEN 1 AND (\d+)", schema)[1]) == uploads.MAX_IMAGE_SIZE
     assert int(re.search(r"display_order BETWEEN 0 AND (\d+)", schema)[1]) + 1 == uploads.MAX_POST_IMAGES
+
+    # 037 이후 실제 저장 위치는 post_attachments(BOARD 범위)이고 044에서 post_images 뷰를 제거했다.
+    attachments = (root / "database/sql/037_career_board_consolidation.sql").read_text(encoding="utf-8")
+    board = attachments.split("attachment_scope='BOARD'", 1)[1].split("OR (attachment_scope='CAREER_TALK'", 1)[0]
+    assert int(re.search(r"file_size_bytes BETWEEN 1 AND (\d+)", board)[1]) == uploads.MAX_IMAGE_SIZE
+    assert int(re.search(r"display_order BETWEEN 0 AND (\d+)", board)[1]) + 1 == uploads.MAX_POST_IMAGES
 
 
 @pytest.fixture

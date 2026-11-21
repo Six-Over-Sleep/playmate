@@ -119,8 +119,8 @@ def test_featured_repository_filters_before_limit():
     ) == []
     sql, params = cursor.queries[0]
     assert "AND p.board_id = ANY(%s)" in sql
-    assert sql.index("AND p.board_id = ANY(%s)") < sql.index("LIMIT 100")
-    assert params == [10, 10, [2]]
+    assert sql.index("AND p.board_id = ANY(%s)") < sql.index("LIMIT %s")
+    assert params == [10, 10, [2], 100]
 
 
 def test_featured_empty_allowed_ids_does_not_query():

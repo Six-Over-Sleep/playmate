@@ -57,7 +57,7 @@ def test_list_reuses_like_count_and_loads_no_career_or_other_waiters(service, pa
         )
     with statements(service) as captured:
         public = service.list(None)
-    assert sum("post_likes" in query for query in captured) == 1
+    assert sum("post_reactions" in query for query in captured) == 1  # 좋아요 집계(045)
     assert public[0]["participant_count"] == 2 and public[0]["waiting_count"] == 2
     base = legacy.get_recruits(service.repository.session)
     program, _, _, counts = service.repository.list_programs(base, 3)[0]

@@ -3,6 +3,7 @@
 // PLAYMATE_BOARD_ANONYMOUS_V1
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { boardApi } from '../../services/boardApi'
+import policy, { BOARD_PAGE_SIZE, NOTICE_BOARD_NAME, FREE_BOARD_NAME } from '../../utils/boardPolicy'
 import { markReplyTargetDeleted } from '../../utils/commentReply'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -30,17 +31,17 @@ const FEATURED_BOARDS = [
 function orderedBoards(items) {
   const normal = items.filter((item) => !['명예의 전당', 'HOT 게시판'].includes(item.name))
   return [
-    ...normal.filter((item) => item.name === '공지사항'),
+    ...normal.filter((item) => item.name === NOTICE_BOARD_NAME),
     ...FEATURED_BOARDS,
-    ...normal.filter((item) => item.name !== '공지사항'),
+    ...normal.filter((item) => item.name !== NOTICE_BOARD_NAME),
   ]
 }
 
 // /board 진입 시 공지사항이 아니라 자유게시판을 메인으로 표시합니다.
 // 명시적으로 /board/:id를 방문한 경우에는 해당 게시판을 우선합니다.
 function findDefaultBoard(items) {
-  return items.find((item) => String(item.name || '').replace(/^[📢🏆🔥]\s*/u, '').trim() === '자유게시판')
-    || items.find((item) => !item.featured && item.name !== '공지사항')
+  return items.find((item) => String(item.name || '').replace(/^[📢🏆🔥]\s*/u, '').trim() === FREE_BOARD_NAME)
+    || items.find((item) => !item.featured && item.name !== NOTICE_BOARD_NAME)
     || items[0]
     || null
 }
@@ -98,6 +99,26 @@ export function useBoard(resetVersion) {
   const [comments, setComments] = useState([])
   const [view, setView] = useState('list')
   const [query, setQuery] = useState('')
+  const [page, setPage] = useState(0)
+  const [sort, setSort] = useState('latest')
+  const [hasNext, setHasNext] = useState(false)
+  const paging = useRef({ page: 0, sort: 'latest' })
+  // Session-owned cache survives list/detail remounts, never another user's hook.
+  const previews = useRef(new Map())
+  const [previewVersion, setPreviewVersion] = useState(0)
+  const loadPreview = useCallback((kind, noticeId) => {
+    const key = `${kind}:${noticeId ?? ''}`
+    if (!previews.current.has(key)) {
+      const request = kind === 'notice'
+        ? boardApi.posts(noticeId, '', { limit: policy.noticePreviewCount, summary: true })
+        : boardApi.featuredPosts(kind, '', { limit: policy.rankedPreviewCount })
+      previews.current.set(key, request)
+      request.catch(() => {
+        if (previews.current.get(key) === request) previews.current.delete(key)
+      })
+    }
+    return previews.current.get(key)
+  }, [])
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -146,7 +167,12 @@ export function useBoard(resetVersion) {
       setBoards(allBoards)
       setBoard(firstBoard)
       setInitialized(true)
-      if (firstBoard) loadPosts(firstBoard)
+      if (firstBoard && route?.postId) {
+        // Direct detail entry needs neither a hidden list nor its previews.
+        dirty.current = true
+        setLoading(false)
+        setDetailLoading(true)
+      } else if (firstBoard) loadPosts(firstBoard)
       else setLoading(false)
     }).catch((cause) => {
       if (active) {
@@ -160,24 +186,34 @@ export function useBoard(resetVersion) {
   }, [])
 
   /** 새 검색은 이전 조회를 취소하고 응답·오류·로딩 모두 최신 요청만 반영한다. */
-  const loadPosts = useCallback(async function loadPostList(target, search = '') {
+  const loadPosts = useCallback(async function loadPostList(target, search = '', pageIndex = 0, order = 'latest') {
     if (!target) return
     const pending = listRequest.current
     // 같은 목록을 기다리는 동안 메뉴·검색을 반복해도 요청을 추가하지 않는다.
-    if (pending.pending && pending.boardId === target.id && pending.query === search) return
+    if (pending.pending && pending.boardId === target.id && pending.query === search && pending.page === pageIndex && pending.sort === order) return
     listRequest.current.controller?.abort()
     const controller = new AbortController()
     const id = listRequest.current.id + 1
-    listRequest.current = { id, controller, boardId: target.id, query: search, pending: true }
+    listRequest.current = { id, controller, boardId: target.id, query: search, page: pageIndex, sort: order, pending: true }
     setLoading(true)
+    paging.current = { page: pageIndex, sort: order }
+    setPage(pageIndex)
+    setSort(order)
     setError('')
     try {
-      const items = target.featured
+      const received = target.featured
         ? await boardApi.featuredPosts(target.id, search, { signal: controller.signal })
-        : await boardApi.posts(target.id, search, { signal: controller.signal })
+        : await boardApi.posts(target.id, search, { signal: controller.signal, limit: BOARD_PAGE_SIZE + 1, offset: pageIndex * BOARD_PAGE_SIZE, sort: order, summary: true })
       if (!mounted.current || id !== listRequest.current.id) return
+      if (!target.featured && !received.length && pageIndex > 0) {
+        listRequest.current.pending = false
+        return loadPostList(target, search, pageIndex - 1, order)
+      }
+      const more = !target.featured && received.length > BOARD_PAGE_SIZE
+      const items = target.featured ? received : received.slice(0, BOARD_PAGE_SIZE)
+      setHasNext(more)
       setPosts(items)
-      currentList.current = { boardId: target.id, query: search, items }
+      currentList.current = { boardId: target.id, query: search, items, page: pageIndex, sort: order, hasNext: more }
       dirty.current = false
     } catch (cause) {
       if (mounted.current && id === listRequest.current.id && cause.name !== 'AbortError') {
@@ -215,7 +251,7 @@ export function useBoard(resetVersion) {
     setView('list')
 
     if (dirty.current || posts === null) {
-      loadPosts(board, query)
+      loadPosts(board, query, paging.current.page, paging.current.sort)
     }
 
     if (updateUrl && board) {
@@ -267,10 +303,15 @@ export function useBoard(resetVersion) {
     if (
       cached?.boardId === target.id &&
       cached.query === '' &&
+      cached.page === 0 && cached.sort === 'latest' &&
       !dirty.current
     ) {
       cancelList()
       setPosts(cached.items)
+      setPage(cached.page ?? 0)
+      setSort(cached.sort ?? 'latest')
+      setHasNext(cached.hasNext ?? false)
+      paging.current = { page: cached.page ?? 0, sort: cached.sort ?? 'latest' }
       setLoading(false)
       return
     }
@@ -288,13 +329,17 @@ export function useBoard(resetVersion) {
     const search = value.trim()
     const cached = currentList.current
     setQuery(search)
-    if (cached?.boardId === board?.id && cached.query === search && !dirty.current) {
+    if (cached?.boardId === board?.id && cached.query === search && cached.page === 0 && cached.sort === paging.current.sort && !dirty.current) {
       cancelList()
       setPosts(cached.items)
+      setPage(cached.page ?? 0)
+      setSort(cached.sort ?? 'latest')
+      setHasNext(cached.hasNext ?? false)
+      paging.current = { page: cached.page ?? 0, sort: cached.sort ?? 'latest' }
       setLoading(false)
       return
     }
-    loadPosts(board, search)
+    loadPosts(board, search, 0, paging.current.sort)
   }
 
   /** 상세와 댓글은 병렬 조회하되 선택이 바뀌면 이전 결과를 폐기한다. */
@@ -462,7 +507,11 @@ export function useBoard(resetVersion) {
     setError('')
     try {
       const result = await task()
-      if (mounted.current) applyResult(result)
+      if (mounted.current) {
+        previews.current.clear()
+        setPreviewVersion((value) => value + 1)
+        applyResult(result)
+      }
       return result ?? true
     } catch (cause) {
       if (mounted.current) setError(cause.message)
@@ -484,6 +533,10 @@ export function useBoard(resetVersion) {
       setBoard(created)
       setQuery('')
       setPosts([])
+      setPage(0)
+      setSort('latest')
+      setHasNext(false)
+      paging.current = { page: 0, sort: 'latest' }
       setPost(null)
       setComments([])
       setView('list')
@@ -492,7 +545,7 @@ export function useBoard(resetVersion) {
       handledPath.current = path
       navigate(path)
       setModal(false)
-      currentList.current = { boardId: created.id, query: '', items: [] }
+      currentList.current = { boardId: created.id, query: '', items: [], page: 0, sort: 'latest', hasNext: false }
       dirty.current = false
       notify('게시판을 만들었습니다.')
     })
@@ -542,7 +595,7 @@ export function useBoard(resetVersion) {
       setComments([])
       setView('list')
       // 이전 작성·수정으로 검색 결과가 달라졌을 때만 목록을 새로 가져온다.
-      if (dirty.current || posts === null) loadPosts(board, query)
+      loadPosts(board, query, paging.current.page, paging.current.sort)
     })
   }
 
@@ -586,7 +639,7 @@ export function useBoard(resetVersion) {
           const path = `/board/${board.id}`
           handledPath.current = path
           navigate(path)
-          loadPosts(board, query)
+          loadPosts(board, query, paging.current.page, paging.current.sort)
           notify('신고 누적으로 게시글이 자동 비노출 처리되었습니다.')
         } else {
           notify('신고가 접수되었습니다.')
@@ -723,6 +776,9 @@ export function useBoard(resetVersion) {
   return {
     boards, board, posts, post, comments, view, query, loading, detailLoading,
     busy, modal, error, success, initialized,
+    page, sort, hasNext, previewVersion, loadPreview,
+    changePage: (next) => { if (!mutationLock.current && next >= 0) loadPosts(board, query, next, paging.current.sort) },
+    changeSort: (order) => { if (!mutationLock.current) loadPosts(board, query, 0, order) },
     selectBoard, searchPosts, openPost, backToList, createBoard, savePost,
     deletePost, addComment, editComment, deleteComment, openEditor,
     editPost, cancelEditor, openModal, closeModal, toggleLike, toggleScrap, reportPost,

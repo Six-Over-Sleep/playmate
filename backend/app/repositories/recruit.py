@@ -22,10 +22,8 @@ from backend.app.models.post import Post
 from backend.app.models.comment import Comment
 from backend.app.models.post_like import PostLike
 from backend.app.models.post_scrap import PostScrap
-from backend.app.models.recruit import (
-    Recruit, RecruitMember, RecruitSportsDetail, RecruitGameDetail,
-    RecruitStudyDetail, RecruitGroupBuyDetail,
-)
+from backend.app.models.post_reaction import LIKE, SCRAP
+from backend.app.models.recruit import Recruit, RecruitMember
 from backend.app.models.recruit_program import ApplicationRecord
 
 
@@ -56,8 +54,8 @@ def legacy_detail_snapshot(
 ):
     """기존 모임 상세를 한 번의 SELECT로 조회한다.
 
-    게시글·카테고리별 상세·내 참여 기록·좋아요/스크랩·타인 신청 이력을
-    스칼라 서브쿼리와 1:1 조인으로 함께 읽어 외부 DB 왕복을 줄인다.
+    게시글·내 참여 기록·좋아요/스크랩·타인 신청 이력을
+    스칼라 서브쿼리로 읽는다. 카테고리별 4개 JOIN은 042 통합으로 제거된다.
     모집 종류 변경 이력은 상태가 취소된 행도 포함해야 한다.
     """
     current_member = aliased(RecruitMember)
@@ -110,8 +108,6 @@ def legacy_detail_snapshot(
     query = (
         db.query(
             Post, Recruit,
-            RecruitSportsDetail, RecruitGameDetail,
-            RecruitStudyDetail, RecruitGroupBuyDetail,
             like_count.label("like_count"),
             liked_by_me.label("liked_by_me"),
             scrapped_by_me.label("scrapped_by_me"),
@@ -120,10 +116,6 @@ def legacy_detail_snapshot(
             history.label("has_other_applicants"),
         )
         .join(Recruit, Post.post_id == Recruit.post_id)
-        .outerjoin(RecruitSportsDetail, RecruitSportsDetail.recruit_id == Recruit.recruit_id)
-        .outerjoin(RecruitGameDetail, RecruitGameDetail.recruit_id == Recruit.recruit_id)
-        .outerjoin(RecruitStudyDetail, RecruitStudyDetail.recruit_id == Recruit.recruit_id)
-        .outerjoin(RecruitGroupBuyDetail, RecruitGroupBuyDetail.recruit_id == Recruit.recruit_id)
         .filter(
             Recruit.recruit_id == recruit_id,
             or_(Post.post_status != "DELETED", Post.post_status.is_(None)),
@@ -247,12 +239,7 @@ def get_post(db: Session, post_id: int):
 
 
 def get_category_detail(db: Session, detail_model: type, recruit_id: int):
-    """선택한 카테고리 모델에서 모임 상세 정보를 조회함.
-
-    detail_model은 운동·게임·스터디·공동구매 상세 모델 중 하나임.
-    어떤 모델을 사용할지 결정하고 검증하는 것은 Service의 역할임.
-    """
-    # 상세 테이블은 recruit_id를 기본키로 사용하므로 db.get()으로 조회 가능함
+    """레거시 호환 API. 신규 경로는 recruits.details를 직접 사용한다."""
     return db.get(detail_model, recruit_id)
 
 
@@ -355,8 +342,9 @@ def add_post_like(db: Session, post_id: int, member_id: int) -> None:
     """
     db.execute(
         insert(PostLike)
-        .values(post_id=post_id, member_id=member_id)
-        .on_conflict_do_nothing(index_elements=["post_id", "member_id"])
+        # 045: post_reactions에 저장한다. INSERT에는 종류 값이 자동으로 붙지 않아 직접 넣는다.
+        .values(post_id=post_id, member_id=member_id, reaction_type=LIKE)
+        .on_conflict_do_nothing(index_elements=["post_id", "reaction_type", "member_id"])
     )
 
 
@@ -389,8 +377,8 @@ def add_post_scrap(db: Session, post_id: int, member_id: int) -> None:
     """스크랩을 등록함. 좋아요와 같이 중복 요청은 무시함."""
     db.execute(
         insert(PostScrap)
-        .values(post_id=post_id, member_id=member_id)
-        .on_conflict_do_nothing(index_elements=["post_id", "member_id"])
+        .values(post_id=post_id, member_id=member_id, reaction_type=SCRAP)
+        .on_conflict_do_nothing(index_elements=["post_id", "reaction_type", "member_id"])
     )
 
 

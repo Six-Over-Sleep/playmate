@@ -5,7 +5,7 @@
 - 앱 기동: PLAYMATE_SCHEMA_CHECK=strict이면 누락 시 기동 실패(운영 기본값)
 - 기동 결과: GET /health/schema (상세 내용은 서버 로그와 위 스크립트로 확인)
 
-검사 순서: 기본 스키마(000·001) → 023 → 024 → 025 → 027.
+검사 순서: 기본 스키마(000·001) → 023 → 024 → 025 → 027 → 037 → 044 → 045.
 정책 값은 읽기만 한다. 누락을 고정 기본값으로 채우지 않는다.
 """
 
@@ -18,8 +18,10 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 # 000·001이 만드는 기본 테이블 (게시판·회원·XP 이력)
+# 게시판 이미지(post_images)는 037에서 post_attachments로 옮겨졌고 044에서 호환 뷰를 제거했다.
+# 좋아요·스크랩·신고(post_likes·post_scraps·post_reports)는 045에서 post_reactions로 합쳤다.
 BASE_TABLES = (
-    "members", "posts", "comments", "boards", "post_images", "post_likes", "post_scraps",
+    "members", "posts", "comments", "boards",
     "member_levels", "member_xp_history", "recruits", "recruit_members",
 )
 # 기본 테이블 중 코드가 직접 쓰는 컬럼 (예전 로컬 DB에 빠져 있던 것)
@@ -28,10 +30,18 @@ BASE_COLUMNS = (
     ("member_xp_history", "created_at"),
     ("comments", "parent_comment_id"),
     ("comments", "reply_to_comment_id"),
+    ("recruits", "details"),
+    ("recruit_programs", "meetup_curriculum_version"),
+    ("recruit_programs", "meetup_curriculum_items"),
+    ("member_board_visit_events", "board_id"),
 )
 # 위 컬럼 중 000·026이 아닌 별도 마이그레이션이 만드는 것: 누락 시 표시할 (출처, 안내할 SQL 파일)
 COLUMN_FIXES = {
     ("comments", "reply_to_comment_id"): ("041", "database/sql/041_comment_reply_target.sql 적용"),
+    ("recruits", "details"): ("042", "database/sql/042_recruit_category_details_consolidation.sql 적용"),
+    ("recruit_programs", "meetup_curriculum_version"): ("043", "database/sql/043_recruit_curricula_consolidation.sql 적용"),
+    ("recruit_programs", "meetup_curriculum_items"): ("043", "database/sql/043_recruit_curricula_consolidation.sql 적용"),
+    ("member_board_visit_events", "board_id"): ("044", "database/sql/044_board_table_cleanup.sql 적용(회원별 방문 횟수 이관)"),
 }
 BASE_COLUMN_FIX = ("000·001", "database/sql/000_baseline_schema.sql·026_baseline_followups.sql 재실행")
 # 027 지급 한도
@@ -102,6 +112,9 @@ def check_schema(cursor) -> Report:
         if table not in tables:
             report.issues.append(Issue("error", "000·001", f"기본 테이블 {table} 없음",
                                        "database/sql/000_baseline_schema.sql, 001_board_mvp.sql 적용"))
+    if "recruit_programs" not in tables:
+        report.issues.append(Issue("error", "012", "recruit_programs 테이블 없음",
+                                   "database/sql/012_recruit_programs.sql 적용 후 043 확인"))
     for table, column in BASE_COLUMNS:
         if table in tables and (table, column) not in columns:
             step, fix = COLUMN_FIXES.get((table, column), BASE_COLUMN_FIX)
@@ -126,11 +139,11 @@ def check_schema(cursor) -> Report:
                                            f"database/sql/{source} 재실행(설정값 유지, 누락 행만 추가)"))
 
     # 3. 024 회원별 방문 (없으면 기존 기본 정렬·전체 통계로 동작)
+    #    회원별 횟수는 044부터 방문 기록(member_board_visit_events.board_id)에서 집계한다.
     report.checked.append("024")
-    for table in ("member_board_visits", "member_board_visit_events"):
-        if table not in tables:
-            report.issues.append(Issue("warning", "024", f"{table} 없음 — 기본 게시판 정렬·전체 방문 통계로 동작",
-                                       "회원별 정렬이 필요하면 database/sql/024_member_board_visits.sql 적용"))
+    if "member_board_visit_events" not in tables:
+        report.issues.append(Issue("warning", "024", "member_board_visit_events 없음 — 기본 게시판 정렬·전체 방문 통계로 동작",
+                                   "회원별 정렬이 필요하면 database/sql/024_member_board_visits.sql, 044_board_table_cleanup.sql 적용"))
 
     # 4. 025 레벨 기준
     report.checked.append("025")
@@ -169,6 +182,21 @@ def check_schema(cursor) -> Report:
             if key not in present:
                 report.issues.append(Issue("error", "027", f"지급 한도 행 {key} 없음",
                                            "database/sql/027_xp_rule_policies.sql 재실행(설정값 유지, 누락 행만 추가)"))
+
+    # 6. 037 게시판 이미지 저장 위치
+    report.checked.append("037")
+    if "post_attachments" not in tables:
+        report.issues.append(Issue("error", "037", "post_attachments 테이블 없음(게시판 이미지 저장·조회 실패)",
+                                   "database/sql/037_career_board_consolidation.sql 적용 후 044 적용"))
+
+    # 7. 044 게시판 정리: 방문 기록 board_id는 BASE_COLUMNS에서 확인한다(024 테이블이 있을 때).
+    report.checked.append("044")
+
+    # 8. 045 게시글 반응(좋아요·스크랩·신고)
+    report.checked.append("045")
+    if "post_reactions" not in tables:
+        report.issues.append(Issue("error", "045", "post_reactions 테이블 없음(좋아요·스크랩·신고 실패)",
+                                   "database/sql/045_post_reactions.sql 적용"))
     return report
 
 

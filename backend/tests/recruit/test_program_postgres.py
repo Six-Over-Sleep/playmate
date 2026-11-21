@@ -15,8 +15,7 @@ from backend.app.core.database import Base
 from backend.app.models.member import Member
 from backend.app.models.post import Post
 from backend.app.models.post_like import PostLike
-from backend.app.models.post_scrap import PostScrap
-from backend.app.models.recruit import Recruit, RecruitMember, RecruitStudyDetail
+from backend.app.models.recruit import Recruit, RecruitMember
 from backend.app.repositories.recruit_program_repository import ProgramRepository
 from backend.app.schemas.recruit_program import ProgramApplication, ProgramCreate
 from backend.app.services.recruit_program_service import ProgramService
@@ -40,9 +39,7 @@ def postgres(service):
         Post.__table__,
         Recruit.__table__,
         RecruitMember.__table__,
-        RecruitStudyDetail.__table__,
-        PostLike.__table__,
-        PostScrap.__table__,
+        PostLike.__table__,  # post_reactions: 좋아요·스크랩 공용 테이블(045)
     ]
     try:
         # 기존 공유 테이블의 빈 테스트 구조만 준비한다. 신규 테이블은 실제 배포 SQL로 만든다.
@@ -57,6 +54,14 @@ def postgres(service):
             connection.exec_driver_sql(f'SET search_path TO "{schema}", pg_catalog')
             # SQL 파일 자체의 BEGIN/COMMIT을 포함해 그대로 실행한다.
             connection.exec_driver_sql(migration)
+            # 이 테스트는 012의 독립 스키마/행 잠금 회귀를 검사한다.
+            # 043의 실제 테이블→뷰 변환은 별도 DB 복원 테스트 대상으로 두고,
+            # ORM이 사용하는 신규 컬럼만 테스트 스키마에 추가한다.
+            connection.exec_driver_sql(
+                f'ALTER TABLE "{schema}".recruit_programs '
+                'ADD COLUMN meetup_curriculum_version INTEGER, '
+                'ADD COLUMN meetup_curriculum_items JSONB'
+            )
         with Session(engine) as session:
             session.add_all(
                 [
@@ -505,16 +510,11 @@ def test_catalog_missing_table_uses_existing_connection(postgres):
 @pytest.mark.parametrize("mode", ["short", "regular"])
 def test_configuration_conversion_postgres(single_connection_catalog, service, payload, mode):
     """실제 외래키·배열·연결 1개 조건에서 종류와 정기/단기를 바꾸고 재조회한다."""
-    from backend.app.models.recruit import (
-        RecruitSportsDetail, RecruitGameDetail, RecruitGroupBuyDetail,
-    )
     from backend.app.schemas.recruit_program import ProgramEdit
     from backend.app.services.recruit_dispatch_service import RecruitDispatchService
     from backend.app.services.recruit_skill_catalog import DatabaseSkillCatalog
     from backend.tests.recruit.test_configuration_edit import category_payload, regular_fields
 
-    for model in (RecruitSportsDetail, RecruitGameDetail, RecruitGroupBuyDetail):
-        model.__table__.create(single_connection_catalog)
     with Session(single_connection_catalog) as session:
         actual = ProgramService(
             ProgramRepository(session), catalog=DatabaseSkillCatalog(session),
@@ -539,7 +539,7 @@ def test_configuration_conversion_postgres(single_connection_catalog, service, p
             session.expire_all()
             assert dispatch.detail(recruit_id)["category"] == category
             assert actual.repository.basic_detail(recruit_id)["post_id"] == post_id
-            assert session.get(PostLike, (post_id, 2)) is not None
+            assert session.get(PostLike, (post_id, "LIKE", 2))  # 기본키: post_id·reaction_type·member_id is not None
         actual.edit(recruit_id, 1, ProgramEdit(**regular_fields(payload["starts_at"])))
     with Session(single_connection_catalog) as session:
         actual = ProgramService(ProgramRepository(session), clock=service.clock)
@@ -557,9 +557,6 @@ def test_category_conversion_and_join_serialize(postgres, service, payload, monk
     from sqlalchemy import text
     from fastapi import HTTPException
     from backend.app.domain.recruit_program import PolicyError
-    from backend.app.models.recruit import (
-        RecruitSportsDetail, RecruitGameDetail, RecruitGroupBuyDetail,
-    )
     from backend.app.schemas.recruit import RecruitCreate
     from backend.app.services import recruit as legacy, recruit_member
     from backend.app.services.recruit_dispatch_service import RecruitDispatchService
@@ -569,8 +566,6 @@ def test_category_conversion_and_join_serialize(postgres, service, payload, monk
         recruit_member, "kst_now",
         lambda: service.clock().replace(tzinfo=None) + timedelta(hours=9),
     )
-    for model in (RecruitSportsDetail, RecruitGameDetail, RecruitGroupBuyDetail):
-        model.__table__.create(postgres)
     with Session(postgres) as session:
         recruit_id = legacy.create_recruit(
             session, RecruitCreate(**category_payload(payload, "sports")), 1

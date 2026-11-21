@@ -1,7 +1,7 @@
 # PLAYMATE_ACTIVITY_V2
 
 # 마이페이지 API
-from backend.app.core.db_connect import db_cursor, CommitOutcomeUnknownError
+from app.core.db_connect import db_cursor, CommitOutcomeUnknownError
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
@@ -72,16 +72,16 @@ def get_my_activity_summary(
                 ) AS comments_count,
                 (
                     SELECT COUNT(*)::int
-                    FROM post_likes l
+                    FROM post_reactions AS l
                     JOIN posts p ON p.post_id = l.post_id
-                    WHERE p.author_member_id = m.member_id
+                    WHERE l.reaction_type = 'LIKE' AND p.author_member_id = m.member_id
                       AND p.deleted_at IS NULL
                 ) AS received_likes_count,
                 (
                     SELECT COUNT(*)::int
-                    FROM post_scraps s
+                    FROM post_reactions AS s
                     JOIN posts p ON p.post_id = s.post_id
-                    WHERE s.member_id = m.member_id
+                    WHERE s.reaction_type = 'SCRAP' AND s.member_id = m.member_id
                       AND p.deleted_at IS NULL
                 ) AS scraps_count,
                 (
@@ -629,9 +629,9 @@ def get_my_scraps(
         cursor.execute(
             """
             SELECT COUNT(*)::int AS total
-            FROM post_scraps s
+            FROM post_reactions AS s
             JOIN posts p ON s.post_id = p.post_id
-            WHERE s.member_id = %s
+            WHERE s.reaction_type = 'SCRAP' AND s.member_id = %s
               AND p.deleted_at IS NULL
             """,
             (member_id,),
@@ -661,11 +661,11 @@ def get_my_scraps(
                 END AS board_name,
                 COALESCE(p.title, '제목 없음') AS title,
                 s.created_at::timestamptz AS scrapped_at
-            FROM post_scraps s
+            FROM post_reactions AS s
             JOIN posts p ON s.post_id = p.post_id
             LEFT JOIN boards b ON b.board_id = p.board_id
             LEFT JOIN career_posts cp ON cp.post_id = p.post_id
-            WHERE s.member_id = %s
+            WHERE s.reaction_type = 'SCRAP' AND s.member_id = %s
               AND p.deleted_at IS NULL
             ORDER BY s.created_at DESC, s.post_id DESC
             LIMIT %s OFFSET %s
@@ -1059,9 +1059,9 @@ def get_my_liked_posts_dashboard_v1(
         cursor.execute(
             """
             SELECT COUNT(*)::int AS total
-            FROM post_likes l
+            FROM post_reactions AS l
             JOIN posts p ON p.post_id = l.post_id
-            WHERE l.member_id = %s AND p.deleted_at IS NULL
+            WHERE l.reaction_type = 'LIKE' AND l.member_id = %s AND p.deleted_at IS NULL
             """,
             (member_id,),
         )
@@ -1088,12 +1088,12 @@ def get_my_liked_posts_dashboard_v1(
                     ELSE COALESCE(b.board_name, '기타 게시판')
                 END AS board_name,
                 l.created_at::timestamptz AS liked_at
-            FROM post_likes l
+            FROM post_reactions AS l
             JOIN posts p ON p.post_id = l.post_id
             LEFT JOIN career_posts cp ON cp.post_id = p.post_id
             LEFT JOIN recruits r ON r.post_id = p.post_id
             LEFT JOIN boards b ON b.board_id = p.board_id
-            WHERE l.member_id = %s AND p.deleted_at IS NULL
+            WHERE l.reaction_type = 'LIKE' AND l.member_id = %s AND p.deleted_at IS NULL
             ORDER BY l.created_at DESC, p.post_id DESC
             LIMIT %s OFFSET %s
             """,

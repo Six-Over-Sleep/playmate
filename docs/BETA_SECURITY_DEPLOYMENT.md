@@ -65,6 +65,10 @@
       미적용 시 프로젝트 모임의 기술 선택을 사용할 수 없다.
 - [ ] XP·레벨 정책: `023_xp_award_policies.sql` → `024_member_board_visits.sql` → `025_level_policies.sql`
       → `027_xp_rule_policies.sql` 순서로 적용한다. 모두 재실행해도 설정한 값은 유지되고 빠진 행만 추가된다.
+- [ ] 게시판 정리: 037(취업 통합)·042·043(모임 통합) 다음에 `044_board_table_cleanup.sql` → `045_post_reactions.sql`을 적용한다.
+      044: 공지 대응표·`post_images` 호환 뷰 제거, 회원별 방문 횟수를 방문 기록으로 이관.
+      045: 좋아요·스크랩·신고를 `post_reactions`로 통합(신고 번호 유지). 둘 다 재실행해도 안전하다.
+      **044·045 없이 새 백엔드를 띄우면 기동 검사가 막는다(`board_id 컬럼 없음`, `post_reactions 테이블 없음`).**
 - [ ] **새 버전을 띄우기 전에** 대상 DB에 배포 검사를 실행하고 종료 코드 0을 확인한다(읽기 전용).
       ```bash
       python -m backend.scripts.check_deploy_schema

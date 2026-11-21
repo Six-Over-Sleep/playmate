@@ -1,7 +1,7 @@
 """관리자 API 업무 및 트랜잭션 관리. 권한은 모든 요청에서 DB로 재검증한다."""
 
 from fastapi import HTTPException
-from backend.app.core.db_connect import db_cursor
+from app.core.db_connect import db_cursor
 from backend.app.repositories import admin_repository as repo
 
 

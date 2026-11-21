@@ -248,8 +248,19 @@ def test_postgres_migration_matches_metadata_without_connecting():
         "recruit_outbox",
         "recruit_program_commands",
     }
+    migration_043 = (
+        Path(__file__).resolve().parents[3]
+        / "database/sql/043_recruit_curricula_consolidation.sql"
+    ).read_text(encoding="utf-8")
     for table in Base.metadata.sorted_tables:
         if table.name not in names:
+            continue
+        if table.name == "recruit_programs":
+            # 012 최초 생성 이후 043가 두 컬럼을 추가하므로 하나의 CREATE 문과
+            # 최신 ORM 전체 DDL을 문자 단위로 비교할 수 없다.
+            assert "CREATE TABLE recruit_programs" in sql
+            assert "meetup_curriculum_version" in migration_043
+            assert "meetup_curriculum_items" in migration_043
             continue
         assert normalized(
             str(CreateTable(table).compile(dialect=postgresql.dialect()))

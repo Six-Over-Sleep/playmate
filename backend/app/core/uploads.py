@@ -3,11 +3,12 @@ from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from app.core.board_policy import CONTRACT
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 UPLOAD_DIR = PROJECT_ROOT / "uploads" / "posts"
-MAX_POST_IMAGES = 3
-MAX_IMAGE_SIZE = 5 * 1024 * 1024
+MAX_POST_IMAGES = CONTRACT["images"]["count"]
+MAX_IMAGE_SIZE = CONTRACT["images"]["sizeMb"] * 1024 * 1024
 ALLOWED = {
     "image/jpeg": ".jpg",
     "image/png": ".png",

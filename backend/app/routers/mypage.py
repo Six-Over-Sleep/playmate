@@ -1,7 +1,7 @@
 # PLAYMATE_ACTIVITY_V2
 
 # 마이페이지 API
-from backend.app.core.db_connect import db_cursor, CommitOutcomeUnknownError
+from app.core.db_connect import db_cursor, CommitOutcomeUnknownError
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 

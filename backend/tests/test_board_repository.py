@@ -91,9 +91,10 @@ def isolate_legacy_board_crud_from_new_features(monkeypatch):
     """
     monkeypatch.setattr(service, "_require_board_reader", lambda *_args: None)
     monkeypatch.setattr(service, "_require_comment_board_reader", lambda *_args: None)
-    monkeypatch.setattr(service, "_require_course_board_writer", lambda *_: None)
+    monkeypatch.setattr(service, "_require_course_board_writer", lambda *_, **kw: None)
     monkeypatch.setattr(service, "_require_comment_board_writer", lambda *_: None)
-    monkeypatch.setattr(service, "_require_notice_admin", lambda *_: None)
+    monkeypatch.setattr(service, "_require_notice_admin", lambda *_, **kw: None)
+    monkeypatch.setattr(service, "_require_post_writer", lambda *_: {"id": 1, "name": "자유게시판", "course_code": None})
     monkeypatch.setattr(service, "grant_xp", lambda *_: {"awarded": False})
     monkeypatch.setattr(service, "revoke_xp", lambda *_: None)
     monkeypatch.setattr(service, "grant_post_like_xp", lambda *_: None)
@@ -190,10 +191,10 @@ def test_owner_failure_rolls_back(database, method, args, exists, status, monkey
 def test_create_post_response_failure_rolls_back(database, monkeypatch):
     # 이 테스트는 권한이 아니라 DB 롤백 동작만 검증
     monkeypatch.setattr(
-        service, "_require_notice_admin", lambda *_: None
+        service, "_require_notice_admin", lambda *_, **kw: None
     )
     monkeypatch.setattr(
-        service, "_require_course_board_writer", lambda *_: None
+        service, "_require_course_board_writer", lambda *_, **kw: None
     )
 
     # 게시글 INSERT 성공 → 상세 조회 실패
@@ -211,7 +212,7 @@ def test_create_post_response_failure_rolls_back(database, monkeypatch):
     connection.close.assert_called_once()
 
 
-def test_create_post_single_transaction(database):
+def test_create_post_single_transaction(database, monkeypatch):
     """자유게시판 게시글과 첨부 이미지가 한 트랜잭션에 저장된다."""
     images = [
         dict(
@@ -241,8 +242,8 @@ def test_create_post_single_transaction(database):
 
 def test_commit_failure_rolls_back(database, monkeypatch):
     # 커밋 실패와 롤백만 분리 검증합니다.
-    monkeypatch.setattr(service, "_require_notice_admin", lambda *_: None)
-    monkeypatch.setattr(service, "_require_course_board_writer", lambda *_: None)
+    monkeypatch.setattr(service, "_require_notice_admin", lambda *_, **kw: None)
+    monkeypatch.setattr(service, "_require_course_board_writer", lambda *_, **kw: None)
     monkeypatch.setattr(service, "revoke_xp", lambda *_: None)
     _, connection, _ = database([None])
     connection.commit.side_effect = RuntimeError("commit failed")
@@ -347,7 +348,7 @@ def test_http_posts_uses_service_repository(client, database):
 def test_http_missing_post_and_bad_sort(client, database):
     database([None])
     assert client.get("/api/boards/1/posts/999").status_code == 404
-    assert client.get("/api/boards/1/posts?sort=oldest").status_code == 422
+    assert client.get("/api/boards/1/posts?sort=unsupported").status_code == 422
     assert client.get("/api/boards/1/posts?q=" + "a" * 101).status_code == 422
 
 

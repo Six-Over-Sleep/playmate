@@ -8,6 +8,12 @@ DB_POOL_MAX_CONNECTIONS는 프로세스당 1~4개(기본 2), DB_POOL_WAIT_SECOND
 fork는 거부한다. worker 생성 전에 DB에 접속하지 않는다.
 """
 
+import sys
+
+# Compatibility imports must share the same pool, lock and shutdown owner.
+sys.modules["backend.app.core.db_connect"] = sys.modules[__name__]
+sys.modules["app.core.db_connect"] = sys.modules[__name__]
+
 import atexit
 import os
 import logging

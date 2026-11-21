@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from psycopg.errors import UndefinedTable as PsycopgUndefinedTable
 from psycopg2.errors import UndefinedTable as Psycopg2UndefinedTable
 
-from backend.app.core.database import get_db_connection
+from backend.app.core.database import pooled_db_connection as get_db_connection
 
 # 레벨 기준은 level_policies 테이블에서 읽는다 (database/sql/025_level_policies.sql)
 LEVEL_POLICY_UNAVAILABLE = "레벨 정책을 사용할 수 없습니다."

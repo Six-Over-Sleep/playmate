@@ -3,6 +3,8 @@
 # PLAYMATE_BOARD_ANONYMOUS_V1
 # 게시판, 게시글, 댓글 API 요청을 처리하고 Service와 연결하는 Router
 # Router는 요청값 검증 및 응답 반환을 담당하고, 실제 DB 처리는 Service에서 수행함.
+from typing import Annotated
+from app.core.board_policy import TITLE_MAX_LENGTH, BODY_MAX_LENGTH, SEARCH_MAX_LENGTH, MAX_PAGE_SIZE
 from fastapi import (
     APIRouter,
     Depends,
@@ -79,24 +81,32 @@ def get_board(board_id: int, member_id: int = Depends(get_current_member_id)):
 @router.get("/boards/featured/{kind}/posts", response_model=list[PostResponse])
 def list_featured_posts(
     kind: str,
-    q: str | None = Query(default=None, max_length=100),
+    q: str | None = Query(default=None, max_length=SEARCH_MAX_LENGTH),
     member_id: int = Depends(get_current_member_id),
+    *,
+    limit: Annotated[int | None, Query(ge=1, le=MAX_PAGE_SIZE)] = None,
 ):
-    return board_service.list_featured_posts(kind, q, member_id)
+    return board_service.list_featured_posts(kind, q, member_id, **({"limit": limit} if limit is not None else {}))
 
 
 # GET /api/boards/{board_id}/posts : 게시판별 게시글 목록 조회
 @router.get("/boards/{board_id}/posts", response_model=list[PostResponse])
 def list_posts(
     board_id: int,
-    q: str | None = Query(default=None, max_length=100),
+    q: str | None = Query(default=None, max_length=SEARCH_MAX_LENGTH),
     sort: str = "latest",
     member_id: int = Depends(get_current_member_id),
+    *,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    summary: bool = False,
+    limit: Annotated[int | None, Query(ge=1, le=MAX_PAGE_SIZE)] = None,
 ):
     # q : 검색어 (선택값, 최대 100자)
     # sort : 정렬 기준 (기본값 latest)
     # member_id : 게시글에 대한 본인 작성 여부 등을 판단할 때 전달함.
-    return board_service.list_posts(board_id, q, sort, member_id)
+    if limit is None and offset == 0 and not summary:
+        return board_service.list_posts(board_id, q, sort, member_id)
+    return board_service.list_posts(board_id, q, sort, member_id, limit=limit, offset=offset, summary=summary)
 
 
 # POST /api/boards/{board_id}/posts : 이미지 첨부가 가능한 게시글 생성
@@ -107,8 +117,8 @@ def list_posts(
 )
 async def create_post(
     board_id: int,
-    title: str = Form(min_length=1, max_length=100),
-    body: str = Form(min_length=1, max_length=20000),
+    title: str = Form(min_length=1, max_length=TITLE_MAX_LENGTH),
+    body: str = Form(min_length=1, max_length=BODY_MAX_LENGTH),
     is_anonymous: bool = Form(default=False),
     images: list[UploadFile] = File(default=[]),
     member_id: int = Depends(get_current_member_id),
@@ -174,8 +184,8 @@ def update_post(
 async def update_post_with_images(
     board_id: int,
     post_id: int,
-    title: str = Form(min_length=1, max_length=100),
-    body: str = Form(min_length=1, max_length=20000),
+    title: str = Form(min_length=1, max_length=TITLE_MAX_LENGTH),
+    body: str = Form(min_length=1, max_length=BODY_MAX_LENGTH),
     is_anonymous: bool | None = Form(default=None),
     original_image_ids: list[int] = Form(default=[]),
     keep_image_ids: list[int] = Form(default=[]),

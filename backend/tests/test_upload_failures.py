@@ -1,5 +1,6 @@
 """업로드 검증과 부분 파일·DB 실패 정리를 임시 디렉터리에서 확인한다."""
 
+import json
 import asyncio
 import re
 from io import BytesIO
@@ -19,10 +20,11 @@ PNG = b"\x89PNG\r\n\x1a\nexample"
 def test_post_image_limits_match_frontend_and_schema():
     root = Path(__file__).resolve().parents[2]
     frontend = (root / "frontend/src/hooks/board/useBoardForms.js").read_text(encoding="utf-8")
-    limits = frontend.split("export const postImageLimits = {", 1)[1].split("}", 1)[0]
-    assert int(re.search(r"count:\s*(\d+)", limits)[1]) == uploads.MAX_POST_IMAGES
-    assert int(re.search(r"sizeMb:\s*(\d+)", limits)[1]) * 1024**2 == uploads.MAX_IMAGE_SIZE
-    assert set(re.findall(r"'(image/[^']+)'", limits)) == set(uploads.ALLOWED)
+    limits = json.loads((root / "shared/boardPolicy.json").read_text(encoding="utf-8"))["images"]
+    assert "utils/boardPolicy" in frontend
+    assert limits["count"] == uploads.MAX_POST_IMAGES
+    assert limits["sizeMb"] * 1024**2 == uploads.MAX_IMAGE_SIZE
+    assert set(limits["mimeTypes"]) == set(uploads.ALLOWED)
 
     sql = (root / "database/sql/001_board_mvp.sql").read_text(encoding="utf-8")
     schema = sql.split("CREATE TABLE IF NOT EXISTS post_images", 1)[1]

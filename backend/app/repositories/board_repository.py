@@ -7,6 +7,7 @@
 # Any : 게시글/댓글 조회 결과에 여러 데이터 타입이 들어올 수 있음을 나타냄
 from datetime import datetime, timezone
 from typing import Any
+from app.core.board_policy import HOT_DAYS, HOT_MIN_LIKES, HALL_MIN_LIKES, FEATURED_LIMIT, LIST_BODY_LENGTH
 from zoneinfo import ZoneInfo
 
 from psycopg2.errors import UndefinedColumn, UndefinedTable
@@ -190,7 +191,8 @@ def get_board(cursor, board_id: int) -> dict[str, Any] | None:
 
 # 특정 게시판의 게시글 목록과 댓글 수, 첨부 이미지를 조회함
 def list_posts(
-    cursor, board_id: int, search: str, member_id: int
+    cursor, board_id: int, search: str, member_id: int,
+    *, limit: int | None = None, offset: int = 0, sort: str = "latest", summary: bool = False,
 ) -> list[dict[str, Any]]:
     """검색 조건으로 게시글을 조회하고 이미지를 일괄 매핑한다. 정렬·댓글 집계를 보존한다."""
     # SQL에서 사용하는 %s 자리표시자 순서대로 조회 인자를 준비함
@@ -212,13 +214,29 @@ def list_posts(
     # 서브쿼리 COUNT(*) : 삭제되지 않은 댓글 개수를 계산함
     # (작성자 ID = 요청자 ID) : 글 수정/삭제 UI에 활용할 is_owner 값
     # _board_post_guard() : 삭제된 글과 모임 모집글은 조회 대상에서 제외함
+    direction = "ASC" if sort == "oldest" else "DESC"
+    page_sql = ""
+    if limit is not None:
+        page_sql += " LIMIT %s"
+        params.append(limit)
+    if offset:
+        page_sql += " OFFSET %s"
+        params.append(offset)
+    source_sql = "posts"
+    where_sql = f"p.board_id = %s AND {_board_post_guard()}{condition}"
+    if limit is not None:
+        # Page before comment/reaction aggregation. Legacy callers keep full rows.
+        source_sql = f"(SELECT p.* FROM posts AS p WHERE {where_sql} ORDER BY p.created_at {direction}, p.post_id {direction}{page_sql})"
+        where_sql = "TRUE"
+        page_sql = ""
+    body_sql = f"LEFT(COALESCE(p.body, ''), {LIST_BODY_LENGTH})" if summary else "COALESCE(p.body, '')"
     cursor.execute(
         f"""
         SELECT
             p.post_id AS id,
             p.board_id,
             p.title,
-            COALESCE(p.body, '') AS body,
+            {body_sql} AS body,
             CASE WHEN p.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL ELSE p.author_member_id END AS author_id,
             CASE WHEN p.is_anonymous THEN '익명'
                  WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
@@ -244,11 +262,10 @@ def list_posts(
                 WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id
                       AND l.member_id = %s
             ) AS liked_by_me
-        FROM posts AS p
+        FROM {source_sql} AS p
         JOIN members AS m ON m.member_id = p.author_member_id
         LEFT JOIN comments AS c ON c.post_id = p.post_id
-        WHERE p.board_id = %s
-            AND {_board_post_guard()}{condition}
+        WHERE {where_sql}
         GROUP BY
             p.post_id,
             p.board_id,
@@ -261,8 +278,9 @@ def list_posts(
             p.created_at,
             p.updated_at
         ORDER BY
-            p.created_at DESC,
-            p.post_id DESC
+            p.created_at {direction},
+            p.post_id {direction}
+        {page_sql}
         """,
         params,
     )
@@ -920,11 +938,12 @@ def list_featured_posts(
     search: str,
     member_id: int,
     allowed_board_ids: list[int] | None = None,
+    *, limit: int = FEATURED_LIMIT,
 ) -> list[dict[str, Any]]:
-    """누적 101개 이상(명예) / 최근 7일 10개 이상(HOT) 조회."""
+    """누적 100개 이상(명예) / 최근 7일 10개 이상(HOT) 조회."""
     filters = {
-        "hall-of-fame": "likes.total_likes >= 100",
-        "hot": "likes.recent_likes >= 10",
+        "hall-of-fame": f"likes.total_likes >= {HALL_MIN_LIKES}",
+        "hot": f"likes.recent_likes >= {HOT_MIN_LIKES}",
     }
     orders = {
         "hall-of-fame": "likes.total_likes DESC",
@@ -954,7 +973,7 @@ def list_featured_posts(
                 l.post_id,
                 COUNT(*)::int AS total_likes,
                 COUNT(*) FILTER (
-                    WHERE l.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+                    WHERE l.created_at >= CURRENT_TIMESTAMP - INTERVAL '{HOT_DAYS} days'
                 )::int AS recent_likes
             FROM post_reactions AS l
             WHERE l.reaction_type = 'LIKE'
@@ -1000,9 +1019,9 @@ def list_featured_posts(
           {access_sql}
           {search_sql}
         ORDER BY {orders[kind]}, p.created_at DESC, p.post_id DESC
-        LIMIT 100
+        LIMIT %s
         """,
-        params,
+        [*params, limit],
     )
     rows = [_with_timezone(cursor, row) for row in cursor.fetchall()]
     images = images_by_post(cursor, [row["id"] for row in rows])

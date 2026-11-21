@@ -1,0 +1,18 @@
+{
+  "noticeBoardName": "공지사항",
+  "freeBoardName": "자유게시판",
+  "pageSize": 30,
+  "maxPageSize": 100,
+  "featuredLimit": 100,
+  "rankedPreviewCount": 3,
+  "noticePreviewCount": 2,
+  "listBodyLength": 200,
+  "titleMaxLength": 100,
+  "bodyMaxLength": 20000,
+  "searchMaxLength": 100,
+  "images": {
+    "count": 3,
+    "sizeMb": 5,
+    "mimeTypes": ["image/jpeg", "image/png", "image/gif", "image/webp"]
+  }
+}

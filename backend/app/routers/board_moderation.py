@@ -10,7 +10,7 @@ from app.services import admin_service
 
 router = APIRouter(prefix="/api", tags=["board-reports"])
 admin_router = APIRouter(prefix="/api/admin", tags=["board-reports-admin"])
-REPORT_THRESHOLD = 3
+from app.core.board_policy import REPORT_HIDE_COUNT as REPORT_THRESHOLD
 
 # 045: 신고는 post_reactions(reaction_type = 'REPORT')에 저장한다.
 # 아래 조회문은 기존 post_reports와 같은 컬럼 이름으로 꺼낸 이 하위 쿼리를 쓴다

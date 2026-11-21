@@ -65,3 +65,33 @@ def test_migration_preserves_report_ids_and_checks_counts():
     assert "PRIMARY KEY (post_id, reaction_type, member_id)" in sql
     for name in ("신고", "좋아요", "스크랩"):
         assert f"{name} 이관 건수 불일치" in sql
+
+
+REMOVED_TABLES = (
+    "post_likes", "post_scraps", "post_reports",          # 045 → post_reactions
+    "post_images", "member_board_visits", "board_notice_posts",  # 044
+)
+
+
+def test_no_sql_uses_removed_board_tables():
+    """044·045에서 지운 테이블을 앱 코드·운영 스크립트·테스트 스키마의 SQL이 다시 쓰지 않는다."""
+    import re
+
+    pattern = re.compile(
+        r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:public\.)?("
+        + "|".join(REMOVED_TABLES) + r")\b",
+        re.IGNORECASE,
+    )
+    # 이 검사 자체, 과거 마이그레이션 파일을 읽어 비교하는 테스트
+    allowed = {"test_post_reactions.py", "test_social_schema_034_035.py", "test_upload_failures.py"}
+    hits = []
+    for folder in ("backend/app", "database/scripts", "backend/tests"):
+        for path in (ROOT / folder).rglob("*.py"):
+            if path.name in allowed:
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if line.lstrip().startswith("#"):
+                    continue
+                if pattern.search(line):
+                    hits.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()}")
+    assert not hits, "\n".join(hits)

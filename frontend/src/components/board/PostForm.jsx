@@ -1,3 +1,4 @@
+import policy from '../../utils/boardPolicy'
 // PLAYMATE_BOARD_ANONYMOUS_V1
 import { mediaUrl } from '../../services/boardApi'
 import { postImageLimits, usePostForm } from '../../hooks/board/useBoardForms'
@@ -11,7 +12,7 @@ export default function PostForm({ initial, busy, onCancel, onSubmit, allowAnony
       <label>
         제목 *
         <input
-          maxLength={100}
+          maxLength={policy.titleMaxLength}
           value={form.title}
           disabled={busy}
           onChange={(event) => form.setTitle(event.target.value)}
@@ -21,7 +22,7 @@ export default function PostForm({ initial, busy, onCancel, onSubmit, allowAnony
       <label>
         내용 *
         <textarea
-          maxLength={20000}
+          maxLength={policy.bodyMaxLength}
           rows={9}
           value={form.body}
           disabled={busy}

@@ -23,19 +23,25 @@ export const boardApi = {
     })
   },
 
-  /** 게시판 글 목록을 검색한다. 서버 정렬 계약은 latest를 유지하고 검색어는 인코딩한다. */
+  /** 옵션을 생략하면 기존 전체 목록. 새 화면은 서버 정렬·페이지·요약을 요청한다. */
   posts(boardId, query = '', options = {}) {
+    const { limit, offset, sort = 'latest', summary, ...requestOptions } = options
+    const extra = new URLSearchParams()
+    if (limit != null) extra.set('limit', limit)
+    if (offset != null) extra.set('offset', offset)
+    if (summary) extra.set('summary', 'true')
     return request(
-      `/boards/${boardId}/posts?sort=latest&q=${encodeURIComponent(query)}`,
-      options,
+      `/boards/${boardId}/posts?sort=${sort}&q=${encodeURIComponent(query)}&${extra}`,
+      requestOptions,
     )
   },
 
   /** 좋아요 기준으로 자동 선정된 읽기 전용 게시글 목록 */
   featuredPosts(kind, query = '', options = {}) {
+    const { limit, ...requestOptions } = options
     return request(
-      `/boards/featured/${kind}/posts?q=${encodeURIComponent(query)}`,
-      options,
+      `/boards/featured/${kind}/posts?q=${encodeURIComponent(query)}${limit == null ? '' : `&limit=${limit}`}`,
+      requestOptions,
     )
   },
 

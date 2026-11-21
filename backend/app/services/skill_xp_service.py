@@ -1,4 +1,4 @@
-from backend.app.core.database import get_db_connection
+from backend.app.core.database import pooled_db_connection as get_db_connection
 from backend.app.services.xp_service import calculate_level, read_xp_amount
 
 # 스킬 레벨 계산 (기준: level_policies의 SKILL 행)

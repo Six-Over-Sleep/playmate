@@ -600,6 +600,7 @@ function AppContent() {
 
         {section === 'board' && (
           <BoardSection
+            key={`${currentMemberId}:${roleCode}:${memberCourse}:${memberCohort}`}
             resetVersion={
               boardKey
             }

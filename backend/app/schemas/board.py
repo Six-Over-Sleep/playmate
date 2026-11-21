@@ -3,6 +3,7 @@
 # PLAYMATE_BOARD_ANONYMOUS_V1
 # 게시판, 게시글, 댓글의 API 요청 및 응답 데이터 형식을 정의하는 Pydantic Schema
 from datetime import datetime
+from app.core.board_policy import TITLE_MAX_LENGTH, BODY_MAX_LENGTH
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -53,8 +54,8 @@ class BoardResponse(BaseModel):
 class PostWrite(StrictModel):
     # title : 게시글 제목 (1~100자)
     # body : 게시글 본문 (1~20,000자)
-    title: str = Field(min_length=1, max_length=100)
-    body: str = Field(min_length=1, max_length=20000)
+    title: str = Field(min_length=1, max_length=TITLE_MAX_LENGTH)
+    body: str = Field(min_length=1, max_length=BODY_MAX_LENGTH)
     # 수정 요청에서 누락하면 기존 익명 설정 유지
     is_anonymous: bool | None = None
 

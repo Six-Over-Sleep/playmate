@@ -6,6 +6,7 @@
 여러 개발자가 같은 DB를 사용하면 각 서버 프로세스가 별도 풀을 갖습니다.
 """
 
+from contextlib import contextmanager
 import logging
 import os
 from time import perf_counter
@@ -127,3 +128,19 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+@contextmanager
+def pooled_db_connection():
+    """Psycopg3 tuple cursors with a separate transaction, returned to the ORM pool.
+
+    Content is already committed before XP enters this scope. Do not join its
+    transaction or close the underlying driver connection on normal return.
+    """
+    lease = engine.raw_connection()
+    try:
+        connection = lease.driver_connection
+        with connection.transaction():
+            yield connection
+    finally:
+        lease.close()

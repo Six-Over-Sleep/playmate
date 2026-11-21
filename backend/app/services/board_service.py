@@ -6,6 +6,7 @@
 # Any : 반환되는 DB 데이터(딕셔너리)의 값 타입을 유연하게 표현함.
 from typing import Any
 import re
+from app.core.board_policy import NOTICE_BOARD_NAME, MAX_PAGE_SIZE
 
 # HTTPException : API 요청 처리 중 HTTP 오류 응답을 발생시킴.
 from fastapi import HTTPException
@@ -161,20 +162,20 @@ def _require_comment_board_reader(cursor, comment_id: int, member_id: int) -> No
     _require_board_reader(cursor, row["board_id"], member_id)
 
 
-def _require_course_board_writer(cursor, board_id: int, member_id: int) -> None:
+def _require_course_board_writer(cursor, board_id: int, member_id: int, *, board=None, member=None) -> None:
     """기존 과정 게시판과 신규 범위 게시판의 쓰기 정책을 일관되게 검사합니다."""
-    board = _require_board(cursor, board_id)
+    board = board if board is not None else _require_board(cursor, board_id)
     if board.get("scope_type", "LEGACY") == "LEGACY":
         if board.get("course_code") is None:
             return
-        if not _can_write_course_board(board, _get_board_member(cursor, member_id)):
+        if not _can_write_course_board(board, member if member is not None else _get_board_member(cursor, member_id)):
             raise HTTPException(
                 status_code=403,
                 detail="이 게시판은 해당 과정·기수 수강생만 작성할 수 있습니다.",
             )
         return
 
-    member = _get_board_member(cursor, member_id)
+    member = member if member is not None else _get_board_member(cursor, member_id)
     if not _can_access_board(
         board, member, _verified_enrollments(cursor, member_id), write=True
     ):
@@ -211,26 +212,26 @@ def _require_comment_board_writer(cursor, comment_id: int, member_id: int) -> No
     _require_course_board_writer(cursor, comment["board_id"], member_id)
 
 
-def _require_notice_admin(cursor, board_id: int, member_id: int):
+def _require_notice_admin(cursor, board_id: int, member_id: int, *, board=None, member=None):
     """공지사항 게시판은 관리자만 변경할 수 있도록 검사"""
 
-    board = _require_board(cursor, board_id)
+    board = board if board is not None else _require_board(cursor, board_id)
 
     # 일반 게시판은 기존 권한 유지
     if board["name"] != "공지사항":
         return
 
     # 관리자 권한 확인
-    cursor.execute(
-        """
-        SELECT role_code
-        FROM members
-        WHERE member_id = %s
-        """,
-        (member_id,),
-    )
-
-    member = cursor.fetchone()
+    if member is None:
+        cursor.execute(
+            """
+            SELECT role_code
+            FROM members
+            WHERE member_id = %s
+            """,
+            (member_id,),
+        )
+        member = cursor.fetchone()
 
     if (
         not member
@@ -246,6 +247,20 @@ def _require_post(cursor, board_id: int, post_id: int) -> None:
     # 게시판에 속하는 유효한 게시글이 있는지만 확인함.
     if not repository.post_exists(cursor, board_id, post_id):
         raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
+
+
+def _require_post_writer(cursor, board_id: int, member_id: int):
+    """게시판 한 번 조회로 공지·과정·범위별 쓰기 검사를 공유한다."""
+    board = _require_board(cursor, board_id)
+    needs_member = (
+        board.get("scope_type", "LEGACY") != "LEGACY"
+        or board.get("course_code") is not None
+        or board.get("name") == NOTICE_BOARD_NAME
+    )
+    member = _get_board_member(cursor, member_id) if needs_member else None
+    _require_course_board_writer(cursor, board_id, member_id, board=board, member=member)
+    _require_notice_admin(cursor, board_id, member_id, board=board, member=member)
+    return board
 
 
 def _post_detail(cursor, board_id: int, post_id: int, member_id: int) -> dict[str, Any]:
@@ -375,25 +390,31 @@ def get_board(board_id: int, member_id: int | None = None) -> dict[str, Any]:
 # 3. 게시글 목록·생성·상세 조회
 # =========================================================
 def list_posts(
-    board_id: int, q: str | None, sort: str, member_id: int
+    board_id: int, q: str | None, sort: str, member_id: int,
+    *, limit: int | None = None, offset: int = 0, summary: bool = False,
 ) -> list[dict[str, Any]]:
-    """게시판 확인 후 검색 목록을 반환한다. 기존 latest 정렬만 허용한다.
+    """권한 확인 후 전체 결과 기준 정렬·검색·선택적 페이지를 반환한다.
 
     q는 공백을 제거하고 member_id는 작성자 표시 계산에 사용한다.
     게시판·목록·이미지 조회는 한 연결을 사용하며 이미지 N+1을 방지한다.
     """
-    # 현재 지원하는 정렬 방식은 latest(최신순)뿐임.
-    if sort != "latest":
-        raise HTTPException(status_code=422, detail="sort는 latest만 지원합니다.")
+    # 임의 SQL 정렬 문자열을 허용하지 않는다.
+    if sort not in {"latest", "oldest"}:
+        raise HTTPException(status_code=422, detail="지원하지 않는 정렬입니다.")
+    if (limit is not None and not 1 <= limit <= MAX_PAGE_SIZE) or offset < 0:
+        raise HTTPException(422, "조회 범위가 올바르지 않습니다.")
     with db_cursor(read_only=True) as cursor:
         # 이미 조회한 게시판을 재사용하여 LEGACY에서 추가 DB 왕복을 피합니다.
         board = _require_board(cursor, board_id)
         _require_board_read_access(cursor, board, member_id)
         # 검색어가 없으면 빈 문자열 사용, 있으면 양쪽 공백 제거 후 조회함.
-        return repository.list_posts(cursor, board_id, (q or "").strip(), member_id)
+        if limit is None and offset == 0 and sort == "latest" and not summary:
+            return repository.list_posts(cursor, board_id, (q or "").strip(), member_id)
+        return repository.list_posts(cursor, board_id, (q or "").strip(), member_id,
+                                     limit=limit, offset=offset, sort=sort, summary=summary)
 
 
-def list_featured_posts(kind: str, q: str | None, member_id: int) -> list[dict[str, Any]]:
+def list_featured_posts(kind: str, q: str | None, member_id: int, *, limit: int | None = None) -> list[dict[str, Any]]:
     """좋아요 집계 기반 읽기 전용 인기 목록."""
     if kind not in {"hall-of-fame", "hot"}:
         raise HTTPException(status_code=404, detail="인기 게시판을 찾을 수 없습니다.")
@@ -413,6 +434,7 @@ def list_featured_posts(kind: str, q: str | None, member_id: int) -> list[dict[s
         return repository.list_featured_posts(
             cursor, kind, (q or "").strip(), member_id,
             allowed_board_ids=allowed_ids,
+            **({"limit": limit} if limit is not None else {}),
         )
 
 
@@ -430,12 +452,10 @@ def create_post(
     with db_cursor(commit=True) as cursor:
 
         # 과정 게시판은 해당 과정·기수만 작성 가능
-        _require_course_board_writer(cursor, board_id, member_id)
-        # 공지사항 관리자 권한 검사
-        _require_notice_admin(cursor, board_id, member_id)
+        board = _require_post_writer(cursor, board_id, member_id)
 
         # 공지사항은 관리자 이름으로 작성되며 익명 선택 불가
-        if is_anonymous and _require_board(cursor, board_id)["name"] == "공지사항":
+        if is_anonymous and board["name"] == NOTICE_BOARD_NAME:
             raise HTTPException(status_code=422, detail="공지사항은 익명으로 작성할 수 없습니다.")
 
         # 게시글 DB 저장
@@ -521,32 +541,46 @@ def update_post(
     new_images: list[tuple[dict, bytes]] | None = None,
 ) -> dict[str, Any]:
     """작성자 조건으로 수정 후 응답을 조회한다. 실패 시 전체 롤백한다."""
-    removed = []
-    saved = []
+    def check_images(cursor):
+        current_ids = repository.post_image_ids(cursor, post_id)
+        keep = keep_image_ids or []
+        if len(set(keep)) != len(keep) or not set(keep) <= set(original_image_ids):
+            raise HTTPException(422, "유지할 이미지 정보가 올바르지 않습니다.")
+        if set(original_image_ids) != current_ids:
+            raise HTTPException(409, "첨부 이미지가 변경되었습니다. 새로고침 후 다시 수정해 주세요.")
+        if len(keep) + len(new_images or []) > MAX_POST_IMAGES:
+            raise HTTPException(422, f"이미지는 최대 {MAX_POST_IMAGES}장까지 첨부할 수 있습니다.")
+        return keep
+
+    def check_board(cursor):
+        board = _require_post_writer(cursor, board_id, member_id)
+        if is_anonymous and board["name"] == NOTICE_BOARD_NAME:
+            raise HTTPException(422, "공지사항은 익명으로 작성할 수 없습니다.")
+
+    removed, saved = [], []
     try:
+        if original_image_ids is not None:
+            with db_cursor(read_only=True) as cursor:
+                check_board(cursor)
+                # No UPDATE/row lock while storage performs potentially slow I/O.
+                cursor.execute("SELECT author_member_id FROM posts AS p WHERE p.board_id = %s "
+                               "AND p.post_id = %s AND " + repository._board_post_guard(), (board_id, post_id))
+                owner = cursor.fetchone()
+                if owner is None:
+                    raise HTTPException(404, "게시글을 찾을 수 없습니다.")
+                if owner["author_member_id"] != member_id:
+                    raise HTTPException(403, "작성자만 수정하거나 삭제할 수 있습니다.")
+                check_images(cursor)
+            saved = store_validated_images(new_images or [])
+
         with db_cursor(commit=True) as cursor:
-            _require_notice_admin(cursor, board_id, member_id)
-            _require_course_board_writer(cursor, board_id, member_id)
-            if is_anonymous and _require_board(cursor, board_id)["name"] == "공지사항":
-                raise HTTPException(status_code=422, detail="공지사항은 익명으로 작성할 수 없습니다.")
-            # Repository에서 작성자 ID와 게시글 상태를 조건으로 수정함.
-            # 수정된 행이 없으면 권한 부족(403) 또는 글 없음(404)을 판별함.
-            if not repository.update_post(
-                cursor, board_id, post_id, title, body, member_id, is_anonymous
-            ):
+            check_board(cursor)
+            # UPDATE locks the row, then checks the current committed attachment set.
+            if not repository.update_post(cursor, board_id, post_id, title, body, member_id, is_anonymous):
                 _raise_post_permission(cursor, board_id, post_id)
             if original_image_ids is not None:
-                current_ids = repository.post_image_ids(cursor, post_id)
-                keep = keep_image_ids or []
-                if len(set(keep)) != len(keep) or not set(keep) <= set(original_image_ids):
-                    raise HTTPException(422, "유지할 이미지 정보가 올바르지 않습니다.")
-                if set(original_image_ids) != current_ids:
-                    raise HTTPException(409, "첨부 이미지가 변경되었습니다. 새로고침 후 다시 수정해 주세요.")
-                added = new_images or []
-                if len(keep) + len(added) > MAX_POST_IMAGES:
-                    raise HTTPException(422, f"이미지는 최대 {MAX_POST_IMAGES}장까지 첨부할 수 있습니다.")
+                keep = check_images(cursor)
                 removed = repository.remove_post_images(cursor, post_id, keep)
-                saved = store_validated_images(added)
                 repository.insert_post_images(cursor, post_id, saved, start_order=len(keep))
             result = _post_detail(cursor, board_id, post_id, member_id)
     except CommitOutcomeUnknownError:
@@ -557,7 +591,6 @@ def update_post(
         except Exception:
             logger.exception("수정 실패 후 새 이미지 정리 실패: post_id=%s", post_id)
         raise
-
     try:
         remove_saved_images(removed)
     except Exception:
@@ -566,11 +599,11 @@ def update_post(
 
 
 
+
 # 게시글 삭제 및 XP 회수
 def delete_post(board_id: int, post_id: int, member_id: int) -> None:
     with db_cursor(commit=True) as cursor:
-        _require_notice_admin(cursor, board_id, member_id)
-        _require_course_board_writer(cursor, board_id, member_id)
+        _require_post_writer(cursor, board_id, member_id)
 
         # 1. 게시글 논리 삭제
         if not repository.delete_post(cursor, board_id, post_id, member_id):

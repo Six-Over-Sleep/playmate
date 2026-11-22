@@ -19,11 +19,6 @@ from backend.tests.recruit.test_runtime_api import runtime, json_payload
 
 @pytest.fixture
 def dispatch(service):
-    from backend.app.models.recruit import (
-        RecruitSportsDetail, RecruitGameDetail, RecruitGroupBuyDetail,
-    )
-    for model in (RecruitSportsDetail, RecruitGameDetail, RecruitGroupBuyDetail):
-        model.__table__.create(service.repository.session.get_bind(), checkfirst=True)
     return RecruitDispatchService(
         service, True, lambda: 1, lambda: 1, lambda: 1, lambda: 1,
     )

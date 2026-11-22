@@ -25,15 +25,11 @@ from backend.app.models.member import Member
 from backend.app.models.post import Post
 from backend.app.models.post_like import PostLike
 from backend.app.models.post_scrap import PostScrap
-from backend.app.models.recruit import (
-    Recruit, RecruitMember, RecruitStudyDetail, RecruitSportsDetail,
-    RecruitGameDetail, RecruitGroupBuyDetail,
-)
+from backend.app.models.recruit import Recruit, RecruitMember
 from backend.app.models.recruit_program import (
     ActivityRecord,
     ApplicationRecord,
     CommandRecord,
-    CurriculumRecord,
     EligibilityRecord,
     OutboxRecord,
     ProgramRecord,
@@ -890,13 +886,12 @@ class ProgramRepository:
                 details["regular_start_date"]
             )
         if recruit.category == "study":
-            row = self.session.get(RecruitStudyDetail, recruit_id)
-            if row is None:
-                row = RecruitStudyDetail(recruit_id=recruit_id)
-                self.session.add(row)
-            row.study_topic = details.get("study_topic")
-            row.study_period = details.get("study_period")
-            row.study_method = details.get("study_method")
+            # 042: 기존 스터디 화면에서 사용하던 상세값을 recruits.details에 유지.
+            recruit.details = {
+                "study_topic": details.get("study_topic"),
+                "study_period": details.get("study_period"),
+                "study_method": details.get("study_method"),
+            }
 
     def configure_schedule(self, recruit_id, data):
         """형태 전환 시 사용하지 않는 이전 일정을 지우고 메타데이터와 맞춘다."""
@@ -954,14 +949,15 @@ class ProgramRepository:
         if self.is_program(recruit_id):
             for model in (
                 RecognitionRecord, ActivityRecord, OutboxRecord, CommandRecord,
-                CurriculumRecord, ApplicationRecord, ProgramRecord,
+                ApplicationRecord, ProgramRecord,
             ):
                 self.session.execute(delete(model).where(model.recruit_id == recruit_id))
-        for model in (
-            RecruitStudyDetail, RecruitSportsDetail, RecruitGameDetail,
-            RecruitGroupBuyDetail, RecruitMember,
-        ):
-            self.session.execute(delete(model).where(model.recruit_id == recruit_id))
+        recruit = self.session.get(Recruit, recruit_id)
+        # 042: 상세 정보는 같은 모임 행의 JSONB로 저장하므로 카테고리 전환 시 초기화.
+        recruit.details = None
+        self.session.execute(
+            delete(RecruitMember).where(RecruitMember.recruit_id == recruit_id)
+        )
 
     def configure_legacy(self, recruit_id, data, detail_model, detail_values, now):
         """검증된 기존 종류의 입력을 같은 모임·게시글 ID에 저장한다."""
@@ -977,7 +973,9 @@ class ProgramRepository:
             recruit.regular_days = recruit.regular_time = recruit.regular_start_date = None
         recruit.state, recruit.close_reason = "OPEN", None
         recruit.updated_at = now
-        self.session.add(detail_model(recruit_id=recruit_id, **detail_values))
+        # 기존 detail_model 인자는 서비스 호출 계약을 위해 유지하지만 쓰지는 않는다.
+        # 세부 테이블 4종은 042 이후 뷰이고 실제 쓰기는 recruits.details에서 수행한다.
+        recruit.details = dict(detail_values)
         self.session.add(RecruitMember(
             recruit_id=recruit_id, member_id=post.author_member_id,
             role="HOST", status="JOINED", joined_at=now,
@@ -1016,25 +1014,27 @@ class ProgramRepository:
         post.deleted_at = now.astimezone(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
 
     def curriculum(self, recruit_id):
-        """저장 전 빈 초안도 버전 1로 표현해 최초 저장과 버전 충돌을 일관되게 처리한다."""
-        row = self.session.get(CurriculumRecord, recruit_id)
-        return (
-            {"version": row.version, "items": row.items}
-            if row
-            else {"version": 1, "items": []}
-        )
+        """043: 커리큘럼을 recruit_programs에서 직접 읽고 기존 API 버전을 유지한다."""
+        program = self.session.get(ProgramRecord, recruit_id)
+        if program is None or program.meetup_curriculum_version is None:
+            return {"version": 1, "items": []}
+        return {
+            "version": program.meetup_curriculum_version,
+            "items": program.meetup_curriculum_items,
+        }
 
     def save_curriculum(self, recruit_id, version, items):
-        """모임 행 잠금 안에서 현재 버전을 확인하고 다음 버전으로 저장한다."""
-        current = self.curriculum(recruit_id)
-        if current["version"] != version:
+        """기존 서비스의 프로그램 잠금 내에서 비교하고 버전을 증가시킨다."""
+        program = self.session.get(ProgramRecord, recruit_id)
+        current_version = (
+            program.meetup_curriculum_version
+            if program.meetup_curriculum_version is not None else 1
+        )
+        if current_version != version:
             raise PolicyError("다른 사용자가 수정했습니다. 최신 버전을 확인해주세요.")
-        row = self.session.get(CurriculumRecord, recruit_id)
-        if row is None:
-            row = CurriculumRecord(recruit_id=recruit_id)
-            self.session.add(row)
-        row.version, row.items = version + 1, items
-        return {"version": row.version, "items": items}
+        program.meetup_curriculum_version = version + 1
+        program.meetup_curriculum_items = list(items)
+        return {"version": program.meetup_curriculum_version, "items": items}
 
     def add_activity(self, recruit_id, member_id, data, now):
         """활동 입력을 저장하고 ID/작성자/시각을 포함한 계약 객체를 반환한다."""

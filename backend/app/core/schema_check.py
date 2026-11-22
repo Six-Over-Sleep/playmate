@@ -28,10 +28,16 @@ BASE_COLUMNS = (
     ("member_xp_history", "created_at"),
     ("comments", "parent_comment_id"),
     ("comments", "reply_to_comment_id"),
+    ("recruits", "details"),
+    ("recruit_programs", "meetup_curriculum_version"),
+    ("recruit_programs", "meetup_curriculum_items"),
 )
 # 위 컬럼 중 000·026이 아닌 별도 마이그레이션이 만드는 것: 누락 시 표시할 (출처, 안내할 SQL 파일)
 COLUMN_FIXES = {
     ("comments", "reply_to_comment_id"): ("041", "database/sql/041_comment_reply_target.sql 적용"),
+    ("recruits", "details"): ("042", "database/sql/042_recruit_category_details_consolidation.sql 적용"),
+    ("recruit_programs", "meetup_curriculum_version"): ("043", "database/sql/043_recruit_curricula_consolidation.sql 적용"),
+    ("recruit_programs", "meetup_curriculum_items"): ("043", "database/sql/043_recruit_curricula_consolidation.sql 적용"),
 }
 BASE_COLUMN_FIX = ("000·001", "database/sql/000_baseline_schema.sql·026_baseline_followups.sql 재실행")
 # 027 지급 한도
@@ -102,6 +108,9 @@ def check_schema(cursor) -> Report:
         if table not in tables:
             report.issues.append(Issue("error", "000·001", f"기본 테이블 {table} 없음",
                                        "database/sql/000_baseline_schema.sql, 001_board_mvp.sql 적용"))
+    if "recruit_programs" not in tables:
+        report.issues.append(Issue("error", "012", "recruit_programs 테이블 없음",
+                                   "database/sql/012_recruit_programs.sql 적용 후 043 확인"))
     for table, column in BASE_COLUMNS:
         if table in tables and (table, column) not in columns:
             step, fix = COLUMN_FIXES.get((table, column), BASE_COLUMN_FIX)

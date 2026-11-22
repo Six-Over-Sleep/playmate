@@ -494,6 +494,22 @@ class ShareFlow:
     def status(self, pid):
         return self.b.row(pid)["status"]
 
+    def test_worker_rejects_unit_of_other_feature_before_discord(self):
+        """회귀(#165): 계약은 hot-<id>도 허용하지만 취업 Worker는 보내지 않는다 (조회·전송 0회, 상태 불변)."""
+        self.b.add_post(1, sub="INTERVIEW")
+        self.p.service.relay(T0)
+        job = contract.loads(self.p.queue.bodies(SEND_Q)[0])
+        foreign = dict(job, unit_id="hot-1", marker="ref:hot-1", job_id="hot-1:" + job["claim_token"])
+        foreign["payload"] = {**job["payload"], "embeds": [dict(job["payload"]["embeds"][0], footer={"text": "ref:hot-1"})]}
+        contract.validate_job(foreign)                                   # 계약 자체는 통과한다
+        for candidate in (foreign, {k: v for k, v in foreign.items() if k != "payload"} | {"type": contract.TYPE_VERIFY}):
+            with self.assertRaises(contract.ContractError):
+                self.p.worker.process(candidate)
+        self.assertEqual((self.p.discord.posts, self.p.discord.gets), ([], 0))
+        self.assertEqual(self.status(1), "PENDING")
+        self.p.run_worker()                                              # 원래 작업은 그대로 처리된다
+        self.assertEqual(self.p.discord.count_posts(), 1)
+
     # -- 대상 판정과 컷오버 ------------------------------------------------------------
     def test_immediate_targets_labels_and_exclusions(self):
         b = self.b

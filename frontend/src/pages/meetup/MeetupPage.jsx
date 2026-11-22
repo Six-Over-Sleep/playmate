@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import MeetupCard from '../../components/meetup/MeetupCard'
 import MeetupCategoryTabs from '../../components/meetup/MeetupCategoryTabs'
 import { CATEGORY_OPTIONS, isClosedMeetup, normalizeCategory } from '../../utils/meetup'
@@ -14,8 +15,17 @@ const CATEGORY_HEADINGS = {
 }
 
 export default function MeetupPage({ meetups = [], loading = false, onMeetup, onWrite }) {
-  const [category, setCategory] = useState('all')
-  const [search, setSearch] = useState('')
+  const [params, setParams] = useSearchParams()
+  const category = CATEGORY_OPTIONS.some((item) => item.value === params.get('category')) ? params.get('category') : 'all'
+  const search = params.get('q') || ''
+  const setFilter = (key, value) => setParams((previous) => {
+    const next = new URLSearchParams(previous)
+    if (!value || (key === 'category' && value === 'all')) next.delete(key)
+    else next.set(key, value)
+    return next
+  }, { replace: true })
+  const setCategory = (value) => setFilter('category', value)
+  const setSearch = (value) => setFilter('q', value)
   const visibleMeetups = useMemo(() => {
     const word = search.trim().toLocaleLowerCase()
     return (category === 'all' ? [...meetups] : meetups.filter((meetup) => normalizeCategory(meetup.category) === category))

@@ -1,3 +1,4 @@
+import { MEETUP_LIMITS } from './meetupLimits.js'
 // Form and API errors stay local to Meetup; other pages keep their API contract.
 export const fieldAliases = {
   deadline_at: 'recruit_end', starts_at: 'meeting_start',
@@ -6,6 +7,12 @@ export const fieldAliases = {
 export function meetupErrorMessage(error, fallback = '요청을 처리하지 못했어요. 잠시 후 다시 시도해주세요.') {
   if (error?.status === 401) return '로그인 후 이용해주세요.'
   if (error?.status === 403) return '이 작업을 할 수 있는 권한이 없어요.'
+  if (error?.status === 503) {
+    const detail = error?.data?.detail
+    if (typeof detail === 'string' && detail.includes('신규 모임 API를 활성화하지 않았습니다')) return '프로젝트·스터디 모임 개설 기능이 현재 비활성화되어 있어요.'
+    if (typeof detail === 'string' && detail.includes('마이그레이션')) return '프로젝트·스터디 모임 개설을 준비 중이에요. 준비가 끝난 후 다시 이용해주세요.'
+    if (typeof detail === 'string' && detail.includes('기술 목록을 준비')) return '기술 목록을 준비 중이에요. 잠시 후 다시 시도해주세요.'
+  }
   if (error?.status >= 500) return '잠시 연결이 원활하지 않아요. 잠시 후 다시 시도해주세요.'
   const message = error?.data?.detail ?? error?.message
   if (typeof message === 'string' && /서버 응답|백엔드|API 요청 실패/.test(message)) return fallback
@@ -35,9 +42,12 @@ export function validateMeetupForm(form, { isEdit = false, program = true, isAdm
   const required = (key, message) => { if (!String(form[key] ?? '').trim()) errors[key] = message }
   required('title', '모임 제목을 입력해주세요.')
   required('body', '모임 소개를 입력해주세요.')
+  for (const key of ['title', 'sport_name', 'place']) {
+    if (String(form[key] ?? '').length > MEETUP_LIMITS[key]) errors[key] = `${key === 'title' ? '제목' : key === 'sport_name' ? '운동 종목' : '장소'}${key === 'place' ? '는' : '은'} ${MEETUP_LIMITS[key]}자 이하로 입력해주세요.`
+  }
   const capacity = Number(form.capacity)
-  if (!Number.isInteger(capacity) || capacity < (program ? 2 : 1) || (program && capacity > 5)) {
-    errors.capacity = program ? '모집 인원은 2~5명으로 입력해주세요.' : '모집 인원은 1명 이상으로 입력해주세요.'
+  if (!Number.isInteger(capacity) || capacity < (program ? 2 : 1) || capacity > (program ? 5 : MEETUP_LIMITS.capacity)) {
+    errors.capacity = program ? '모집 인원은 2~5명으로 입력해주세요.' : `모집 인원은 1~${MEETUP_LIMITS.capacity.toLocaleString('ko-KR')} 사이의 정수로 입력해주세요.`
   }
   if (!form.is_online) required('place', '오프라인 모임 장소를 입력해주세요.')
   if (!program || form.meeting_start || (form.regular_start_date && form.regular_time)) required('recruit_end', '모집 마감 일시를 선택해주세요.')

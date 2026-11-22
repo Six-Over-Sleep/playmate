@@ -1,6 +1,7 @@
 import { apiRequest } from './apiClient'
 
 export const meetupApi = {
+  capabilities: () => apiRequest('/recruits/capabilities'),
   skills: (options = {}) => apiRequest('/recruits/skills', options),
   like: (id) => apiRequest(`/recruits/${id}/like`, { method: 'PUT' }),
   unlike: (id) => apiRequest(`/recruits/${id}/like`, { method: 'DELETE' }),

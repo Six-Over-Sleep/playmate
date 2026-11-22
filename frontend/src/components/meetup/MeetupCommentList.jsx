@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { formatDateTime } from '../../utils/meetup'
 import { canManageComment, canReplyTo } from '../../utils/commentReply'
 import CommentBodyText from '../comment/CommentBodyText'
+import { MeetupConfirm } from './MeetupFeedback'
 
 // 모임 댓글 목록과 작성·답글·수정·삭제 입력을 표시함.
 // 서버가 부모 → 대댓글 순서로 내려주므로 parent_comment_id가 있으면 들여쓰기만 함.
@@ -18,6 +19,7 @@ export default function MeetupCommentList({
   const [replyBody, setReplyBody] = useState('')
   const [editingId, setEditingId] = useState(null)
   const [editBody, setEditBody] = useState('')
+  const [deletingComment, setDeletingComment] = useState(null)
 
   // 삭제 자리표시는 실제 댓글이 아니므로 개수에서 제외함.
   const commentCount = comments.filter((comment) => !comment.is_deleted).length
@@ -176,7 +178,7 @@ export default function MeetupCommentList({
                             type="button"
                             className="delete"
                             disabled={busy}
-                            onClick={() => onDelete(comment.comment_id)}
+                            onClick={() => setDeletingComment(comment)}
                           >
                             삭제
                           </button>
@@ -209,6 +211,15 @@ export default function MeetupCommentList({
         '댓글을 입력해주세요.',
         '댓글 작성',
       )}
+      {deletingComment && <MeetupConfirm
+        busy={busy}
+        title={deletingComment.parent_comment_id == null ? '댓글을 삭제할까요?' : '답글을 삭제할까요?'}
+        description="삭제한 내용은 화면에서 사라져요. 답글이 남아 있는 원댓글은 삭제 표시로 유지돼요."
+        onCancel={() => setDeletingComment(null)}
+        onConfirm={async () => {
+          if (await onDelete(deletingComment.comment_id)) setDeletingComment(null)
+        }}
+      />}
     </section>
   )
 }

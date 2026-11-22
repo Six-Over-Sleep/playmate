@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { MeetupNotice, MeetupConfirm } from './MeetupFeedback'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 
 import MeetupPage from '../../pages/meetup/MeetupPage'
 import MeetupDetailPage from '../../pages/meetup/MeetupDetailPage'
@@ -12,6 +12,8 @@ export default function MeetupSection({
   isAdmin = false,
 } = {}) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const listUrl = useRef('/meetup')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [creationCategory, setCreationCategory] = useState('study')
 
@@ -69,6 +71,7 @@ export default function MeetupSection({
       return
     }
 
+    listUrl.current = `/meetup${location.search}`
     navigate(`/meetup/${recruitId}`)
   }
 
@@ -78,7 +81,7 @@ export default function MeetupSection({
 
   const handleGoBack = () => {
     goBack(false)
-    navigate('/meetup')
+    navigate(listUrl.current)
   }
 
   // =========================================================
@@ -88,6 +91,13 @@ export default function MeetupSection({
   return (
     <>
       <MeetupNotice message={error || actionMessage} error={Boolean(error)} onClose={dismissNotice} />
+      {!detailLoading && view === 'error' && (
+        <main className="meetup-page meetup-detail-error">
+          <h1>모임을 열 수 없어요.</h1>
+          <p>{error || '모임 주소를 확인하고 다시 이용해주세요.'}</p>
+          <button type="button" onClick={handleGoBack}>모임 목록으로 돌아가기</button>
+        </main>
+      )}
       {confirmDelete && <MeetupConfirm busy={busy} onCancel={() => setConfirmDelete(false)} onConfirm={async () => { await deleteMeetup(); setConfirmDelete(false) }} />}
 
       {/* 상세 조회 로딩 */}

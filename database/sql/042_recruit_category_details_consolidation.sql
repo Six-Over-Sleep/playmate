@@ -1,17 +1,29 @@
--- 042: legacy category details → recruits.details
--- 실행 전 반드시 취업 037~040 및 댓글 041이 반영된 최신 스키마/DB 변경 이력을 확인하세요.
--- 이관을 위한 SQL 초안이며 로컬 PostgreSQL 복원본에서 검증 전 Aiven/RDS 실행 금지.
--- 042과 043는 서로 별도 트랜잭션이며 PostgreSQL에서만 실행합니다.
--- 게시판/취업/공용 posts, career, post_attachments 테이블은 수정하지 않습니다.
-
--- DATABASE.ZIP 교차검증 후 수정된 검토용 SQL. Aiven/RDS 직접 실행 금지.
--- REVIEW DRAFT / NOT APPLIED: 모임 상세 4종 → recruits.details JSONB
--- 반드시 동일 버전 스키마 백업, 복원 DB의 테스트 및 SQL 사전검증 후 적용.
--- 이 파일은 사용자가 제공한 backend(2).zip + 이전 playmate_schema.sql을 기준으로 작성.
--- 현재 Aiven/RDS 객체·권한·의존성을 직접 검증하지 않은 상태.
--- 이슈 #157: 기존 댓글 041과 번호 충돌을 피하기 위해 042/043으로 변경. 최종 적용 전 최신 번호 재확인.
--- 트랜잭션 중 ACCESS EXCLUSIVE LOCK이 걸리므로 유지보수 시간에만 수행.
--- 기존 백엔드 소스 변경 없이 조회/INSERT/UPDATE/DELETE를 지원하는 호환 뷰를 생성.
+-- 042: 모임 유형별 상세 테이블 통합
+-- Issue: #157
+-- 대상 DB: PostgreSQL 18
+--
+-- 변경 내용:
+--   recruit_sports_details
+--   recruit_game_details
+--   recruit_study_details
+--   recruit_group_buy_details
+--   위 4개 테이블을 recruits.details(JSONB)로 통합.
+--   기존 테이블 이름은 쓰기 가능한 호환 뷰로 유지.
+--
+-- 적용 및 검증 상태 (2026-11-22):
+--   [완료] PostgreSQL 18 로컬 복원본 마이그레이션 검증
+--   [완료] Aiven DB 마이그레이션 적용
+--   [완료] 기존 모임 상세 데이터 23건 보존 확인
+--   [완료] 호환 뷰 및 주요 제약조건·트리거 확인
+--   [미적용] AWS RDS 마이그레이션
+--
+-- 주의사항:
+--   1. 취업 037~040 및 댓글 041 선행 변경사항 확인.
+--   2. 042 적용 후 043을 별도 트랜잭션으로 실행.
+--   3. 적용 완료된 Aiven DB에 재실행하지 말 것.
+--   4. 신규 DB 적용 전 백업·권한·객체 의존성 확인.
+--   5. ACCESS EXCLUSIVE LOCK이 발생하므로 유지보수 시간에 적용.
+--   6. 게시판·취업 등 다른 도메인 테이블은 수정하지 않음.
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';

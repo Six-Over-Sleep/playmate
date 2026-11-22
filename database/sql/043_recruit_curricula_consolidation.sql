@@ -1,15 +1,26 @@
--- 043: curriculum → recruit_programs
--- 실행 전 반드시 취업 037~040 및 댓글 041이 반영된 최신 스키마/DB 변경 이력을 확인하세요.
--- 이관을 위한 SQL 초안이며 로컬 PostgreSQL 복원본에서 검증 전 Aiven/RDS 실행 금지.
--- 042과 043는 서로 별도 트랜잭션이며 PostgreSQL에서만 실행합니다.
--- 게시판/취업/공용 posts, career, post_attachments 테이블은 수정하지 않습니다.
+-- 043: 모임 커리큘럼 테이블 통합
+-- Issue: #157
+-- 대상 DB: PostgreSQL 18
+--
+-- 변경 내용:
+--   recruit_curricula 물리 테이블을 recruit_programs로 통합.
+--   기존 커리큘럼 이름은 쓰기 가능한 호환 뷰로 유지.
+--   커리큘럼 버전 및 데이터 관리 구조 통합.
+--
+-- 적용 및 검증 상태 (2026-11-22):
+--   [완료] PostgreSQL 18 로컬 복원본 마이그레이션 검증
+--   [완료] Aiven DB 마이그레이션 적용
+--   [완료] recruit_curricula 호환 뷰 생성 확인
+--   [완료] 관련 제약조건 및 트리거 확인
+--   [미적용] AWS RDS 마이그레이션
+--
+-- 주의사항:
+--   1. 042 적용 이후 실행할 것.
+--   2. 적용 완료된 Aiven DB에 재실행하지 말 것.
+--   3. 신규 DB 적용 전 백업·권한·객체 의존성 확인.
+--   4. 커리큘럼 버전 충돌 및 잠금 정책 검증 필요.
+--   5. ACCESS EXCLUSIVE LOCK이 발생하므로 유지보수 시간에 적용.
 
--- DATABASE.ZIP 교차검증 후 수정된 검토용 SQL. Aiven/RDS 직접 실행 금지.
--- OPTIONAL REVIEW DRAFT / NOT APPLIED
--- recruit_curricula 물리 테이블 1개를 recruit_programs 컬럼으로 통합한 뒤
--- 기존 코드의 읽기/쓰기 호환을 위해 동일한 이름의 가변 뷰를 둔다.
--- 반드시 database/audit/meetup_preflight.sql 결과와 최신 database/sql 의존성 검토 후 결정.
--- 스터디 커리큘럼은 버전 충돌/잠금 로직이 있으므로 01과 별도 단계로 적용/테스트.
 BEGIN;
 SET LOCAL lock_timeout='5s';
 SET LOCAL statement_timeout='120s';

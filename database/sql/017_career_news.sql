@@ -8,7 +8,7 @@
 -- 시각 컬럼 기준 (모두 시간대 없는 TIMESTAMP):
 --   published_at·first_seen_at·last_seen_at: UTC. 가져오기 스크립트가 UTC 값을 직접 넣는다 (DEFAULT는 쓰지 않음).
 --   hidden_at: 숨김 여부(NULL 여부)만 쓴다. 운영자가 값을 넣을 때도 UTC를 권장한다.
---   created_at(career_news_fields·career_news_scraps): DEFAULT CURRENT_TIMESTAMP, 즉 DB 세션 시간대 기준이며
+--   created_at(career_news_scraps): DEFAULT CURRENT_TIMESTAMP, 즉 DB 세션 시간대 기준이며
 --   post_scraps.created_at과 같은 방식이다 (마이페이지에서 게시글·뉴스 스크랩을 같은 기준으로 정렬).
 
 BEGIN;
@@ -38,11 +38,20 @@ CREATE TABLE IF NOT EXISTS career_news (
     -- 운영자 숨김·링크 만료 처리 (물리 삭제 대신 사용, 가져오기가 다시 풀지 않음)
     hidden_at TIMESTAMP,
 
+    -- 하나의 뉴스가 여러 직무 분야에 속할 수 있으므로 TEXT[] 배열로 저장한다.
+    field_codes TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+
     CONSTRAINT uq_career_news_link_key UNIQUE (link_key),
     CONSTRAINT ck_career_news_link_key CHECK (link_key ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_career_news_link_url CHECK (link_url ~* '^https?://'),
     CONSTRAINT ck_career_news_link_type CHECK (link_type IN ('GOOGLE_NEWS_RSS', 'UNVERIFIED')),
-    CONSTRAINT ck_career_news_title_not_blank CHECK (BTRIM(title) <> '')
+    CONSTRAINT ck_career_news_title_not_blank CHECK (BTRIM(title) <> ''),
+    CONSTRAINT ck_career_news_field_codes CHECK (
+        field_codes <@ ARRAY[
+            'data_ai', 'backend', 'frontend', 'mobile',
+            'cloud_infra', 'security', 'qa_test', 'it_product'
+        ]::TEXT[]
+    )
 );
 
 -- 목록 조회: 숨기지 않은 뉴스를 최신순으로
@@ -55,27 +64,9 @@ CREATE INDEX IF NOT EXISTS idx_career_news_source_title
     ON career_news (source_name, title);
 
 
--- 2. 뉴스 ↔ 직무 분야 (한 뉴스가 여러 분야에 속할 수 있음)
-CREATE TABLE IF NOT EXISTS career_news_fields (
-    news_id BIGINT NOT NULL
-        REFERENCES career_news(news_id) ON DELETE CASCADE,
-    field_code VARCHAR(20) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    PRIMARY KEY (news_id, field_code),
-
-    -- 채용 트렌드(job_trends_catalog.FIELDS)와 같은 8개 직무 분야 코드
-    CONSTRAINT ck_career_news_fields_code CHECK (
-        field_code IN (
-            'data_ai', 'backend', 'frontend', 'mobile',
-            'cloud_infra', 'security', 'qa_test', 'it_product'
-        )
-    )
-);
-
--- 분야별 목록 조회
-CREATE INDEX IF NOT EXISTS idx_career_news_fields_code
-    ON career_news_fields (field_code, news_id);
+-- 2. 분야별 뉴스 필터: field_codes 배열 포함 여부를 빠르게 조회
+CREATE INDEX IF NOT EXISTS idx_career_news_field_codes
+    ON career_news USING GIN (field_codes);
 
 
 -- 3. 회원별 뉴스 스크랩 (post_scraps와 같은 구조, 뉴스는 posts에 없으므로 별도 테이블)
@@ -100,8 +91,8 @@ COMMIT;
 SELECT table_name
 FROM information_schema.tables
 WHERE table_schema = current_schema()
-  AND table_name IN ('career_news', 'career_news_fields', 'career_news_scraps')
+  AND table_name IN ('career_news', 'career_news_scraps')
 ORDER BY table_name;
 
 -- 되돌리기 (스크랩 기록도 함께 삭제되므로 주의)
--- DROP TABLE IF EXISTS career_news_scraps, career_news_fields, career_news;
+-- DROP TABLE IF EXISTS career_news_scraps, career_news;

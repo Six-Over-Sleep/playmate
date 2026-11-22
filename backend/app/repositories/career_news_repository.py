@@ -29,12 +29,7 @@ def list_news(
             n.link_url,
             n.link_type,
             n.published_at,
-            ARRAY(
-                SELECT f.field_code
-                FROM career_news_fields AS f
-                WHERE f.news_id = n.news_id
-                ORDER BY f.field_code
-            ) AS field_codes,
+            n.field_codes AS field_codes,
             EXISTS (
                 SELECT 1
                 FROM career_news_scraps AS s
@@ -46,12 +41,7 @@ def list_news(
             AND COALESCE(n.published_at, n.first_seen_at) >= %(since)s
             AND (
                 %(field_code)s::text IS NULL
-                OR EXISTS (
-                    SELECT 1
-                    FROM career_news_fields AS f
-                    WHERE f.news_id = n.news_id
-                        AND f.field_code = %(field_code)s
-                )
+                OR n.field_codes @> ARRAY[%(field_code)s::text]
             )
         ORDER BY COALESCE(n.published_at, n.first_seen_at) DESC, n.news_id DESC
         LIMIT %(limit)s
@@ -78,12 +68,7 @@ def get_news(cursor, news_id: int, member_id: int) -> dict[str, Any] | None:
             n.link_type,
             n.published_at,
             n.hidden_at IS NOT NULL AS is_hidden,
-            ARRAY(
-                SELECT f.field_code
-                FROM career_news_fields AS f
-                WHERE f.news_id = n.news_id
-                ORDER BY f.field_code
-            ) AS field_codes,
+            n.field_codes AS field_codes,
             EXISTS (
                 SELECT 1
                 FROM career_news_scraps AS s
@@ -108,12 +93,7 @@ def list_member_scraps(cursor, member_id: int, limit: int) -> list[dict[str, Any
             n.source_name,
             n.published_at,
             n.hidden_at IS NOT NULL AS is_hidden,
-            ARRAY(
-                SELECT f.field_code
-                FROM career_news_fields AS f
-                WHERE f.news_id = n.news_id
-                ORDER BY f.field_code
-            ) AS field_codes,
+            n.field_codes AS field_codes,
             s.created_at AS scrapped_at
         FROM career_news_scraps AS s
         JOIN career_news AS n

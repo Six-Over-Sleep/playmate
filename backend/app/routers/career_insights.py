@@ -1,4 +1,4 @@
-"""Career insight preview and future database endpoints."""
+"""Career insight endpoints: JSON preview and job_postings-backed statistics."""
 import logging
 import os
 
@@ -27,7 +27,12 @@ def connect():
 def load_rows():
     with connect() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT source_id,source,job_roles,specialties,tech_stacks,certifications,preferences,collected_at,collection_year,collection_quarter FROM saramin_insight_jobs')
+            cur.execute("""
+                SELECT source_id, source, job_roles, specialties, tech_stacks,
+                       collected_at, collection_year, collection_quarter
+                FROM public.job_postings
+                ORDER BY collected_at DESC, source, source_id
+            """)
             return validate_rows(cur.fetchall())
 
 

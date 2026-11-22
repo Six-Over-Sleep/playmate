@@ -1,4 +1,4 @@
-"""Normalize/dedupe crawler results and UPSERT into saramin_job_postings.
+"""Normalize/dedupe crawler results and UPSERT into public.job_postings.
 
 The caller supplies a cursor managed by Playmate db_cursor(commit=True).
 No direct DB connection or schema creation lives in the crawler package.
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
-ALLOWED_JSON_FIELDS = ('job_roles','specialties','tech_stacks','preferences','raw_tags')
+ARRAY_FIELDS = ('job_roles', 'specialties', 'tech_stacks')
 LOCK_KEY = 740_014_020
 
 @dataclass
@@ -30,12 +30,8 @@ def dedupe_jobs(jobs: Iterable[dict]) -> tuple[list[dict], int]:
         key = (job.get('source', 'saramin_web'), source_id)
         if key in by_key:
             previous = by_key[key]
-            for column in ALLOWED_JSON_FIELDS:
-                if column != 'preferences':
-                    job[column] = list(dict.fromkeys([*(previous.get(column) or []), *(job.get(column) or [])]))
-            if job.get('detail_status') == 'not_requested' and previous.get('preferences'):
-                job['preferences'] = previous['preferences']
-                job['detail_status'] = previous.get('detail_status', 'parsed')
+            for column in ARRAY_FIELDS:
+                job[column] = list(dict.fromkeys([*(previous.get(column) or []), *(job.get(column) or [])]))
         by_key[key] = job
     return list(by_key.values()), skipped
 
@@ -47,44 +43,45 @@ def import_jobs(cursor, jobs: Iterable[dict]) -> ImportReport:
         return report
     cursor.execute('SELECT pg_advisory_xact_lock(%s)', (LOCK_KEY,))
     for job in normalized:
-        payload = dict(job)
-        for key in ALLOWED_JSON_FIELDS:
-            payload[key] = Jsonb(payload.get(key) or [])
+        payload = {
+            'source': job.get('source') or 'saramin_web',
+            'source_id': str(job['source_id']),
+            'title': job['title'],
+            'company': job.get('company'),
+            'url': job['url'],
+            'job_roles': job.get('job_roles') or [],
+            'specialties': job.get('specialties') or [],
+            'tech_stacks': job.get('tech_stacks') or [],
+            'raw_tags': Jsonb(job.get('raw_tags') or []),
+            'role_classification_source': job.get('role_classification_source'),
+            'detail_status': job.get('detail_status'),
+            'collected_at': job.get('collected_at'),
+            'collection_year': job.get('collection_year'),
+            'collection_quarter': job.get('collection_quarter'),
+        }
         cursor.execute("""
-            INSERT INTO saramin_job_postings (
-                source, source_id, title, company, url, deadline_text,
-                location, career, education, employment_type,
-                job_roles, specialties, tech_stacks, preferences, raw_tags,
-                role_classification_source, specialty_classification_source,
-                detail_status, collected_at, collection_year, collection_quarter
+            INSERT INTO public.job_postings (
+                source, source_id, title, company, url,
+                job_roles, specialties, tech_stacks, raw_tags,
+                role_classification_source, detail_status,
+                collected_at, collection_year, collection_quarter
             ) VALUES (
-                %(source)s,%(source_id)s,%(title)s,%(company)s,%(url)s,%(deadline_text)s,
-                %(location)s,%(career)s,%(education)s,%(employment_type)s,
-                %(job_roles)s,%(specialties)s,%(tech_stacks)s,%(preferences)s,%(raw_tags)s,
-                %(role_classification_source)s,%(specialty_classification_source)s,
-                %(detail_status)s,%(collected_at)s,%(collection_year)s,%(collection_quarter)s
+                %(source)s, %(source_id)s, %(title)s, %(company)s, %(url)s,
+                %(job_roles)s, %(specialties)s, %(tech_stacks)s, %(raw_tags)s,
+                %(role_classification_source)s, %(detail_status)s,
+                %(collected_at)s, %(collection_year)s, %(collection_quarter)s
             )
             ON CONFLICT (source, source_id) DO UPDATE SET
                 title = EXCLUDED.title,
                 company = EXCLUDED.company,
                 url = EXCLUDED.url,
-                deadline_text = EXCLUDED.deadline_text,
-                location = EXCLUDED.location,
-                career = EXCLUDED.career,
-                education = EXCLUDED.education,
-                employment_type = EXCLUDED.employment_type,
                 job_roles = EXCLUDED.job_roles,
                 specialties = EXCLUDED.specialties,
                 tech_stacks = EXCLUDED.tech_stacks,
-                preferences = CASE WHEN EXCLUDED.detail_status = 'not_requested'
-                    THEN saramin_job_postings.preferences ELSE EXCLUDED.preferences END,
                 raw_tags = EXCLUDED.raw_tags,
                 role_classification_source = EXCLUDED.role_classification_source,
-                specialty_classification_source = EXCLUDED.specialty_classification_source,
-                detail_status = CASE WHEN EXCLUDED.detail_status = 'not_requested'
-                    THEN saramin_job_postings.detail_status ELSE EXCLUDED.detail_status END,
-                collected_at = EXCLUDED.collected_at,
-                last_seen_at = NOW()
+                detail_status = EXCLUDED.detail_status,
+                updated_at = NOW()
             RETURNING (xmax = 0) AS inserted
         """, payload)
         result = cursor.fetchone()

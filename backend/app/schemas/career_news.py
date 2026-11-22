@@ -1,6 +1,6 @@
 """커리어 브리핑 뉴스 조회·스크랩 응답 형식 (Issue #74).
 
-뉴스 데이터는 database/sql/017_career_news.sql의 career_news / career_news_fields / career_news_scraps를 쓴다.
+뉴스 데이터는 database/sql/017_career_news.sql의 career_news(field_codes 배열) / career_news_scraps를 쓴다.
 현재 링크는 Google News RSS 링크(link_type=GOOGLE_NEWS_RSS)이며 언론사 원문 주소로 검증된 값이 아니므로
 original_url은 비워 두고 link_url / link_type으로 따로 전달한다.
 요약·해설·키워드 필드는 화면 호환과 향후 AI 기능을 위해 유지하며, 값을 만들어 넣지 않는다.

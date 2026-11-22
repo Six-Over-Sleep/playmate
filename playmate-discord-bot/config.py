@@ -153,6 +153,9 @@ NOTIFICATION_RETRY_DELAY_SECONDS = 60
 
 # 취업게시판 신규 글 자동 공지: 매일 18:00 (KST), 취준 도감·커리어 연구소, 하루 최대 5개.
 # 채널은 PLAYMATE_CAREER_CHANNEL_ID(#취업-소식)를 쓴다. 실패한 글은 다음 실행에서 총 3회까지 다시 시도한다.
+# 서버리스 공유(career_share, Issue #163)로 넘어갈 때 18:00 공지만 끄는 스위치. 기본은 켜짐(기존 동작 유지):
+# 값이 비었거나 없으면 켜지고, false/0/no/off일 때만 꺼진다. PLAYMATE_CAREER_CHANNEL_ID(공식 채널 보호 목록)는 건드리지 않는다.
+CAREER_NOTICE_ENABLED = (os.getenv("PLAYMATE_CAREER_NOTICE_ENABLED") or "true").strip().lower() not in ("false", "0", "no", "off")
 CAREER_NOTICE_TIME = time(18, 0, tzinfo=KST)
 CAREER_NOTICE_CATEGORIES = ("reviews", "lab")
 CAREER_NOTICE_DAILY_LIMIT = 5

@@ -10,6 +10,7 @@ from discord.ext import tasks
 from config import (
     ADMIN_ROLE_ID,
     CAREER_CHANNEL_ID,
+    CAREER_NOTICE_ENABLED,
     DB_CONFIGURED,
     GUILD_ID,
     HOT_CHANNEL_ID,
@@ -68,7 +69,9 @@ if DB_CONFIGURED:
     tree.add_command(build_promotion_command(hot_service, ADMIN_ROLE_ID), guild=guild_object)
     feature_tasks.append(("알림 polling (10초)", create_notification_task(client, notification_service)))
     # HOT 자동 게시는 없다. 팀원의 HOT 게시판 API·DB가 확정되면 연동한다 (수동 /게시글추천만 동작).
-    if CAREER_CHANNEL_ID is not None:
+    if not CAREER_NOTICE_ENABLED:
+        print("[취업 공지] PLAYMATE_CAREER_NOTICE_ENABLED=false: 18:00 공지를 실행하지 않습니다 (career_share로 대체).")
+    elif CAREER_CHANNEL_ID is not None:
         career_notice_service = CareerNoticeService(
             client, PostgresCareerNoticeRepository(feature_db), CAREER_CHANNEL_ID)
         feature_tasks.append(("취업 신규 글 공지 (18:00)", create_career_notice_task(client, career_notice_service)))

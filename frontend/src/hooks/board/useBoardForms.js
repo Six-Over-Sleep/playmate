@@ -2,11 +2,8 @@
 // PLAYMATE_BOARD_ANONYMOUS_V1
 import { useEffect, useRef, useState } from 'react'
 
-export const postImageLimits = {
-  count: 3,
-  sizeMb: 5,
-  mimeTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-}
+import { postImageLimits } from '../../utils/boardPolicy'
+export { postImageLimits }
 
 /** 입력을 성공 후에만 비우며 같은 렌더 사이의 연속 제출도 ref 잠금으로 막는다. */
 export function useCommentForm(busy, onSubmit) {

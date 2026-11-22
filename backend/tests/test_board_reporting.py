@@ -27,12 +27,12 @@ class FakeCursor:
         if "FOR UPDATE OF p" in sql:
             self.locked = True
             self.result = dict(self.post)
-        elif "INSERT INTO post_reports" in sql:
+        elif "INSERT INTO post_reactions" in sql and "'REPORT'" in sql:  # 045
             assert self.locked, "동시 신고 경쟁을 방지하려면 게시글 잠금이 선행되어야 합니다."
             reporter = params[1]
             self.result = {"report_id": len(self.reporters) + 1} if reporter not in self.reporters else None
             self.reporters.add(reporter)
-        elif "COUNT(*)::int AS count FROM post_reports" in sql:
+        elif "COUNT(*)::int AS count FROM post_reactions WHERE reaction_type = 'REPORT'" in sql:
             self.result = {"count": len(self.reporters)}
         elif "UPDATE posts SET post_status = 'HIDDEN'" in sql:
             self.hidden_updates += 1

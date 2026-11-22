@@ -1,13 +1,11 @@
+import { NOTICE_BOARD_NAME, FREE_BOARD_NAME } from '../../utils/boardPolicy'
 // 기존 게시판 API와 검색·게시글 기능을 유지하며 메인 큐레이션 순서를 정리합니다.
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PostSearch from '../../components/board/PostSearch'
-import { useSortedPosts } from '../../hooks/board/useBoardSearch'
 import BoardSidebar from '../../components/board/BoardSidebar'
 import PostCard from '../../components/board/PostCard'
-import { boardApi } from '../../services/boardApi'
 
-const PREVIEW_COUNT = 3
 
 function PreviewList({ posts, emptyMessage, onOpen, variant = 'ranked' }) {
   if (!posts.length) return <p className="pm-board-highlight-empty">{emptyMessage}</p>
@@ -28,55 +26,43 @@ function PreviewList({ posts, emptyMessage, onOpen, variant = 'ranked' }) {
 export default function BoardPage({
   boards, memberCourse, memberCohort, board, posts, query, loading, busy,
   onSelectBoard, onCreateBoard, onSearch, onWrite, onPost,
+  page, sort, hasNext, onPage, onSort, loadPreview, previewVersion,
 }) {
   const navigate = useNavigate()
-  const [sort, setSort] = useState('latest')
   const [hotPosts, setHotPosts] = useState([])
   const [hallPosts, setHallPosts] = useState([])
   const [noticePosts, setNoticePosts] = useState([])
 
-  const sortedPosts = useSortedPosts(posts, sort)
-  const visiblePosts = board?.featured ? (Array.isArray(posts) ? posts : []) : sortedPosts
-  const canWrite = board && board.name !== '공지사항' && !board.featured && board.can_write !== false
+  const visiblePosts = Array.isArray(posts) ? posts : []
+  const canWrite = board && board.name !== NOTICE_BOARD_NAME && !board.featured && board.can_write !== false
   const hotBoard = boards.find((candidate) => String(candidate.id) === 'hot')
   const hallBoard = boards.find((candidate) => String(candidate.id) === 'hall-of-fame')
-  const noticeBoard = boards.find((candidate) => String(candidate.name || '').replace(/^📢\s*/u, '') === '공지사항')
+  const noticeBoard = boards.find((candidate) => String(candidate.name || '').replace(/^📢\s*/u, '') === NOTICE_BOARD_NAME)
   const noticeBoardId = noticeBoard?.id
   const selectedBoardName = String(board?.name || '').replace(/^[📢🏆🔥]\s*/u, '').trim()
-  const showHighlights = selectedBoardName === '자유게시판'
+  const showHighlights = selectedBoardName === FREE_BOARD_NAME
   // 공지사항을 선택한 경우 동일한 글을 미리보기와 목록에 중복 표시하지 않습니다.
-  const showNoticePreview = Boolean(noticeBoard) && selectedBoardName !== '공지사항'
+  const showNoticePreview = Boolean(noticeBoard) && selectedBoardName !== NOTICE_BOARD_NAME
 
-  // HOT / 명예의 전당 미리보기는 자유게시판 메인에서만 불러옵니다.
   useEffect(() => {
-    if (!showHighlights) return undefined
-    const controller = new AbortController()
-
-    boardApi.featuredPosts('hot', '', { signal: controller.signal })
-      .then((items) => { if (!controller.signal.aborted) setHotPosts(Array.isArray(items) ? items.slice(0, PREVIEW_COUNT) : []) })
-      .catch((error) => { if (error.name !== 'AbortError') setHotPosts([]) })
-
-    boardApi.featuredPosts('hall-of-fame', '', { signal: controller.signal })
-      .then((items) => { if (!controller.signal.aborted) setHallPosts(Array.isArray(items) ? items.slice(0, PREVIEW_COUNT) : []) })
-      .catch((error) => { if (error.name !== 'AbortError') setHallPosts([]) })
-
-    return () => controller.abort()
-  }, [showHighlights])
-
-  // 공지사항은 별도 게시판이므로 실제 공지 게시판 ID로 최신 글을 불러옵니다.
-  useEffect(() => {
-    if (noticeBoardId == null || !showNoticePreview) {
-      setNoticePosts([])
-      return undefined
+    let active = true
+    setHotPosts([])
+    setHallPosts([])
+    if (showHighlights) {
+      loadPreview('hot').then((items) => { if (active) setHotPosts(items) }).catch(() => {})
+      loadPreview('hall-of-fame').then((items) => { if (active) setHallPosts(items) }).catch(() => {})
     }
+    return () => { active = false }
+  }, [showHighlights, loadPreview, previewVersion])
 
-    const controller = new AbortController()
-    boardApi.posts(noticeBoardId, '', { signal: controller.signal })
-      .then((items) => { if (!controller.signal.aborted) setNoticePosts(Array.isArray(items) ? items.slice(0, 2) : []) })
-      .catch((error) => { if (error.name !== 'AbortError') setNoticePosts([]) })
-
-    return () => controller.abort()
-  }, [noticeBoardId, showNoticePreview])
+  useEffect(() => {
+    let active = true
+    setNoticePosts([])
+    if (noticeBoardId != null && showNoticePreview) {
+      loadPreview('notice', noticeBoardId).then((items) => { if (active) setNoticePosts(items) }).catch(() => {})
+    }
+    return () => { active = false }
+  }, [noticeBoardId, showNoticePreview, loadPreview, previewVersion])
 
   const openPreviewPost = (post, fallbackBoard) => {
     const targetBoardId = post?.board_id ?? fallbackBoard?.id
@@ -146,11 +132,16 @@ export default function BoardPage({
             </div>
             {canWrite && <button type="button" className="button mint write" disabled={busy} onClick={onWrite}>＋ 글쓰기</button>}
           </div>
-          {board && <PostSearch key={board.id} value={query} sort={sort} onSort={setSort} onSearch={onSearch} busy={busy} hideSort={Boolean(board.featured)} />}
+          {board && <PostSearch key={board.id} value={query} sort={sort} onSort={onSort} onSearch={onSearch} busy={busy || loading} hideSort={Boolean(board.featured)} />}
           {loading ? <p className="empty-state">불러오는 중…</p>
             : posts === null ? <p className="empty-state error-state">게시글을 불러오지 못했습니다. 상단 오류를 확인해주세요.</p>
               : visiblePosts.length > 0 ? visiblePosts.map((post) => <PostCard key={post.id} post={post} disabled={busy} onClick={() => onPost(post)} />)
                 : <p className="empty-state">{query ? '검색 결과가 없습니다.' : board?.featured ? '아직 선정 기준을 충족한 인기 게시글이 없습니다.' : '아직 작성된 글이 없습니다.'}</p>}
+          {!board?.featured && posts !== null && <nav aria-label="게시글 페이지" className="board-pagination">
+            <button type="button" disabled={busy || loading || page === 0} onClick={() => onPage(page - 1)}>이전</button>
+            <span aria-live="polite"> {page + 1} 페이지 </span>
+            <button type="button" disabled={busy || loading || !hasNext} onClick={() => onPage(page + 1)}>다음</button>
+          </nav>}
         </section>
       </div>
     </div>

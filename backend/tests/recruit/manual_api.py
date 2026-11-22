@@ -74,7 +74,6 @@ def create_app():
     from backend.app.models.comment import Comment
     from backend.app.models.post import Post
     from backend.app.models.post_like import PostLike
-    from backend.app.models.post_scrap import PostScrap
     from backend.app.models.recruit import (
         Recruit,
         RecruitMember,
@@ -115,8 +114,7 @@ def create_app():
         RecruitSportsDetail,
         RecruitGameDetail,
         RecruitGroupBuyDetail,
-        PostLike,
-        PostScrap,
+        PostLike,  # post_reactions: 좋아요·스크랩 공용 테이블(045)
         ProgramRecord,
         ApplicationRecord,
         EligibilityRecord,

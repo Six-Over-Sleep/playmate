@@ -12,7 +12,6 @@ from backend.app.core.database import Base
 from backend.app.models.member import Member
 from backend.app.models.post import Post
 from backend.app.models.post_like import PostLike
-from backend.app.models.post_scrap import PostScrap
 from backend.app.models.recruit import Recruit, RecruitMember
 from backend.app.models import recruit_program
 from backend.app.repositories.recruit_program_repository import ProgramRepository
@@ -48,8 +47,7 @@ def service(monkeypatch):
         Post.__table__,
         Recruit.__table__,
         RecruitMember.__table__,
-        PostLike.__table__,
-        PostScrap.__table__,
+        PostLike.__table__,  # post_reactions: 좋아요·스크랩 공용 테이블(045)
     ]
     tables += [
         table

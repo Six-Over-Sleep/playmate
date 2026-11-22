@@ -36,6 +36,7 @@ class FakeCursor:
                 ("recruits", "details"),
                 ("recruit_programs", "meetup_curriculum_version"),
                 ("recruit_programs", "meetup_curriculum_items"),
+                ("member_board_visit_events", "board_id"),
             ]
             if self.missing_column in self.result:
                 self.result.remove(self.missing_column)
@@ -55,7 +56,7 @@ class FakeCursor:
 
 
 ALL_TABLES = set(schema_check.BASE_TABLES) | {
-    "xp_award_policies", "member_board_visits", "member_board_visit_events",
+    "xp_award_policies", "member_board_visit_events", "post_attachments", "post_reactions",
     "level_policies", "xp_limit_policies", "recruit_programs",
 }
 
@@ -64,7 +65,7 @@ def test_complete_schema_passes_in_order_without_writes():
     cursor = FakeCursor(ALL_TABLES)
     report = check_schema(cursor)
     assert report.ok and report.issues == []
-    assert report.checked == ["000·001", "023", "024", "025", "027"]
+    assert report.checked == ["000·001", "023", "024", "025", "027", "037", "044", "045"]
 
 
 @pytest.mark.parametrize("column", ["course_code", "cohort"])
@@ -125,8 +126,41 @@ def test_missing_award_row_points_to_its_migration():
     assert "027_xp_rule_policies.sql" in fixes["지급 정책 행 SKILL_QUIZ 없음"]
 
 
+def test_missing_044_visit_board_column_is_error():
+    """024 방문 기록은 있는데 044(board_id)가 없으면 회원별 정렬이 멈추므로 기동 전에 알린다."""
+    report = check_schema(FakeCursor(ALL_TABLES, missing_column=("member_board_visit_events", "board_id")))
+    assert not report.ok
+    assert report.errors[0].step == "044"
+    assert "044_board_table_cleanup.sql" in report.errors[0].fix
+
+
+def test_missing_post_attachments_is_error_with_037():
+    report = check_schema(FakeCursor(ALL_TABLES - {"post_attachments"}))
+    assert not report.ok
+    assert any(i.step == "037" and "037_career_board_consolidation.sql" in i.fix for i in report.errors)
+
+
+def test_missing_post_reactions_is_error_with_045():
+    report = check_schema(FakeCursor(ALL_TABLES - {"post_reactions"}))
+    assert not report.ok
+    assert any(i.step == "045" and "045_post_reactions.sql" in i.fix for i in report.errors)
+
+
+def test_old_reaction_tables_are_no_longer_required():
+    """045에서 합친 예전 테이블은 없어도 오류가 아니다."""
+    for table in ("post_likes", "post_scraps", "post_reports"):
+        assert table not in schema_check.BASE_TABLES
+    assert check_schema(FakeCursor(ALL_TABLES - {"post_likes", "post_scraps", "post_reports"})).ok
+
+
+def test_post_images_view_is_no_longer_required():
+    """044에서 post_images 호환 뷰를 제거했으므로 없어도 오류가 아니다."""
+    assert "post_images" not in schema_check.BASE_TABLES
+    assert check_schema(FakeCursor(ALL_TABLES - {"post_images"})).ok
+
+
 def test_missing_024_is_warning_only():
-    report = check_schema(FakeCursor(ALL_TABLES - {"member_board_visits", "member_board_visit_events"}))
+    report = check_schema(FakeCursor(ALL_TABLES - {"member_board_visit_events"}))
     assert report.ok
     assert {i.level for i in report.issues} == {"warning"}
 

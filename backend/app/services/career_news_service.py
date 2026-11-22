@@ -2,7 +2,7 @@
 
 뉴스 행을 화면 응답 형식(CareerNewsItem)으로 바꾼다. 요약·해설·키워드는 데이터가 없으므로 비워 둔다.
 Google News 링크는 언론사 원문 주소로 검증되지 않았으므로 original_url로 보내지 않는다.
-스크랩은 기존 게시글 스크랩(post_scraps)과 같은 규칙이다: 중복 등록·없는 스크랩 취소도 성공.
+스크랩은 기존 게시글 스크랩(post_reactions SCRAP)과 같은 규칙이다: 중복 등록·없는 스크랩 취소도 성공.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -106,7 +106,7 @@ def list_my_scraps(member_id: int, limit: int) -> dict[str, Any]:
             "category": FIELD_NAMES[codes[0]] if codes else "",
             "field_code": codes[0] if codes else None,
             "published_at": published.astimezone(KST).date().isoformat() if published else None,
-            # 게시글 스크랩(post_scraps.created_at)과 같은 기준이므로 변환하지 않는다
+            # 게시글 스크랩(post_reactions.created_at)과 같은 기준이므로 변환하지 않는다
             "scrapped_at": row["scrapped_at"],
             "is_hidden": row["is_hidden"],
         })

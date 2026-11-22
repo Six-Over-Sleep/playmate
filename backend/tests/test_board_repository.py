@@ -91,9 +91,10 @@ def isolate_legacy_board_crud_from_new_features(monkeypatch):
     """
     monkeypatch.setattr(service, "_require_board_reader", lambda *_args: None)
     monkeypatch.setattr(service, "_require_comment_board_reader", lambda *_args: None)
-    monkeypatch.setattr(service, "_require_course_board_writer", lambda *_: None)
+    monkeypatch.setattr(service, "_require_course_board_writer", lambda *_, **kw: None)
     monkeypatch.setattr(service, "_require_comment_board_writer", lambda *_: None)
-    monkeypatch.setattr(service, "_require_notice_admin", lambda *_: None)
+    monkeypatch.setattr(service, "_require_notice_admin", lambda *_, **kw: None)
+    monkeypatch.setattr(service, "_require_post_writer", lambda *_: {"id": 1, "name": "자유게시판", "course_code": None})
     monkeypatch.setattr(service, "grant_xp", lambda *_: {"awarded": False})
     monkeypatch.setattr(service, "revoke_xp", lambda *_: None)
     monkeypatch.setattr(service, "grant_post_like_xp", lambda *_: None)
@@ -140,14 +141,16 @@ def test_list_posts_bounded_queries_and_image_mapping(database, count):
     if count:
         sql, params = cursor.queries[2]
         assert params == ([row["id"] for row in rows],)
-        assert "ORDER BY post_id, display_order, image_id" in sql
+        assert "ORDER BY post_id, display_order, attachment_id" in sql
+        # 게시판 이미지는 post_attachments의 BOARD 범위에서만 읽는다(044에서 post_images 뷰 제거).
+        assert "FROM post_attachments" in sql and "attachment_scope = 'BOARD'" in sql
 
 
 def test_comments_only_check_post_existence(database):
     cursor, _, factory = database([{"exists": 1}, []])
     assert service.list_comments(1, 2, 1) == []
     assert len(cursor.queries) == 2
-    assert all("post_images" not in sql for sql, _ in cursor.queries)
+    assert all("post_attachments" not in sql for sql, _ in cursor.queries)
     factory.assert_called_once()
 
 
@@ -188,10 +191,10 @@ def test_owner_failure_rolls_back(database, method, args, exists, status, monkey
 def test_create_post_response_failure_rolls_back(database, monkeypatch):
     # 이 테스트는 권한이 아니라 DB 롤백 동작만 검증
     monkeypatch.setattr(
-        service, "_require_notice_admin", lambda *_: None
+        service, "_require_notice_admin", lambda *_, **kw: None
     )
     monkeypatch.setattr(
-        service, "_require_course_board_writer", lambda *_: None
+        service, "_require_course_board_writer", lambda *_, **kw: None
     )
 
     # 게시글 INSERT 성공 → 상세 조회 실패
@@ -209,7 +212,7 @@ def test_create_post_response_failure_rolls_back(database, monkeypatch):
     connection.close.assert_called_once()
 
 
-def test_create_post_single_transaction(database):
+def test_create_post_single_transaction(database, monkeypatch):
     """자유게시판 게시글과 첨부 이미지가 한 트랜잭션에 저장된다."""
     images = [
         dict(
@@ -221,14 +224,15 @@ def test_create_post_single_transaction(database):
     ]
     cursor, connection, factory = database([
         {"post_id": 2},  # INSERT posts ... RETURNING post_id
-        None,  # INSERT post_images
+        None,  # INSERT post_attachments
         post_row(2),  # SELECT post
-        [],  # SELECT post_images
+        [],  # SELECT post_attachments
     ])
     result = service.create_post(1, "제목", "본문", 1, images)
     assert result["id"] == 2 and result["images"] == []
     assert "INSERT INTO posts" in cursor.queries[0][0]
-    assert "INSERT INTO post_images" in cursor.queries[1][0]
+    assert "INSERT INTO post_attachments" in cursor.queries[1][0]
+    assert "'BOARD'" in cursor.queries[1][0] and "board_created_at" in cursor.queries[1][0]
     assert cursor.queries[1][1][-1] == 0  # display_order
     factory.assert_called_once()
     connection.commit.assert_called_once()
@@ -238,8 +242,8 @@ def test_create_post_single_transaction(database):
 
 def test_commit_failure_rolls_back(database, monkeypatch):
     # 커밋 실패와 롤백만 분리 검증합니다.
-    monkeypatch.setattr(service, "_require_notice_admin", lambda *_: None)
-    monkeypatch.setattr(service, "_require_course_board_writer", lambda *_: None)
+    monkeypatch.setattr(service, "_require_notice_admin", lambda *_, **kw: None)
+    monkeypatch.setattr(service, "_require_course_board_writer", lambda *_, **kw: None)
     monkeypatch.setattr(service, "revoke_xp", lambda *_: None)
     _, connection, _ = database([None])
     connection.commit.side_effect = RuntimeError("commit failed")
@@ -344,7 +348,7 @@ def test_http_posts_uses_service_repository(client, database):
 def test_http_missing_post_and_bad_sort(client, database):
     database([None])
     assert client.get("/api/boards/1/posts/999").status_code == 404
-    assert client.get("/api/boards/1/posts?sort=oldest").status_code == 422
+    assert client.get("/api/boards/1/posts?sort=unsupported").status_code == 422
     assert client.get("/api/boards/1/posts?q=" + "a" * 101).status_code == 422
 
 
@@ -488,8 +492,9 @@ def test_like_post_single_transaction(database):
     cursor, connection, factory = database([{"exists": 1}, None, like_row()])
     assert service.like_post(1, 2, 1) == like_row()
     sql, params = cursor.queries[1]
-    assert "INSERT INTO post_likes (post_id, member_id)" in sql
-    assert "ON CONFLICT (post_id, member_id) DO NOTHING" in sql
+    assert "INSERT INTO post_reactions (post_id, member_id, reaction_type)" in sql and "'LIKE'" in sql
+    assert "ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING" in sql
+    assert "ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING" in sql
     assert params == (2, 1)
     assert cursor.queries[2][1] == (2, 1, 2)
     factory.assert_called_once()
@@ -502,7 +507,7 @@ def test_duplicate_like_keeps_single_row(database):
     """이미 좋아요한 글은 기본키 충돌을 무시하므로 오류 없이 같은 상태를 반환한다."""
     cursor, connection, _ = database([{"exists": 1}, None, like_row(like_count=1)])
     assert service.like_post(1, 2, 1)["like_count"] == 1
-    assert "ON CONFLICT (post_id, member_id) DO NOTHING" in cursor.queries[1][0]
+    assert "ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING" in cursor.queries[1][0]
     connection.commit.assert_called_once()
 
 
@@ -513,7 +518,7 @@ def test_unlike_post_without_existing_like(database):
     )
     assert service.unlike_post(1, 2, 1) == like_row(like_count=0, liked_by_me=False)
     sql, params = cursor.queries[1]
-    assert "DELETE FROM post_likes" in sql and params == (2, 1)
+    assert "DELETE FROM post_reactions WHERE reaction_type = 'LIKE'" in sql and params == (2, 1)
     connection.commit.assert_called_once()
 
 
@@ -552,7 +557,7 @@ def test_get_post_includes_like_fields(database):
     response = service.get_post(1, 2, 3)
     assert response["like_count"] == 5 and response["liked_by_me"] is True
     sql, params = cursor.queries[0]
-    assert "FROM post_likes AS l WHERE l.post_id = p.post_id" in sql
+    assert "FROM post_reactions AS l WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id" in sql
     assert params == (3, 3, 3, 1, 2)
 
 
@@ -598,8 +603,8 @@ def test_scrap_post_single_transaction(database):
     cursor, connection, factory = database([{"exists": 1}, None, scrap_row()])
     assert service.scrap_post(1, 2, 1) == scrap_row()
     sql, params = cursor.queries[1]
-    assert "INSERT INTO post_scraps (post_id, member_id)" in sql
-    assert "ON CONFLICT (post_id, member_id) DO NOTHING" in sql
+    assert "INSERT INTO post_reactions (post_id, member_id, reaction_type)" in sql and "'SCRAP'" in sql
+    assert "ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING" in sql
     assert params == (2, 1)
     assert cursor.queries[2][1] == (2, 2, 1)
     factory.assert_called_once()
@@ -612,7 +617,7 @@ def test_duplicate_scrap_keeps_single_row(database):
     """이미 스크랩한 글은 기본키 충돌을 무시하므로 오류 없이 같은 상태를 반환한다."""
     cursor, connection, _ = database([{"exists": 1}, None, scrap_row()])
     assert service.scrap_post(1, 2, 1)["scrapped_by_me"] is True
-    assert "ON CONFLICT (post_id, member_id) DO NOTHING" in cursor.queries[1][0]
+    assert "ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING" in cursor.queries[1][0]
     connection.commit.assert_called_once()
 
 
@@ -623,7 +628,7 @@ def test_unscrap_post_without_existing_scrap(database):
     )
     assert service.unscrap_post(1, 2, 1) == scrap_row(scrapped_by_me=False)
     sql, params = cursor.queries[1]
-    assert "DELETE FROM post_scraps" in sql and params == (2, 1)
+    assert "DELETE FROM post_reactions WHERE reaction_type = 'SCRAP'" in sql and params == (2, 1)
     connection.commit.assert_called_once()
 
 
@@ -655,7 +660,7 @@ def test_get_post_includes_scrap_field(database, scrapped):
     cursor, _, _ = database([dict(post_row(2), scrapped_by_me=scrapped), []])
     assert service.get_post(1, 2, 3)["scrapped_by_me"] is scrapped
     sql, _ = cursor.queries[0]
-    assert "FROM post_scraps AS s WHERE s.post_id = p.post_id" in sql
+    assert "FROM post_reactions AS s WHERE s.reaction_type = 'SCRAP' AND s.post_id = p.post_id" in sql
 
 
 def test_list_posts_includes_total_scrap_count(database):

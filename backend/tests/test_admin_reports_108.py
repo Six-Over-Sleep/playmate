@@ -33,7 +33,7 @@ class ReportCursor:
         if "FOR UPDATE OF p" in normalized:
             self.current = dict(self.post)
 
-        elif "INSERT INTO post_reports" in normalized:
+        elif "INSERT INTO post_reactions" in normalized and "'REPORT'" in normalized:  # 045
             reporter_id = params[1]
             if reporter_id in self.reporters:
                 self.current = None
@@ -103,7 +103,7 @@ def test_same_member_cannot_report_twice():
     assert len(cursor.reporters) == 1
 
     assert any(
-        "ON CONFLICT (post_id, reporter_member_id) DO NOTHING" in sql
+        "ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING" in sql
         for sql, _ in cursor.queries
     )
 

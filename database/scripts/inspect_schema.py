@@ -6,7 +6,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from app.core.db_connect import db_cursor  # noqa: E402
 
-TABLES = ("members", "posts", "recruits", "boards", "comments", "post_images")
+TABLES = ("members", "posts", "recruits", "boards", "comments", "post_attachments", "post_reactions")
 
 def main() -> None:
     with db_cursor() as cursor:

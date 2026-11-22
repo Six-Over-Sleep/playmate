@@ -266,6 +266,9 @@ def withdraw_member(member_id: int, discord_id: str) -> bool:
             "DELETE FROM public.notifications WHERE receiver_member_id = %s OR actor_member_id = %s",
             (member_id, member_id),
         )
-        cursor.execute("DELETE FROM public.post_likes WHERE member_id = %s", (member_id,))
-        cursor.execute("DELETE FROM public.post_scraps WHERE member_id = %s", (member_id,))
+        # 좋아요·스크랩만 지운다. 신고 기록(REPORT)은 기존 post_reports처럼 남긴다.
+        cursor.execute(
+            "DELETE FROM public.post_reactions WHERE member_id = %s AND reaction_type IN ('LIKE', 'SCRAP')",
+            (member_id,),
+        )
     return True

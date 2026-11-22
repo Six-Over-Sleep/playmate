@@ -36,10 +36,10 @@ def main() -> None:
         stored_names: list[str] = []
         with db_cursor(commit=True) as cursor:
             if post_id:
-                cursor.execute("SELECT stored_name FROM post_images WHERE post_id=%s", (post_id,))
+                cursor.execute("SELECT stored_path AS stored_name FROM post_attachments WHERE attachment_scope='BOARD' AND post_id=%s", (post_id,))
                 stored_names = [row["stored_name"] for row in cursor.fetchall()]
                 if comment_id: cursor.execute("DELETE FROM comments WHERE comment_id=%s AND post_id=%s", (comment_id, post_id))
-                cursor.execute("DELETE FROM post_images WHERE post_id=%s", (post_id,))
+                cursor.execute("DELETE FROM post_attachments WHERE attachment_scope='BOARD' AND post_id=%s", (post_id,))
                 cursor.execute("DELETE FROM posts WHERE post_id=%s AND title=%s AND NOT EXISTS (SELECT 1 FROM recruits WHERE recruits.post_id=posts.post_id)", (post_id, name))
             if board_id:
                 cursor.execute("DELETE FROM boards WHERE board_id=%s AND board_name=%s AND NOT EXISTS (SELECT 1 FROM posts WHERE posts.board_id=boards.board_id)", (board_id, name))

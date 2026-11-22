@@ -110,11 +110,13 @@ async def lifespan(application: FastAPI):
 
     운영 기본(strict)은 누락 시 기동을 중단한다. 요청마다 다시 검사하지 않는다.
     """
-    application.state.schema_check = await run_in_threadpool(startup_check)
     try:
+        application.state.schema_check = await run_in_threadpool(startup_check)
         yield
     finally:
         await run_in_threadpool(close_pool)
+        from backend.app.core.database import engine
+        await run_in_threadpool(engine.dispose)
 
 
 # 운영에서는 /docs, /redoc, /openapi.json을 공개하지 않는다.

@@ -6,7 +6,7 @@ Discord Bot이 status='PENDING' 행을 polling해 DM을 보내고 상태를 바�
 """
 
 # db_cursor : 알림 INSERT 한 건을 자체 트랜잭션으로 커밋함.
-from backend.app.core.db_connect import db_cursor
+from app.core.db_connect import db_cursor
 
 
 def save_comment_notification(

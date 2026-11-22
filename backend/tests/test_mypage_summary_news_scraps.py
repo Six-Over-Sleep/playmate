@@ -51,7 +51,7 @@ def test_adds_news_scraps_and_keeps_other_fields(monkeypatch):
     result = mypage.get_my_activity_summary(member_id=7)
     assert result == {**SUMMARY, "scraps_count": 4}  # 게시글 3 + 뉴스 1, 나머지 필드 그대로
     assert calls == [{"read_only": True}]  # 같은 읽기 전용 연결 하나
-    assert "post_scraps" in cursor.executed[0][0] and cursor.executed[0][1] == (7,)  # 기존 요약 SQL 그대로
+    assert "post_reactions" in cursor.executed[0][0] and cursor.executed[0][1] == (7,)  # 기존 요약 SQL 그대로
     assert cursor.executed[1][0] == "SELECT to_regclass('career_news_scraps') IS NOT NULL AS has_table"
     assert cursor.executed[2] == (
         "SELECT COUNT(*)::int AS news_scraps FROM career_news_scraps WHERE member_id = %s", (7,))

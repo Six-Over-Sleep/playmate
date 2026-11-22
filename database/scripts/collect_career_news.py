@@ -132,8 +132,8 @@ def field_freshness(cursor) -> list[dict]:
     cursor.execute(
         """
         SELECT f.field_code, MAX(n.last_seen_at) AS last_seen_at, COUNT(*) AS news_count
-        FROM career_news_fields f
-        JOIN career_news n ON n.news_id = f.news_id
+        FROM career_news n
+        CROSS JOIN LATERAL unnest(n.field_codes) AS f(field_code)
         GROUP BY f.field_code
         ORDER BY f.field_code
         """

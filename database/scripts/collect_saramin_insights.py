@@ -58,28 +58,15 @@ def get_conn():
     return psycopg.connect(host=os.getenv('DB_HOST'), dbname=os.getenv('DB_NAME'), user=os.getenv('DB_USER'), password=os.getenv('DB_PASSWORD'),port=os.getenv('DB_PORT','5432'))
 
 def save(rows):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            for job in rows:
-                dt=job['collected_at']
-                if isinstance(dt,str):dt=datetime.fromisoformat(dt)
-                if dt.tzinfo is None: dt=dt.replace(tzinfo=timezone.utc)
-                cur.execute("""INSERT INTO saramin_insight_jobs
-                (source_id,source,title,company,url,job_roles,specialties,tech_stacks,certifications,preferences,raw_tags,role_classification_source,detail_status,collected_at,collection_year,collection_quarter)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT(source_id) DO UPDATE SET
-                  title=EXCLUDED.title, company=EXCLUDED.company, url=EXCLUDED.url,
-                  job_roles=EXCLUDED.job_roles, specialties=EXCLUDED.specialties,
-                  tech_stacks=EXCLUDED.tech_stacks, certifications=EXCLUDED.certifications,
-                  preferences=EXCLUDED.preferences,raw_tags=EXCLUDED.raw_tags,
-                  role_classification_source=EXCLUDED.role_classification_source,
-                  detail_status=EXCLUDED.detail_status,updated_at=NOW()
-                -- 기존 첫 수집 분기/일시는 유지. 동일 공고 재수집은 신규 수요로 세지 않음.
-                """, (str(job['source_id']),job.get('source','saramin_web'),job['title'],job.get('company'),job['url'],
-                      job.get('job_roles') or [],job.get('specialties') or [],job.get('tech_stacks') or [],job.get('certifications') or [],
-                      job.get('preferences') or [],job.get('raw_tags') or [],job.get('role_classification_source'),job.get('detail_status'),
-                      dt,job['collection_year'],job['collection_quarter']))
-        conn.commit()
+    """Legacy preview script: writes are intentionally disabled.
+
+    The job_postings ingestion is owned by the separate data-collection teammate.
+    This prevents accidentally recreating or writing to saramin_insight_jobs.
+    """
+    raise RuntimeError(
+        '이 스크립트의 --apply 적재는 비활성화되었습니다. '
+        'job_postings 적재는 담당자의 별도 파이프라인을 사용하세요.'
+    )
 
 def main():
     p=argparse.ArgumentParser()

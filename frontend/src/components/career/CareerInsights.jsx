@@ -101,7 +101,7 @@ export default function CareerInsights() {
     }).catch(err => {
       if (err.name !== 'AbortError') {
         setData(null)
-        setError('수집 데이터 조회에 실패했습니다. 서버와 JSON 파일 상태를 확인해 주세요.')
+        setError('수집 데이터 조회에 실패했습니다. 백엔드 서버와 job_postings 테이블을 확인해 주세요.')
       }
     }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
@@ -120,7 +120,7 @@ export default function CareerInsights() {
         <h3>채용 인사이트</h3>
         <p>수집된 IT 채용공고의 직무, 분야, 기술 스택을 한눈에 살펴보세요.</p>
       </div>
-      <span className="career-ci-demo-label">실제 수집 데이터 <em>· JSON 미리보기</em></span>
+      <span className="career-ci-demo-label">실제 수집 데이터 <em>· DB 조회</em></span>
     </header>
     <div className="career-ci-source">
       <span>출처 <strong>사람인 공개 채용공고</strong></span>

@@ -8,7 +8,7 @@
   같은 뉴스를 찾아 UPSERT하므로 career_news.news_id가 유지된다.
 - 링크가 바뀌어도 언론사 + 제목이 같고 발행일이 3일 이내면 같은 뉴스로 본다 (기존 news_id·링크·발행일 유지).
   발행일이 어느 한쪽이라도 없으면 제목만으로 합치지 않는다 (정기 연재처럼 제목이 같은 다른 기사를 보호).
-- 같은 뉴스가 여러 분야에 있으면 career_news_fields에 분야만 추가한다.
+- 같은 뉴스가 여러 분야에 있으면 career_news.field_codes 배열에 분야만 추가한다.
 - 행을 지우지 않는다. 이번 수집에 없는 뉴스·분야·스크랩·숨김(hidden_at)은 그대로 둔다.
 - Google News RSS 링크는 GOOGLE_NEWS_RSS로 저장한다. 언론사 원문 주소로 검증하지 않았으므로 원문 URL로 표시하지 않는다.
 """
@@ -258,17 +258,36 @@ def import_articles(cursor, articles: list[NewsArticle], seen_at: datetime) -> I
             else:
                 report.updated += 1
 
-        # 3. 분야 추가 (이미 있는 분야는 그대로)
-        for code in sorted(article.field_codes):
-            cursor.execute(
-                """
-                INSERT INTO career_news_fields (news_id, field_code)
-                VALUES (%s, %s)
-                ON CONFLICT (news_id, field_code) DO NOTHING
-                """,
-                (news_id, code),
+        # 3. 기존 분야는 유지하고 이번 수집에서 새로 발견한 분야만 배열에 추가한다.
+        #    동일 뉴스가 재수집되어도 분야 중복이 생기지 않게 한다.
+        cursor.execute(
+            """
+            WITH previous AS (
+                SELECT field_codes
+                FROM career_news
+                WHERE news_id = %s
+                FOR UPDATE
+            ), merged AS (
+                SELECT
+                    ARRAY(SELECT DISTINCT code
+                          FROM unnest(previous.field_codes || %s::text[]) AS code
+                          ORDER BY code) AS codes,
+                    (SELECT COUNT(*)
+                     FROM unnest(%s::text[]) AS code
+                     WHERE NOT (code = ANY(previous.field_codes))) AS added
+                FROM previous
+            ), updated AS (
+                UPDATE career_news AS n
+                SET field_codes = merged.codes
+                FROM merged
+                WHERE n.news_id = %s
+                RETURNING merged.added
             )
-            report.field_links_added += cursor.rowcount
+            SELECT added AS new_field_count FROM updated
+            """,
+            (news_id, sorted(article.field_codes), sorted(article.field_codes), news_id),
+        )
+        report.field_links_added += cursor.fetchone()["new_field_count"]
 
     return report
 

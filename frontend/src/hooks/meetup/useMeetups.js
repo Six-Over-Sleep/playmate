@@ -502,6 +502,7 @@ export default function useMeetups({
     setJoined(false)
     setView('list')
 
+    const expectedRequest = detailRequest.current + 1
     try {
       const detail = await fetchDetailSnapshot(
         recruitId,
@@ -520,8 +521,10 @@ export default function useMeetups({
         navigate(path)
       }
     } catch (err) {
+      if (expectedRequest !== detailRequest.current) return
       console.error(err)
 
+      setView('error')
       setError(
         getErrorMessage(
           err,
@@ -627,8 +630,7 @@ export default function useMeetups({
     setJoined(false)
 
     setDetailLoading(false)
-    setView('list')
-
+    setView('error')
     setError('올바르지 않은 모임 주소입니다.')
 
   }, [pathname, currentMemberId])

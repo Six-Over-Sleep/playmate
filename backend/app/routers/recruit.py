@@ -74,6 +74,19 @@ def get_dispatch_service(
 # GET /api/recruits/{recruit_id}
 # =========================================================
 
+@router.get("/capabilities")
+def recruit_capabilities(request: Request, service: ProgramService = Depends(build_program_service)):
+    """개설 가능 상태만 공개한다. 설정 활성화나 자동 마이그레이션을 수행하지 않는다."""
+    _login_member_id(request)
+    enabled = programs_enabled()
+    available = enabled and service.repository.schema_available()
+    return {
+        "programs_enabled": enabled,
+        "programs_available": available,
+        "reason": "ready" if available else "disabled" if not enabled else "schema_unavailable",
+    }
+
+
 @router.get("/skills")
 def list_recruit_skills(request: Request, db: Session = Depends(get_db)):
     """개인 정보가 없는 공용 기술 사전. 동적 ID 경로보다 먼저 등록한다.

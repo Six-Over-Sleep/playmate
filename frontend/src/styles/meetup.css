@@ -817,3 +817,13 @@
     grid-column: span 2;
   }
 }
+/* Constrain grid intrinsic sizes on Meetup only; horizontal scrolling stays inside tabs. */
+.pm-meetup-page .pm-meetup-layout { grid-template-columns: 225px minmax(0, 1fr); }
+.pm-meetup-page .pm-meetup-sidebar,
+.pm-meetup-page .pm-meetup-main { min-width: 0; max-width: 100%; }
+.meetup-confirm { max-width: calc(100vw - 32px); box-sizing: border-box; }
+.meetup-detail-error button { padding: 12px 18px; }
+@media (max-width: 880px) {
+  .pm-meetup-page .pm-meetup-layout { grid-template-columns: minmax(0, 1fr); }
+  .pm-meetup-page .pm-meetup-sidebar .meetup-tabs { max-width: 100%; min-width: 0; }
+}

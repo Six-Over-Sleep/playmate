@@ -13,6 +13,7 @@ from pydantic import (
 )
 
 from backend.app.domain.recruit_program import aware
+from backend.app.schemas.recruit_limits import TITLE_MAX_LENGTH, PLACE_MAX_LENGTH
 
 
 class DirectCareer(BaseModel):
@@ -57,7 +58,7 @@ class ProgramCreate(BaseModel):
     """프로그램 기본 일정은 시간대 포함 전체 운영 기간으로 정의한다."""
 
     model_config = ConfigDict(extra="forbid")
-    title: str = Field(min_length=1)
+    title: str = Field(min_length=1, max_length=TITLE_MAX_LENGTH)
     body: str = Field(min_length=1)
     category: Literal["project", "study"]
     recruit_mode: Literal["short", "regular"] = "short"
@@ -77,7 +78,7 @@ class ProgramCreate(BaseModel):
     study_topic: str | None = None
     study_period: str | None = None
     study_method: str | None = None
-    place: str | None = None
+    place: str | None = Field(default=None, max_length=PLACE_MAX_LENGTH)
     is_online: bool = False
     contact_method: str | None = None
 
@@ -135,7 +136,7 @@ class ProgramEdit(BaseModel):
     """핵심 조건 잠금 이후에도 허용되는 제목·본문·연락 안내만 편집한다."""
 
     model_config = ConfigDict(extra="forbid")
-    title: str | None = Field(default=None, min_length=1)
+    title: str | None = Field(default=None, min_length=1, max_length=TITLE_MAX_LENGTH)
     body: str | None = Field(default=None, min_length=1)
     contact_method: str | None = None
     capacity: int | None = Field(default=None, ge=2, le=5)

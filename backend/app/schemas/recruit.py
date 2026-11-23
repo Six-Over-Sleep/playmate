@@ -11,6 +11,9 @@ from urllib.parse import urlsplit
 # Field : 필드별 입력 조건 설정
 # field_validator / model_validator : 필드 또는 모델 전체를 검증
 from pydantic import BaseModel, Field, field_validator, model_validator
+from backend.app.schemas.recruit_limits import (
+    TITLE_MAX_LENGTH, SPORT_MAX_LENGTH, PLACE_MAX_LENGTH, CAPACITY_MAX,
+)
 
 
 # WEEKDAYS : 정기 모임에서 선택할 수 있는 요일 목록
@@ -71,11 +74,11 @@ class RecruitCreate(BaseModel):
     # category : 모임 카테고리 (운동, 게임, 스터디, 공동구매 등)
     # capacity : 최대 모집 인원 (0보다 커야 함)
     # deadline_at : 모집 마감 일시
-    title: str
+    title: str = Field(max_length=TITLE_MAX_LENGTH)
     body: str
     recruit_mode: Literal["regular", "short"]
     category: str
-    capacity: int = Field(gt=0)
+    capacity: int = Field(gt=0, le=CAPACITY_MAX)
     deadline_at: datetime
 
     # regular_days : 정기 모임 요일 목록 (예: ["월", "수"])
@@ -91,7 +94,7 @@ class RecruitCreate(BaseModel):
     # place : 모임 장소
     # is_online : 온라인 여부 (True : 온라인 / False : 오프라인)
     # contact_method : 참여자 간 연락 방법
-    place: str | None = None
+    place: str | None = Field(default=None, max_length=PLACE_MAX_LENGTH)
     is_online: bool = False
     contact_method: str | None = None
 
@@ -106,7 +109,7 @@ class RecruitCreate(BaseModel):
     # estimated_price_per_person : 1인당 예상 금액
     # pickup_method : 공동구매 상품 수령 방식
     # regular_start_date : 정기 모임 시작 날짜
-    sport_name: str | None = None
+    sport_name: str | None = Field(default=None, max_length=SPORT_MAX_LENGTH)
     game_name: str | None = None
     study_topic: str | None = None
     study_period: str | None = None
@@ -202,10 +205,10 @@ class RecruitUpdate(BaseModel):
     # title / body : 게시글 제목과 본문
     # recruit_mode : 모임 방식 (정기 / 단기)
     # capacity : 최대 모집 인원 (전달한 경우 0보다 커야 함)
-    title: str | None = None
+    title: str | None = Field(default=None, max_length=TITLE_MAX_LENGTH)
     body: str | None = None
     recruit_mode: Literal["regular", "short"] | None = None
-    capacity: int | None = Field(default=None, gt=0)
+    capacity: int | None = Field(default=None, gt=0, le=CAPACITY_MAX)
 
     # regular_days / regular_time : 정기 모임 요일과 시간
     # meeting_start / meeting_end : 단기 모임 시작·종료 일시
@@ -217,11 +220,11 @@ class RecruitUpdate(BaseModel):
     meeting_start: datetime | None = None
     meeting_end: datetime | None = None
     deadline_at: datetime | None = None
-    place: str | None = None
+    place: str | None = Field(default=None, max_length=PLACE_MAX_LENGTH)
     regular_start_date: date | None = None
 
     is_online: bool | None = None
-    sport_name: str | None = None
+    sport_name: str | None = Field(default=None, max_length=SPORT_MAX_LENGTH)
     game_name: str | None = None
     study_topic: str | None = None
     study_period: str | None = None

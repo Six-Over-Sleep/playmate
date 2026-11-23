@@ -2,9 +2,14 @@ import { MeetupNotice } from '../../components/meetup/MeetupFeedback'
 import { useEffect, useState } from 'react'
 import { meetupApi } from '../../services/meetupApi'
 import { meetupErrorMessage } from '../../utils/meetupForm'
+import { MEETUP_LIMITS } from '../../utils/meetupLimits'
+import { createSharedMeetupRead, programAvailabilityMessage } from '../../utils/meetupEditorRequests'
 import { EDITOR_CATEGORY_OPTIONS, WEEKDAYS } from '../../utils/meetup'
 
 import useMeetupEditor from '../../hooks/meetup/useMeetupEditor'
+
+const loadSkills = createSharedMeetupRead(() => meetupApi.skills())
+const loadCapabilities = createSharedMeetupRead(() => meetupApi.capabilities())
 
 function getSkillId(skill) {
   return Number(skill?.skill_id ?? skill?.id ?? skill?.value)
@@ -36,17 +41,9 @@ export default function MeetupEditorPage({
   const [skillOptions, setSkillOptions] = useState([])
   const [skillStatus, setSkillStatus] = useState('loading')
   const [skillAttempt, setSkillAttempt] = useState(0)
-  useEffect(() => {
-    const controller = new AbortController()
-    setSkillStatus('loading')
-    meetupApi.skills({ signal: controller.signal }).then((data) => {
-      setSkillOptions(data)
-      setSkillStatus(data.length ? '' : '등록된 기술이 없어요. 잠시 후 다시 시도해주세요.')
-    }).catch((error) => {
-      if (error.name !== 'AbortError') setSkillStatus(meetupErrorMessage(error, '기술 목록을 불러오지 못했어요.'))
-    })
-    return () => controller.abort()
-  }, [skillAttempt])
+  const [capabilities, setCapabilities] = useState(null)
+  const [capabilityError, setCapabilityError] = useState('')
+  const [capabilityAttempt, setCapabilityAttempt] = useState(0)
   // 편집 훅의 폼 상태와 이벤트 연결
   const {
     form,
@@ -83,6 +80,37 @@ export default function MeetupEditorPage({
     isAdmin,
   })
 
+  useEffect(() => {
+    if (!isProject || (skillOptions.length && skillAttempt === 0)) return
+    let active = true
+    setSkillStatus('loading')
+    loadSkills().then((data) => {
+      if (!Array.isArray(data)) throw new Error('기술 목록 응답을 읽을 수 없어요. 다시 시도해주세요.')
+      if (active) {
+        setSkillOptions(data)
+        setSkillStatus(data.length ? '' : '등록된 기술이 없어요. 잠시 후 다시 시도해주세요.')
+      }
+    }).catch((error) => {
+      if (active) setSkillStatus(meetupErrorMessage(error, '기술 목록을 불러오지 못했어요.'))
+    })
+    return () => { active = false }
+  }, [isProject, skillAttempt])
+
+  useEffect(() => {
+    if (!isProgram || capabilities) return
+    let active = true
+    setCapabilityError('')
+    loadCapabilities().then((data) => {
+      if (typeof data?.programs_available !== 'boolean') throw new Error('모임 개설 가능 상태를 확인하지 못했어요.')
+      if (active) setCapabilities(data)
+    }).catch((error) => {
+      if (active) setCapabilityError(meetupErrorMessage(error, '모임 개설 가능 상태를 확인하지 못했어요.'))
+    })
+    return () => { active = false }
+  }, [isProgram, capabilityAttempt])
+
+  const programBlocked = isProgram && !capabilities?.programs_available
+
   return (
     <main className="meetup-editor-page">
       <button
@@ -99,12 +127,18 @@ export default function MeetupEditorPage({
 
       <form
         className="meetup-form-card"
-        onSubmit={submit}
+        onSubmit={(event) => {
+          if (programBlocked) { event.preventDefault(); return }
+          submit(event)
+        }}
         ref={formRef}
         noValidate
       >
         {isEdit && isProgram && <p className="meetup-type-help">제목·소개·인원·전체 일정·필수 기술을 수정할 수 있어요. 다른 멤버가 신청한 뒤에는 인원·일정·기술 변경이 제한돼요.</p>}
         <MeetupNotice message={submitError} error onClose={dismissSubmitError} />
+        {isProgram && (capabilityError
+          ? <div role="alert"><p>{capabilityError}</p><button type="button" onClick={() => setCapabilityAttempt((value) => value + 1)}>개설 상태 다시 확인</button></div>
+          : <p role="status" className="meetup-type-help">{programAvailabilityMessage(capabilities)}</p>)}
         {categoryChanged && (
           <p className="meetup-type-help">
             종류를 바꾸면 이전 종류의 기술 배정·커리큘럼·전용 입력 정보가 정리됩니다.
@@ -191,6 +225,7 @@ export default function MeetupEditorPage({
 
             <input
               name="title"
+              maxLength={MEETUP_LIMITS.title}
               aria-invalid={Boolean(fieldErrors.title)}
               aria-describedby={fieldErrors.title ? "error-title" : undefined}
               value={form.title}
@@ -213,7 +248,7 @@ export default function MeetupEditorPage({
               aria-invalid={Boolean(fieldErrors.capacity)}
               aria-describedby={fieldErrors.capacity ? "error-capacity" : undefined}
                 min={isProject || isStudy ? '2' : '1'}
-                max={isProject || isStudy ? '5' : undefined}
+                max={isProject || isStudy ? '5' : MEETUP_LIMITS.capacity}
                 value={form.capacity}
                 onChange={change}
                 required
@@ -301,6 +336,7 @@ export default function MeetupEditorPage({
             <div className="meetup-place-search-row">
               <input
                 name="place"
+                maxLength={MEETUP_LIMITS.place}
                 aria-label="오프라인 모임 장소"
               disabled={isEdit && isProgram && !categoryChanged}
               aria-invalid={Boolean(fieldErrors.place)}
@@ -635,6 +671,7 @@ export default function MeetupEditorPage({
 
               <input
                 name="sport_name"
+                maxLength={MEETUP_LIMITS.sport_name}
               aria-invalid={Boolean(fieldErrors.sport_name)}
               aria-describedby={fieldErrors.sport_name ? "error-sport_name" : undefined}
                 value={form.sport_name}
@@ -877,7 +914,7 @@ export default function MeetupEditorPage({
             <button
               type="submit"
               className="primary"
-              disabled={busy}
+              disabled={busy || programBlocked}
             >
               {busy ? '저장 중...' : isEdit ? '수정 완료' : '등록하기'}
             </button>

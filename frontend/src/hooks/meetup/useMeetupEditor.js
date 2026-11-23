@@ -435,6 +435,8 @@ export default function useMeetupEditor({
   }
 
   const setCategory = (category) => {
+    setSubmitError('')
+    setFieldErrors({})
     setForm((prev) => ({
       ...prev,
       category,

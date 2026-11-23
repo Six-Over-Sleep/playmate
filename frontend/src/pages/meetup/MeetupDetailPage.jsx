@@ -906,10 +906,6 @@ export default function MeetupDetailPage({
             <div className="meetup-join-restriction">
               <strong>신규 신청이 제한되어 있습니다.</strong>
               <span>{joinRestrictionMessage}</span>
-              <small>
-                프론트는 중도이탈 횟수나 제한 여부를 직접 계산하지 않고
-                서버의 신청 가능 상태를 따릅니다.
-              </small>
             </div>
           </section>
         )}

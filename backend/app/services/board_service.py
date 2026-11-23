@@ -197,7 +197,7 @@ def _require_comment_board_writer(cursor, comment_id: int, member_id: int) -> No
                 p.board_id IS NULL
                 AND p.post_type = 'CAREER'
                 AND p.deleted_at IS NULL
-                AND EXISTS (SELECT 1 FROM career_posts AS cp WHERE cp.post_id = p.post_id)
+                AND EXISTS (SELECT 1 FROM career AS cp WHERE cp.post_id = p.post_id)
             ) AS is_career_post
         FROM comments AS c
         JOIN posts AS p ON p.post_id = c.post_id

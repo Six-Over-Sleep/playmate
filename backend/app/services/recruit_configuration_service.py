@@ -7,7 +7,6 @@ from pydantic import TypeAdapter
 from backend.app.domain.recruit_program import PolicyError
 from backend.app.schemas.recruit_dispatch import RecruitCreation
 from backend.app.schemas.recruit_program import ProgramCreate
-from backend.app.services import recruit as legacy
 
 
 class RecruitConfigurationService:
@@ -74,10 +73,29 @@ class RecruitConfigurationService:
         deadline = data.deadline_at.replace(tzinfo=ZoneInfo("Asia/Seoul"))
         if now >= deadline:
             raise PolicyError("새 모집 마감은 미래여야 합니다.", 422)
-        detail_model, detail_values = legacy._get_detail_model_and_values(data)
+        # ?? ??? recruits.details? ??? ??? ?????.
+        fields_by_category = {
+            "sports": ("sport_name",),
+            "game": ("game_name",),
+            "study": ("study_topic", "study_period", "study_method"),
+            "group_buy": (
+                "product_name",
+                "purchase_url",
+                "estimated_price_per_person",
+                "pickup_method",
+            ),
+        }
+        fields = fields_by_category.get(data.category)
+        if fields is None:
+            raise PolicyError("???? ?? ?? ?????.", 422)
+
+        detail_values = data.model_dump(
+            mode="json",
+            include=set(fields),
+        )
         with self.programs.transaction():
             self.repository.reset_configuration(recruit_id)
             self.repository.configure_legacy(
-                recruit_id, data, detail_model, detail_values, now
+                recruit_id, data, detail_values, now
             )
         return {"recruit_id": recruit_id, "message": "모임 종류를 변경했습니다."}

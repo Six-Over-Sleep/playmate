@@ -48,7 +48,7 @@ def env(monkeypatch):
 
     with db_cursor(commit=True) as cursor:
         skip_unless_tables(cursor, "members", "boards", "posts", "comments", "notifications",
-                           "career_posts", "recruits")
+                           "career", "recruits")
         cursor.execute("""SELECT 1 FROM information_schema.columns
                           WHERE table_name = 'comments' AND column_name = 'reply_to_comment_id'""")
         if cursor.fetchone() is None:
@@ -71,12 +71,10 @@ def env(monkeypatch):
 
         posts = {"board": new_post("BOARD", board_id), "board2": new_post("BOARD", board_id),
                  "career": new_post("CAREER"), "meetup": new_post("RECRUIT")}
-        cursor.execute("""INSERT INTO career_posts (post_id, category_code, subcategory_code)
-                          VALUES (%s, 'talk', 'general')""", (posts["career"],))
-        # talk 글의 상세 행도 같은 트랜잭션에서 만든다. 취업 DB 통합(037~040) 이후에는 상세 없는 talk 글이
-        # 커밋되지 않는다. develop 스키마(career_talks 테이블)와 통합 스키마(career_talks 뷰) 모두 같은 SQL로 동작한다.
-        cursor.execute("""INSERT INTO career_talks (post_id, job_category_code, current_status)
-                          VALUES (%s, 'DEV', 'PREPARING')""", (posts["career"],))
+        cursor.execute("""INSERT INTO career (post_id, category_code, subcategory_code, details)
+                          VALUES (%s, 'talk', 'general',
+                                  '{"job_category_code":"DEV","current_status":"PREPARING"}'::jsonb)""",
+                       (posts["career"],))
         cursor.execute("""INSERT INTO recruits (post_id, recruit_mode, category, capacity, state)
                           VALUES (%s, 'short', 'study', 5, 'OPEN') RETURNING recruit_id""", (posts["meetup"],))
         recruit_id = cursor.fetchone()["recruit_id"]
@@ -96,8 +94,7 @@ def env(monkeypatch):
             cursor.execute("DELETE FROM comments WHERE post_id = ANY(%s) AND parent_comment_id IS NOT NULL", (post_ids,))
             cursor.execute("DELETE FROM comments WHERE post_id = ANY(%s)", (post_ids,))
             cursor.execute("DELETE FROM recruits WHERE recruit_id = %s", (recruit_id,))
-            # 취업 분류·상세는 posts 삭제에 CASCADE로 함께 지워진다(develop: career_posts→career_talks,
-            # 통합 스키마: career). 통합 후 career_posts는 직접 DELETE를 막는 뷰라 따로 지우지 않는다.
+            # 취업 분류·상세는 posts 삭제 시 career의 FK에 따라 함께 지워진다.
             cursor.execute("DELETE FROM posts WHERE post_id = ANY(%s)", (post_ids,))
             cursor.execute("DELETE FROM boards WHERE board_id = %s", (board_id,))
             cursor.execute("DELETE FROM members WHERE member_id = ANY(%s)", (ids,))

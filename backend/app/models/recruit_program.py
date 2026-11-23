@@ -96,16 +96,6 @@ class WithdrawalRecord(Base):
     occurred_at = Column(DateTime(timezone=True), nullable=False)
 
 
-class CurriculumRecord(Base):
-    """043 이후 호환 뷰. 신규 코드에서는 ProgramRecord 컬럼을 사용한다."""
-    __tablename__ = "recruit_curricula"
-    recruit_id = Column(
-        BigInteger, ForeignKey("recruit_programs.recruit_id"), primary_key=True
-    )
-    version = Column(Integer, nullable=False, default=1)
-    items = Column(JSON, nullable=False, default=list)
-
-
 class ActivityRecord(Base):
     __tablename__ = "recruit_activities"
     activity_id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)

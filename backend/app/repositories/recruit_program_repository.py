@@ -959,7 +959,7 @@ class ProgramRepository:
             delete(RecruitMember).where(RecruitMember.recruit_id == recruit_id)
         )
 
-    def configure_legacy(self, recruit_id, data, detail_model, detail_values, now):
+    def configure_legacy(self, recruit_id, data, detail_values, now):
         """검증된 기존 종류의 입력을 같은 모임·게시글 ID에 저장한다."""
         recruit = self.session.get(Recruit, recruit_id)
         post = self.session.get(Post, recruit.post_id)

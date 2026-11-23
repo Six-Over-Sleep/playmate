@@ -5,7 +5,7 @@
 - 앱 기동: PLAYMATE_SCHEMA_CHECK=strict이면 누락 시 기동 실패(운영 기본값)
 - 기동 결과: GET /health/schema (상세 내용은 서버 로그와 위 스크립트로 확인)
 
-검사 순서: 기본 스키마(000·001) → 023 → 024 → 025 → 027 → 037 → 044 → 045.
+검사 순서: 기본 스키마(000·001) → 023 → 024 → 025 → 027 → 037 → 040 → 044 → 045.
 정책 값은 읽기만 한다. 누락을 고정 기본값으로 채우지 않는다.
 """
 
@@ -26,6 +26,12 @@ BASE_TABLES = (
 )
 # 기본 테이블 중 코드가 직접 쓰는 컬럼 (예전 로컬 DB에 빠져 있던 것)
 BASE_COLUMNS = (
+    ("career", "details"),
+    ("career", "poll_options"),
+    ("career", "category_code"),
+    ("career", "subcategory_code"),
+    ("posts", "is_anonymous"),
+    ("post_attachments", "attachment_scope"),
     ("member_xp_history", "history_id"),
     ("member_xp_history", "created_at"),
     ("comments", "parent_comment_id"),
@@ -37,6 +43,10 @@ BASE_COLUMNS = (
 )
 # 위 컬럼 중 000·026이 아닌 별도 마이그레이션이 만드는 것: 누락 시 표시할 (출처, 안내할 SQL 파일)
 COLUMN_FIXES = {
+    **{("career", column): ("040", "database/sql/040_career_table_cutover.sql 적용")
+       for column in ("details", "poll_options", "category_code", "subcategory_code")},
+    ("posts", "is_anonymous"): ("037", "database/sql/037_career_board_consolidation.sql 적용"),
+    ("post_attachments", "attachment_scope"): ("037", "database/sql/037_career_board_consolidation.sql 적용"),
     ("comments", "reply_to_comment_id"): ("041", "database/sql/041_comment_reply_target.sql 적용"),
     ("recruits", "details"): ("042", "database/sql/042_recruit_category_details_consolidation.sql 적용"),
     ("recruit_programs", "meetup_curriculum_version"): ("043", "database/sql/043_recruit_curricula_consolidation.sql 적용"),
@@ -188,6 +198,12 @@ def check_schema(cursor) -> Report:
     if "post_attachments" not in tables:
         report.issues.append(Issue("error", "037", "post_attachments 테이블 없음(게시판 이미지 저장·조회 실패)",
                                    "database/sql/037_career_board_consolidation.sql 적용 후 044 적용"))
+
+    report.checked.append("040")
+    for table in ("career", "career_lab_poll_votes"):
+        if table not in tables:
+            report.issues.append(Issue("error", "040", f"{table} 테이블 없음",
+                                       "database/sql/040_career_table_cutover.sql 적용"))
 
     # 7. 044 게시판 정리: 방문 기록 board_id는 BASE_COLUMNS에서 확인한다(024 테이블이 있을 때).
     report.checked.append("044")

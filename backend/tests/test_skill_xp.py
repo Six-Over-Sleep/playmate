@@ -36,6 +36,35 @@ def test_skill_xp_first_grant_duplicate_and_level():
                 ON COMMIT DROP
                 """
             )
+
+            # 스키마만 복원한 테스트 DB에서도 독립적으로 실행되도록
+            # XP 지급량과 스킬 레벨 정책을 임시 테이블에 구성합니다.
+            cursor.execute("""
+                CREATE TEMP TABLE xp_award_policies
+                (LIKE public.xp_award_policies INCLUDING ALL)
+                ON COMMIT DROP
+            """)
+
+            cursor.execute("""
+                CREATE TEMP TABLE level_policies
+                (LIKE public.level_policies INCLUDING ALL)
+                ON COMMIT DROP
+            """)
+
+            cursor.execute("""
+                INSERT INTO xp_award_policies (activity_type, xp_amount)
+                VALUES ('SKILL_QUIZ', 5)
+            """)
+
+            cursor.execute("""
+                INSERT INTO level_policies (level_type, level, min_xp)
+                VALUES
+                    ('SKILL', 1, 0),
+                    ('SKILL', 2, 50),
+                    ('SKILL', 3, 150),
+                    ('SKILL', 4, 300),
+                    ('SKILL', 5, 500)
+            """)
             cursor.execute("SET LOCAL search_path TO pg_temp, public")
 
         # 서비스가 테스트 DB의 같은 연결(임시 테이블)을 쓰도록 한다.

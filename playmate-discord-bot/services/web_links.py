@@ -8,7 +8,7 @@
 """
 from typing import Any
 
-# 상세 화면이 있는 취업 게시판 (career_posts.category_code와 같은 값). 채용 인사이트(insights)는 글이 없다.
+# 상세 화면이 있는 취업 게시판 (career.category_code와 같은 값). 채용 인사이트(insights)는 글이 없다.
 CAREER_CATEGORIES = ("reviews", "talk", "lounge", "lab")
 
 
@@ -54,7 +54,7 @@ def notification_post_url(base_url: str | None, post: dict[str, Any]) -> str | N
     종류별 근거와 주소 (프론트 경로와 같은 규칙, 위의 빌더를 그대로 쓴다):
         BOARD   : post_board_id가 있음        -> /board/{board_id}/posts/{post_id}
         RECRUIT : 모임(recruits) 행이 있음    -> /meetup/{recruit_id}   (모임 글의 상세는 post_id가 아니라 recruit_id)
-        CAREER  : 취업 글(career_posts) 행이 있고 category_code가 상세 화면이 있는 값 -> /career/{category}/{post_id}
+        CAREER  : 취업 글(career) 행이 있고 category_code가 상세 화면이 있는 값 -> /career/{category}/{post_id}
     서로 다른 종류의 근거가 함께 있거나(예: 모임 행이 있는데 게시판 ID도 있음), post_type과 근거가 다르면 주소를 만들지 않는다.
     그러면 한 글이 다른 종류의 상세 페이지로 잘못 연결되는 일이 없다. post_type이 비어 있으면 근거가 하나뿐일 때만 쓴다.
     """

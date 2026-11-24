@@ -33,6 +33,33 @@ def test_application_has_no_compatibility_view_references():
     assert find_references() == []
 
 
+def test_discord_bot_compatibility_view_scanner(tmp_path, monkeypatch):
+    from backend.scripts import check_compat_view_references as checker
+
+    source = (
+        tmp_path / "playmate-discord-bot"
+        / "repositories" / "legacy.py"
+    )
+    source.parent.mkdir(parents=True)
+    source.write_text("SELECT * FROM career_posts", encoding="utf-8")
+
+    fixture = (
+        tmp_path / "playmate-discord-bot"
+        / "tests" / "test_legacy.py"
+    )
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text("SELECT * FROM career_posts", encoding="utf-8")
+
+    monkeypatch.setattr(checker, "ROOT", tmp_path)
+
+    references = checker.find_references()
+
+    assert len(references) == 1
+    assert references[0].endswith(
+        "legacy.py:1: SELECT * FROM career_posts"
+    )
+
+
 @pytest.mark.parametrize("kind,category", [
     ("review", "reviews"), ("talk", "talk"), ("lounge", "lounge"), ("lab", "lab"),
 ])
@@ -161,7 +188,7 @@ def test_poll_creation_keeps_sequence_ids_in_json():
 def test_cleanup_migration_is_guarded_and_non_destructive():
     import re
     from backend.scripts.check_compat_view_references import ROOT, COMPAT_VIEWS
-    sql = (ROOT / "database/sql/052_remove_compat_views.sql").read_text(encoding="utf-8")
+    sql = (ROOT / "database/sql/068_remove_compat_views.sql").read_text(encoding="utf-8")
     sql = re.sub(r"--[^\n]*", "", sql)
     assert set(re.findall(r"DROP VIEW IF EXISTS public\.(\w+) RESTRICT;", sql)) == set(COMPAT_VIEWS)
     assert not re.search(r"\bCASCADE\b|DROP\s+TABLE|DELETE\s+FROM|TRUNCATE\s", sql, re.I)

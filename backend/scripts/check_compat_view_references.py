@@ -21,8 +21,10 @@ COMPAT_VIEWS = (
 def find_references():
     pattern = re.compile(r"\b(?:" + "|".join(COMPAT_VIEWS) + r")\b")
     matches = []
-    for root in (ROOT / "backend/app", ROOT / "frontend/src"):
+    for root in (ROOT / "backend/app", ROOT / "frontend/src", ROOT / "playmate-discord-bot"):
         for path in sorted(root.rglob("*")):
+            if "tests" in path.relative_to(root).parts:
+                continue
             if path.suffix not in {".py", ".js", ".jsx", ".ts", ".tsx"}:
                 continue
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):

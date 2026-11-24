@@ -34,7 +34,7 @@ DECLARE
 BEGIN
     IF current_setting('playmate.compat_views_application_audit', true)
        IS DISTINCT FROM 'verified' THEN
-        RAISE EXCEPTION 'Application/external consumer audit is required before 052';
+        RAISE EXCEPTION 'Application/external consumer audit is required before 068';
     END IF;
 
     -- Inspect every target before issuing any DROP. Missing views allow reruns.

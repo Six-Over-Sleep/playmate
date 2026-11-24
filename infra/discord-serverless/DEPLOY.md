@@ -272,6 +272,7 @@ Issue #182에서 구현했다 → 15절.
 | `HotWorkerEventSourceEnabled` | `false` | HOT 발송 큐 → Worker |
 | `DeployDmShare` | `false` | `true`면 DM 큐 4개·Worker·역할·로그 그룹·경보 4개를 만든다. 채널 파라미터 없음 (작업의 `recipient_id`로 DM 채널을 연다) |
 | `DmWorkerEventSourceEnabled` | `false` | DM 발송 큐 → Worker. **Gateway DM 폴링 전환 절차(`playmate-discord-bot/dm_share/DEPLOY.md` 5절)를 따른 뒤에만** 켠다 |
+| `DmProdActivationApproved` | `false` | 운영(`prod`)에서 DM 이벤트 소스를 켤 때 필요한 7단계 승인 (15.10). 시험 환경에는 영향 없음 |
 
 토큰은 취업과 **같은 시크릿**(`DiscordBotTokenSecretArn`)을 쓴다. 새 시크릿을 만들지 않는다. 각 Worker 역할에 그 시크릿 읽기 권한만 있다.
 두 기능 모두 기본값이 `false`라 **취업만 배포하는 기존 명령은 그대로 동작한다** (5절).
@@ -294,10 +295,10 @@ sam deploy --config-env test --parameter-overrides `
 
 | 리소스 | HOT | DM |
 |---|---|---|
-| 발송 큐 | 가시성 540초, 보존 1일, 5회 → DLQ | 가시성 360초, **보존 1시간**, 10회 → DLQ |
-| 발송 DLQ | 보존 14일 | **보존 7일** (받는 사람 ID 포함, 원본 넣은 시각 기준) |
+| 발송 큐 | 표준, 가시성 540초, 보존 1일, 5회 → DLQ | **FIFO** (`…-dm-share-send.fifo`, 그룹 = 알림, 중복 제거 = job_id), 가시성 360초, **보존 1시간**, 5회 → DLQ |
+| 발송 DLQ | 표준, 보존 14일 | **FIFO** (`…-dm-share-send-dlq.fifo`), **보존 7일** (받는 사람 ID 포함, 원본 넣은 시각 기준) |
 | 결과 큐 / DLQ | 보존 14일, 5회 → DLQ | 같음 (결과에는 받는 사람 ID·본문이 없다) |
-| Worker | `hot_share.worker_lambda.handler`, 90초, 예약 동시성 2 | `dm_share.worker_lambda.handler`, 60초, **예약 동시성 1** |
+| Worker | `hot_share.worker_lambda.handler`, 90초, 예약 동시성 2 | `dm_share.worker_lambda.handler`, 60초, 예약 동시성 2 |
 | 이벤트 소스 | 배치 1, 부분 실패 보고, 최대 동시성 2, 기본 비활성 | 같음 |
 | 역할 | 자기 큐·로그 그룹·토큰 시크릿만 | 같음 |
 | 경보 | 4개 (15.6) | 4개 |
@@ -321,34 +322,47 @@ DM Worker는 원래 DB 저장소 모듈 `repositories.dm_delivery_repository`에
 
 | | HOT | DM |
 |---|---|---|
-| 큐 | 표준 | 표준 |
-| 예약 동시성 / 이벤트 소스 최대 동시성 | **2 / 2** | **1 / 2** |
+| 발송 큐 | 표준 | **FIFO** (그룹 = `unit_id`, 중복 제거 = `job_id`) |
+| 예약 동시성 / 이벤트 소스 최대 동시성 | **2 / 2** | **2 / 2** |
 
 **HOT = 취업과 같은 근거(3절).** HOT 재선점은 재시도 간격이 `5분 x 시도 횟수`라, 이전 작업이 실행 중(최대 90초, TTL 3분)일 때 같은 글의
 새 작업이 동시에 처리되는 일이 없다. 남는 위험은 SQS 표준 큐의 드문 **같은 메시지 동시 중복 전달**뿐이다 (두 Worker가 모두 마커를 못 찾으면 중복 게시).
 
-**DM 최종 판단 (2차 검수): 현재 구성은 시험용 임시 설정이다. 운영에서는 켜지 않는다 (템플릿 Rule로 강제).**
+**DM: FIFO 전환 (Issue #182 3차).** FIFO 전 구성(표준 큐, 예약 1, 최대 2)은 AWS 권장 "예약 >= 최대"와 충돌해 스로틀이 생겼고, 예약을 2로 올리면
+R4 중복 방지 전제가 깨졌다. 이제 같은 알림의 직렬화를 예약 동시성 대신 **FIFO 메시지 그룹**이 맡고, 예약 2 = 최대 2로 충돌을 없앴다.
 
-현재 DM 구성(표준 큐, 예약 1, 이벤트 소스 최대 2, 배치 1, `maxReceiveCount` 10, TTL 50초)은 AWS 권장 "함수 예약 동시성 >= 이벤트 소스 최대 동시성"과
-**충돌한다**. 메시지가 두 개 이상 동시에 있으면 스로틀이 생기고, 스로틀된 작업은 가시성 타임아웃(360초) 안에서 다시 호출되는 사이 TTL(50초)을 넘겨
-보내지지 않는다 (`EXPIRED`, 재수신이면 `UNKNOWN` → 마커 확인 복구 수십 분). `maxReceiveCount` 10은 DLQ 이동을 늦출 뿐 **해결책이 아니다**.
-그렇다고 예약 2로 올리면 아래 R4 중복 방지 전제가 깨진다.
+R4: DM은 실패(429 등) 후 **60초 만에 재선점**되고 TTL은 50초다. 이전 작업의 복사본이 TTL 안에 시작해 429 대기 중일 때 새 작업(새 `claim_token`·`job_id`,
+같은 `unit_id`)이 동시에 처리되면 둘 다 마커를 못 찾고 **같은 DM을 두 번 보낼 수 있다**.
 
-R4: DM은 실패(429 등) 후 **60초 만에 재선점**되고 TTL은 50초다. 이전 작업의 SQS 중복 복사본이 TTL 안에 시작해 429 대기 중일 때 새 작업이 동시에 처리되면
-둘 다 마커를 못 찾고 **같은 DM을 두 번 보낼 수 있다**. `dm_share/DEPLOY.md` 7절과 테스트(`test_lambda_reclaim_during_inflight_is_safe_with_concurrency_1`)는
-"예약 동시성 1이면 새 작업이 이전 작업 뒤에 처리되어 마커로 막힌다"를 전제로 한다.
+| 정책 | 값 | 근거 |
+|---|---|---|
+| `MessageGroupId` | `unit_id` = `dm-<알림 ID>` | 같은 알림의 모든 작업(이전·재선점·확인)을 SQS가 한 번에 하나씩 넣은 순서대로 준다. 앞 작업이 삭제(처리 완료)되거나 가시성 타임아웃이 지나야 다음이 나온다 → R4의 새 작업은 이전 작업이 끝난 뒤 처리되어 마커를 찾는다. 서로 다른 알림은 병렬 |
+| `MessageDeduplicationId` | `job_id` (발송 `dm-<id>:<claim_token>`, 확인 `dm-<id>:<claim_token>:v<초>`) | 재선점마다 `claim_token`이 바뀌어 **정당한 재시도는 지워지지 않는다**. 같은 선점의 작업을 두 번 넣으면(발행 재시도 등) 5분 동안 하나로 본다. `unit_id` 같은 고정 값은 5분 안의 정당한 재선점 작업까지 버리므로 쓰지 않는다. 본문 기반 중복 제거는 끈다 |
+| 결과 큐 | **표준 유지** | DB 반영이 `claim_token` 일치·상태 전이표·`last_absent_job_id`로 멱등이라 순서·중복 제거가 필요 없다. FIFO로 바꾸면 비용·처리량 제약만 늘어난다 |
+| 단일 그룹 대안 | 쓰지 않음 | 한 메시지가 실패하면 그룹 전체가 가시성 타임아웃(360초) 동안 멈춰 뒤의 모든 DM이 TTL을 넘긴다 |
 
-| 대안 | R4 중복 | 스로틀·지연 | DB 발행 코드 | 추가 비용 | 판단 |
-|---|---|---|---|---|---|
-| **A. 현 구성 유지 + 운영 활성화 금지 (채택)** | 막힘 (예약 1) | **있음** (AWS 권장 위반) | 변경 없음 | 없음 | 시험 환경에서만. `EnvironmentName=prod`에서 `DmWorkerEventSourceEnabled=true`면 Rule `DmWorkerNotInProdUntilFifo`가 배포를 거부 |
-| B-1. FIFO + **단일** MessageGroupId | 막힘 | 스로틀 없음. 대신 **한 메시지가 실패하면 그룹 전체가 가시성 타임아웃(360초) 동안 멈춰** 뒤 DM이 TTL을 넘긴다 (머리 막힘) | 필요 | FIFO 요청 단가가 표준보다 높음 (요금표 확인) | 비추천 |
-| B-2. FIFO + MessageGroupId = `unit_id`(`dm-<알림 ID>`), MessageDeduplicationId = `job_id` | 막힘 (같은 알림의 작업만 순서대로, 5분 중복 제거) | 다른 알림은 병렬 → 예약 2 = 최대 2 가능 | **필요**: `career_share/queues.SqsPublisher.send`가 그룹·중복 ID를 넘기게 + DM DB 계층 발행부. 큐 교체(FIFO는 이름 `.fifo`, 새 큐) | 위와 같음 | **추천 후속 Issue** |
-| C. Worker 중복 방지 강화 후 동시성 2 | Worker는 DB를 보지 않고 다른 Worker의 진행 중 요청을 알 수 없어 **증명 불가**. Discord `enforce_nonce`(nonce = 마커)는 문서상 "최근 몇 분"만, 실제 검증 전 | — | — | — | 채택하지 않음 |
+구현: `dm_share/fifo.py`(`DmFifoPublisher`)가 DM DB 계층의 발행(상속한 `_publish_claims`의 발송 작업, `recover`의 확인 작업)만 감싸 그룹·중복 제거 ID를
+붙인다. DM 작업이 아니거나 `job_id`가 `unit_id`와 맞지 않으면 발행을 거부한다. `career_share/queues.SqsPublisher.send`에는 키워드 전용
+`group_id`·`dedup_id`(기본 `None`)만 추가했다 → 취업·HOT 발행과 모든 Worker의 결과 발행은 그대로. `load_dm_settings`는 발송 큐 URL이 `.fifo`가 아니면
+시작하지 않는다. 표준 큐 예외는 `PLAYMATE_ENVIRONMENT`가 `local`·`test`이고 **동시에** `DM_SHARE_ALLOW_STANDARD_QUEUE=1`일 때만이다
+(`prod`·`production`·값 없음·빈 값·알 수 없는 값이면 플래그가 있어도 거부, `dm_share/settings.py` `standard_queue_allowed`).
+**향후 DM DB Lambda를 배포할 때 `PLAYMATE_ENVIRONMENT`를 반드시 설정한다** (`prod`/`test`, 이 스택의 `EnvironmentName`과 같은 값).
+DM DB 계층은 이 스택 밖이라 값이 자동으로 들어가지 않는다. 비어 있으면 표준 큐 우회만 막히고 FIFO 발행은 정상이다 (`playmate-discord-bot/dm_share/DEPLOY.md` 5절).
 
-**운영에서 DM Worker를 켜기 전 필수 조건**
-1. B-2 FIFO 전환 Issue 완료 (발행 코드·큐·이벤트 소스 변경, 테스트: R4 동시 처리, 실패 시 그룹 정지, 5분 중복 제거)
-2. 그 뒤 Rule `DmWorkerNotInProdUntilFifo` 제거 또는 조건 변경
-3. DM DB 계층(결과 소비자) 배포와 053 적용, Gateway DM 폴링 전환 절차(아래) 준비
+검증 (로컬, `tests/test_dm_fifo.py`): SQS FIFO 그룹 규칙을 흉내 낸 큐 + 실제 `DmShareWorker` + 스레드 2개로
+- 시나리오 C(429 대기 중 재선점): FIFO면 두 번째 Worker가 새 작업을 받지 못하고, 이전 작업 뒤에 처리되어 마커로 `SENT`(DM 1회). 새 작업 TTL이 지났으면 `EXPIRED`(DM 1회)
+- 같은 조건을 표준 큐 + 동시성 2로 돌리면 **DM 2회** (전환 전 위험 재현)
+- 같은 알림 중복 메시지·서로 다른 알림 병렬·결과 발행 실패 후 같은 그룹 맨 앞에서 재전달(재게시 없음)
+
+**AWS가 보장하는 것과 로컬에서 확인한 것을 구분한다**: 그룹 직렬화·5분 중복 제거는 SQS FIFO와 Lambda 이벤트 소스의 동작이며 로컬 흉내로는 증명되지 않는다
+(실제 AWS 시험 필요). **남는 위험**: (1) 5분 창 밖의 중복은 막지 않는다. (2) 앞 작업이 Lambda 타임아웃으로 끝났는데 Discord가 요청을 그보다 늦게 저장하면,
+다음 작업의 마커 조회가 그 메시지를 못 볼 수 있다 (UNKNOWN 경로·16분 인수 제한이 기존과 같이 완화). (3) Discord 마커 조회·`enforce_nonce`는 실제 검증 전.
+FIFO는 **Discord 전송의 exactly-once를 보장하지 않는다**.
+
+| 지난 대안 | 결과 |
+|---|---|
+| A. 표준 큐 + 예약 1 + 운영 차단 (2차 임시안) | FIFO로 대체. 운영 차단은 15.10 단계 승인으로 유지 |
+| C. Worker 중복 방지 강화 + 동시성 2 | Worker는 다른 Worker의 진행 중 요청을 알 수 없어 증명 불가. 채택하지 않음 |
 
 **Gateway 버전 구분과 전환 조건 (Worker 쪽 변경 없음)**
 
@@ -371,7 +385,7 @@ R4: DM은 실패(429 등) 후 **60초 만에 재선점**되고 TTL은 50초다. 
 
 | 경보 | HOT | DM |
 |---|---|---|
-| `…-worker-failures` (지표 수학) | Lambda `Errors` + `Throttles` + `[ERROR]` 로그 ≥ 1 | `Errors` + `[ERROR]` 로그 ≥ 1 (**Throttles 제외**: 예약 1 < 최대 2라 예상 동작) |
+| `…-worker-failures` (지표 수학) | Lambda `Errors` + `Throttles` + `[ERROR]` 로그 ≥ 1 | `Errors` + `Throttles` + `[ERROR]`·`DiscordAuthError` 로그 ≥ 1 (FIFO 전환 후 예약 = 최대라 스로틀도 이상 신호) |
 | `…-dlq-not-empty` (지표 수학) | 발송 DLQ + 결과 DLQ ≥ 1 | 같음 |
 | `…-send-queue-stale` | 가장 오래된 작업 ≥ 180초 (TTL 3분) | ≥ 300초 (지속 스로틀·Worker 정지 감지) |
 | `…-result-queue-stale` | 가장 오래된 결과 ≥ 1시간 | 같음 |
@@ -387,8 +401,8 @@ DM 채널 열기·마커 조회의 401은 Worker가 ERROR 로그를 남긴다. H
 | 항목 | 추가 수량 | 비고 |
 |---|---|---|
 | Lambda | 2 | 호출·실행 시간 과금. 이벤트 소스 비활성이면 호출 없음 |
-| SQS 큐 | 8 (작업 2, 결과 2, DLQ 4) | 큐 자체는 무료, 요청 과금. **이벤트 소스가 켜져 있으면 메시지가 없어도 long-poll 요청이 계속 발생** |
-| CloudWatch 경보 | 8 (지표 수학 4개 포함. 지표 수 기준이면 HOT 7 + DM 6 = 경보 지표 13개) | |
+| SQS 큐 | 8 (작업 2, 결과 2, DLQ 4. 그중 DM 발송 큐·DLQ 2개는 FIFO) | 큐 자체는 무료, 요청 과금. **이벤트 소스가 켜져 있으면 메시지가 없어도 long-poll 요청이 계속 발생**. FIFO 요청은 표준 요청과 단가가 다르다 (요금표 확인, 이 문서에 금액을 적지 않는다) |
+| CloudWatch 경보 | 8 (지표 수학 4개 포함. 지표 수 기준이면 HOT 7 + DM 7 = 경보 지표 14개) | |
 | 사용자 지표 | 2 (로그 지표 필터) | |
 | 로그 그룹 | 2 | 수집·저장 과금, 보존 `LogRetentionInDays` |
 | Secrets Manager | **0** (기존 시크릿 재사용) | 조회 API 호출만 증가 (콜드 스타트마다 1회) |
@@ -441,3 +455,27 @@ CloudFormation이 이를 어떻게 처리하는지는 실제로 확인하지 않
 
 **의도적으로 HOT·DM을 없앨 때**: 이벤트 소스 비활성 → 큐·DLQ가 비었는지 확인 → 스택 정책에서 해당 큐 거부를 잠시 제거 → `Deploy*=false` 배포 →
 남은 큐 직접 삭제 → 스택 정책 복원.
+
+**DM 표준 → FIFO 전환과 교체**: `FifoQueue`·`QueueName` 변경은 CloudFormation **교체(Replacement)** 다. 지금까지 DM 큐를 배포한 적은 없지만,
+표준 DM 큐로 배포한 스택(이번 변경 이전 코드)에 이 템플릿을 적용하면 변경 세트에 `DmShareSendQueue`·`DmShareSendDLQ`의 `Replacement=True`가 나온다.
+- `check_changeset.py`가 이 교체를 잡아 멈추고, 스택 정책을 걸었다면 `Update:Replace` 거부로 실패한다 (의도한 전환이면 그 두 큐만 잠시 허용)
+- 이름이 바뀌므로(`…-dm-share-send` → `…-dm-share-send.fifo`) 새 FIFO 큐와 이름 충돌은 없다. `UpdateReplacePolicy: Retain`으로 **이전 표준 큐는 계정에 남는다**
+  → 남은 메시지를 확인하고(개인정보) 직접 삭제한다
+- 전환 순서: DM 이벤트 소스 비활성 → DM DB 계층이 새 `.fifo` URL을 쓰도록 먼저 바꾸지 말고(아직 큐 없음) 스택 업데이트로 FIFO 큐 생성 →
+  DB 계층 `DM_SHARE_SEND_QUEUE_URL`을 `.fifo` URL로 변경 → 이전 표준 큐 비었는지 확인 후 삭제
+
+### 15.10 운영 DM 활성화 단계 (Rule `DmWorkerProdRequiresApproval`)
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 1 | FIFO 코드 구현 (발행기·큐·동시성) | **완료** (Issue #182) |
+| 2 | 로컬 중복·재시도 테스트 통과 | **완료** (`test_dm_fifo.py`, `test_serverless_infra.py`) |
+| 3 | AWS 시험 환경 배포·검증 (FIFO 그룹 직렬화, 5분 중복 제거, 이벤트 소스 동시성 2, DLQ·경보) | 미완료 |
+| 4 | Discord 실환경 검증 (DM 채널 마커 조회, `enforce_nonce`, 401·50007 응답) | 미완료 |
+| 5 | DM 결과 큐 소비자·DB 계층 배포(`DM_SHARE_SEND_QUEUE_URL`=`.fifo` URL, `PLAYMATE_ENVIRONMENT` 설정, `DM_SHARE_ALLOW_STANDARD_QUEUE` 미설정), 053 적용 | 미완료 |
+| 6 | Gateway 전환 절차 검증 (공동 선점 버전 확인, 폴링 끄기·롤백) | 미완료 |
+| 7 | 운영 DM Worker 활성화 승인 → `DmProdActivationApproved=true`로 배포 | 미완료 |
+
+`EnvironmentName=prod`에서 `DmWorkerEventSourceEnabled=true`이면 `DmProdActivationApproved=true`가 아닐 때 Rule이 **배포를 거부**한다 (기본 `false`).
+시험 환경(`test`)은 3~4단계 검증을 위해 켤 수 있다. **이 Rule은 CloudFormation 배포만 막는다**: 콘솔·CLI(`update-event-source-mapping --enabled`)로
+이벤트 소스를 직접 켜는 것은 막지 못하므로, 운영 계정의 IAM 권한과 변경 절차로 관리한다.

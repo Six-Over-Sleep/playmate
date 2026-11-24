@@ -10,6 +10,7 @@ from career_share import contract
 from career_share.messages import marker_for
 from career_share.queues import PublishError
 from career_share.service import CareerShareService
+from dm_share.fifo import DmFifoPublisher
 from dm_share.messages import dm_payload
 from repositories.dm_delivery_repository import SENDER_LAMBDA, dm_unit_id, notification_id_of
 from services.web_links import notification_post_url
@@ -20,6 +21,9 @@ KIND_DM = "DM"
 
 class DmShareService(CareerShareService):
     def __init__(self, repo, publisher, settings, clock=lambda: datetime.now(timezone.utc)):
+        # 발송·확인 작업 발행(상속한 _publish_claims와 recover)은 모두 self.publisher를 거친다. DM만 FIFO 그룹·중복 제거 ID를 붙인다.
+        if not isinstance(publisher, DmFifoPublisher):
+            publisher = DmFifoPublisher(publisher)
         super().__init__(repo, publisher, settings, clock)
 
     def _link(self, notification: dict) -> str | None:

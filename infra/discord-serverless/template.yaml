@@ -108,6 +108,14 @@ Parameters:
     Default: "false"
     Description: Create the comment/reply DM queues, Worker and alarms. The DM recipient comes from each job (no channel parameter).
 
+  DmProdActivationApproved:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+    Description: >-
+      Step 7 approval (DEPLOY.md 15.10). Required to enable the DM Worker event source when EnvironmentName=prod.
+      Set only after test-environment AWS/Discord verification, result consumer deployment and Gateway cutover checks.
+
   DmWorkerEventSourceEnabled:
     Type: String
     AllowedValues: ["false", "true"]
@@ -131,14 +139,18 @@ Rules:
     Assertions:
       - Assert: !Not [!Equals [!Ref HotShareChannelId, ""]]
         AssertDescription: HotShareChannelId is required when DeployHotShare=true.
-  # DM Worker 동시성은 현재 범위에서 안전성이 입증되지 않았다 (DEPLOY.md 15.4): 예약 1 < 이벤트 소스 최대 2(AWS 권장 위반, 스로틀),
-  # 예약 2는 R4 중복 방지 전제 위반. FIFO 전환(발행 코드 변경, 후속 Issue) 전에는 운영 환경에서 DM 이벤트 소스를 켤 수 없게 막는다.
-  DmWorkerNotInProdUntilFifo:
-    RuleCondition: !Equals [!Ref EnvironmentName, prod]
+  # 운영 DM 발송은 단계 승인 전까지 막는다 (DEPLOY.md 15.10). FIFO 코드·로컬 테스트(1~2단계)는 끝났지만 AWS·Discord 실환경 검증,
+  # 결과 소비자·DB 계층 배포, Gateway 전환 검증(3~6단계)은 남았다. 7단계 승인 때만 DmProdActivationApproved=true로 배포한다.
+  # 이 Rule은 CloudFormation 배포만 막는다. 콘솔·CLI로 이벤트 소스를 직접 켜는 것은 막지 못한다.
+  DmWorkerProdRequiresApproval:
+    RuleCondition: !And
+      - !Equals [!Ref EnvironmentName, prod]
+      - !Equals [!Ref DmWorkerEventSourceEnabled, "true"]
     Assertions:
-      - Assert: !Equals [!Ref DmWorkerEventSourceEnabled, "false"]
+      - Assert: !Equals [!Ref DmProdActivationApproved, "true"]
         AssertDescription: >-
-          DmWorkerEventSourceEnabled must stay false in prod until the DM send queue moves to FIFO (see DEPLOY.md 15.4).
+          Enabling the DM Worker in prod requires DmProdActivationApproved=true after AWS/Discord verification
+          (DEPLOY.md 15.10).
 
 Resources:
   # ------------------------------------------------------------------ 취업 공유 큐 (표준 큐, SQS 관리형 암호화)
@@ -700,6 +712,8 @@ Resources:
   # ================================================================== 댓글·대댓글 DM (Issue #182)
   # 기존 dm_share.worker_lambda.handler 재사용: DM 작업(kind=DM, unit dm-<id>)과 유효한 recipient_id만 처리한다.
   # 큐 메시지에 받는 사람 Discord ID와 게시글 제목이 들어가므로 SSE, 짧은 보존, 로그에 본문·받는 사람을 남기지 않는 기존 코드를 유지한다.
+  # 발송 큐는 FIFO: MessageGroupId = unit_id(dm-<알림 ID>), MessageDeduplicationId = job_id (dm_share/fifo.py, DEPLOY.md 15.4).
+  # 같은 알림의 작업은 한 번에 하나씩 순서대로 처리되고(R4 방지), 서로 다른 알림은 병렬로 처리된다. 결과 큐는 표준 유지 (반영이 멱등).
   DmShareSendDLQ:
     Type: AWS::SQS::Queue
     Condition: CreateDmShare
@@ -707,7 +721,8 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      QueueName: !Sub playmate-${EnvironmentName}-dm-share-send-dlq
+      QueueName: !Sub playmate-${EnvironmentName}-dm-share-send-dlq.fifo    # FIFO 큐의 DLQ도 FIFO여야 한다
+      FifoQueue: true
       MessageRetentionPeriod: 604800           # 7일: 원인 확인 시간과 개인정보 보존 최소화 사이 (원본 넣은 시각 기준으로 만료)
       SqsManagedSseEnabled: true
 
@@ -718,15 +733,17 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      QueueName: !Sub playmate-${EnvironmentName}-dm-share-send
+      QueueName: !Sub playmate-${EnvironmentName}-dm-share-send.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false         # 본문 해시가 아니라 발행기가 넘기는 job_id로 중복 제거 (재선점 작업은 새 job_id)
       VisibilityTimeout: 360                   # Worker Timeout 60초 x 6
       MessageRetentionPeriod: 3600             # 작업 TTL은 50초. 오래 둘 이유가 없고 받는 사람 정보 보존을 줄인다
       ReceiveMessageWaitTimeSeconds: 20
       SqsManagedSseEnabled: true
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt DmShareSendDLQ.Arn
-        # 예약 동시성 1 < 최대 동시성 2라 스로틀이 수신 횟수를 올릴 수 있다. 스로틀만으로 DLQ에 가지 않도록 여유를 둔다.
-        maxReceiveCount: 10
+        # 예약 동시성 = 최대 동시성이라 구조적 스로틀이 없다. 실패한 메시지는 그 알림의 그룹만 가시성 타임아웃 동안 멈추게 한다.
+        maxReceiveCount: 5
 
   DmShareResultDLQ:
     Type: AWS::SQS::Queue
@@ -818,12 +835,10 @@ Resources:
       MemorySize: 256
       Timeout: 60
       Role: !GetAtt DmShareWorkerRole.Arn
-      # 취업·HOT과 달리 1을 유지한다 (dm_share/DEPLOY.md 7절 R4). DM은 실패 후 60초 만에 재선점되므로, 429 대기 중인 이전 작업 복사본과
-      # 새 작업이 동시에 처리되면 둘 다 마커를 못 찾고 DM을 두 번 보낼 수 있다. 예약 동시성 1이면 새 작업이 이전 작업 뒤에 처리되어
-      # 마커로 막힌다 (test_lambda_reclaim_during_inflight_is_safe_with_concurrency_1). 이벤트 소스 최대 동시성 최솟값이 2라
-      # 예약 1 < 최대 2가 되어 스로틀이 생길 수 있다 (AWS 권장 "예약 >= 최대"와 충돌). 재시도 횟수(10)는 DLQ 이동만 늦출 뿐 해결책이 아니다.
-      # **임시 설정**: 시험 환경에서만 켤 수 있고 운영 활성화는 Rule(DmWorkerNotInProdUntilFifo)이 막는다 (DEPLOY.md 15.4).
-      ReservedConcurrentExecutions: 1
+      # 예약 2 = 이벤트 소스 최대 동시성 2 (AWS 권장 "예약 >= 최대" 충족, 구조적 스로틀 없음).
+      # R4(429 대기 중인 이전 작업과 60초 뒤 재선점한 새 작업의 동시 처리)는 예약 동시성 1 대신 FIFO 그룹(= 알림 단위) 직렬화가 막는다:
+      # 같은 알림의 다음 작업은 앞 작업이 삭제(처리 완료)되거나 가시성 타임아웃이 지나야 Worker에 전달된다 (AWS FIFO 보장, DEPLOY.md 15.4).
+      ReservedConcurrentExecutions: 2
       LoggingConfig:
         LogGroup: !Ref DmShareWorkerLogGroup
         LogFormat: Text
@@ -847,7 +862,7 @@ Resources:
       FunctionResponseTypes: [ReportBatchItemFailures]
       Enabled: !If [EnableDmWorker, true, false]
       ScalingConfig:
-        MaximumConcurrency: 2                  # 최솟값. 실제 실행 상한은 함수 예약 동시성 1
+        MaximumConcurrency: 2                  # 최솟값 = 함수 예약 동시성. 서로 다른 알림 그룹 최대 2개를 동시에 처리
 
   DmShareWorkerErrorLogMetric:
     Type: AWS::Logs::MetricFilter
@@ -863,13 +878,13 @@ Resources:
           MetricValue: "1"
           DefaultValue: 0
 
-  # DM 실패 경보에는 Throttles를 넣지 않는다: 예약 1 < 최대 2라 스로틀은 예상되는 동작이다. 스로틀로 생기는 지연은 발송 큐 정체 경보가 잡는다.
+  # 예약 = 최대 동시성이 되었으므로 HOT과 같이 Throttles도 이상 신호로 센다.
   DmShareWorkerFailuresAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: CreateDmShare
     Properties:
       AlarmName: !Sub playmate-${EnvironmentName}-dm-share-worker-failures
-      AlarmDescription: DM Worker invocation errors (incl. timeouts) or ERROR log lines (e.g. Discord 401). Check the log group.
+      AlarmDescription: DM Worker invocation errors (incl. timeouts), throttles (not expected) or ERROR/401 log lines. Check the log group.
       Metrics:
         - Id: errors
           ReturnData: false
@@ -877,6 +892,15 @@ Resources:
             Metric:
               Namespace: AWS/Lambda
               MetricName: Errors
+              Dimensions: [{Name: FunctionName, Value: !Ref DmShareWorkerFunction}]
+            Period: 300
+            Stat: Sum
+        - Id: throttles
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Throttles
               Dimensions: [{Name: FunctionName, Value: !Ref DmShareWorkerFunction}]
             Period: 300
             Stat: Sum
@@ -889,7 +913,7 @@ Resources:
             Period: 300
             Stat: Sum
         - Id: failures
-          Expression: FILL(errors, 0) + FILL(errorlogs, 0)
+          Expression: FILL(errors, 0) + FILL(throttles, 0) + FILL(errorlogs, 0)
           Label: DM worker failures
           ReturnData: true
       EvaluationPeriods: 1

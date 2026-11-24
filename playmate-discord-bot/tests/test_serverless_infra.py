@@ -573,16 +573,23 @@ class HotDmTemplateTests(unittest.TestCase):
             self.assertEqual(props["EventSourceArn"], {"Fn::GetAtt": [f"{key}SendQueue", "Arn"]})
             self.assertEqual(self.conds[enable]["Fn::And"][0], {"Fn::Condition": cond}, "기능을 만들지 않으면 켤 수 없다")
 
-    def test_concurrency_hot_matches_career_dm_stays_serial(self):
-        hot = self.res["HotShareWorkerFunction"]["Properties"]
-        hot_map = self.res["HotShareWorkerSendQueueMapping"]["Properties"]["ScalingConfig"]["MaximumConcurrency"]
-        self.assertEqual((hot["ReservedConcurrentExecutions"], hot_map), (2, 2), "HOT: 예약 = 최대 = 2 (취업과 같은 근거)")
-        dm = self.res["DmShareWorkerFunction"]["Properties"]
-        dm_map = self.res["DmShareWorkerSendQueueMapping"]["Properties"]["ScalingConfig"]["MaximumConcurrency"]
-        self.assertEqual(dm["ReservedConcurrentExecutions"], 1, "DM: R4(재선점 중 이전 작업 실행) 중복 방지 전제는 동시성 1")
-        self.assertEqual(dm_map, 2, "이벤트 소스 최솟값 2 (1은 불가)")
-        self.assertGreaterEqual(self.res["DmShareSendQueue"]["Properties"]["RedrivePolicy"]["maxReceiveCount"], 10,
-                                "예약 1 < 최대 2라 스로틀로 늘어난 수신 횟수만으로 DLQ에 가지 않게")
+    def test_concurrency_reserved_equals_maximum_and_dm_is_fifo(self):
+        """FIFO 전환 후: HOT·DM 모두 예약 = 최대 = 2 (AWS 권장 충족). DM의 같은 알림 직렬화는 FIFO 그룹이 맡는다."""
+        for key in ("HotShare", "DmShare"):
+            fn = self.res[f"{key}WorkerFunction"]["Properties"]
+            maximum = self.res[f"{key}WorkerSendQueueMapping"]["Properties"]["ScalingConfig"]["MaximumConcurrency"]
+            self.assertEqual((fn["ReservedConcurrentExecutions"], maximum), (2, 2), key)
+        send = self.res["DmShareSendQueue"]["Properties"]
+        dlq = self.res["DmShareSendDLQ"]["Properties"]
+        self.assertTrue(send["FifoQueue"] and dlq["FifoQueue"], "FIFO 큐의 DLQ도 FIFO")
+        self.assertIs(send["ContentBasedDeduplication"], False, "발행기가 job_id로 중복 제거 ID를 넘긴다")
+        self.assertTrue(send["QueueName"]["Fn::Sub"].endswith("-dm-share-send.fifo"))
+        self.assertTrue(dlq["QueueName"]["Fn::Sub"].endswith("-dm-share-send-dlq.fifo"))
+        self.assertEqual(send["RedrivePolicy"]["maxReceiveCount"], 5, "구조적 스로틀이 없으므로 재시도 여유를 늘리지 않는다")
+        result = self.res["DmShareResultQueue"]["Properties"]
+        self.assertNotIn("FifoQueue", result, "결과 큐는 표준 유지 (DB 반영이 claim_token·상태 전이로 멱등)")
+        for name in ("HotShareSendQueue", "CareerShareSendQueue"):
+            self.assertNotIn("FifoQueue", self.res[name]["Properties"], f"{name}은 표준 큐 그대로")
 
     def test_queues_timeouts_retention_and_encryption(self):
         for key in ("HotShare", "DmShare"):
@@ -656,10 +663,15 @@ class HotDmTemplateTests(unittest.TestCase):
             self.assertIn(resource.split("/", 1)[1], self.res, "정책의 논리 ID가 템플릿에 있어야 한다")
         self.assertIn({"Effect": "Allow", "Action": "Update:*", "Principal": "*", "Resource": "*"}, policy["Statement"])
 
-    def test_dm_worker_cannot_be_enabled_in_prod_until_fifo(self):
-        rule = self.t["Rules"]["DmWorkerNotInProdUntilFifo"]
-        self.assertEqual(rule["RuleCondition"], {"Fn::Equals": [{"Ref": "EnvironmentName"}, "prod"]})
-        self.assertEqual(rule["Assertions"][0]["Assert"], {"Fn::Equals": [{"Ref": "DmWorkerEventSourceEnabled"}, "false"]})
+    def test_dm_worker_prod_activation_still_requires_approval(self):
+        """FIFO 구현(1~2단계)만으로 운영 차단을 풀지 않는다: 운영에서 켜려면 7단계 승인 파라미터가 필요하다 (기본 false)."""
+        self.assertNotIn("DmWorkerNotInProdUntilFifo", self.t["Rules"])
+        rule = self.t["Rules"]["DmWorkerProdRequiresApproval"]
+        self.assertEqual(rule["RuleCondition"], {"Fn::And": [{"Fn::Equals": [{"Ref": "EnvironmentName"}, "prod"]},
+                                                             {"Fn::Equals": [{"Ref": "DmWorkerEventSourceEnabled"}, "true"]}]})
+        self.assertEqual(rule["Assertions"][0]["Assert"], {"Fn::Equals": [{"Ref": "DmProdActivationApproved"}, "true"]})
+        self.assertEqual(self.params["DmProdActivationApproved"]["Default"], "false")
+        self.assertEqual(self.params["DmWorkerEventSourceEnabled"]["Default"], "false")
 
     def test_dm_error_filter_also_counts_auth_warning(self):
         dm = self.res["DmShareWorkerErrorLogMetric"]["Properties"]["FilterPattern"]
@@ -683,7 +695,7 @@ class HotDmTemplateTests(unittest.TestCase):
         hot_ids = {m["Id"] for m in alarms("HotShare")["HotShareWorkerFailuresAlarm"]["Metrics"]}
         dm_ids = {m["Id"] for m in alarms("DmShare")["DmShareWorkerFailuresAlarm"]["Metrics"]}
         self.assertIn("throttles", hot_ids, "HOT은 예약 = 최대라 스로틀이 이상 신호")
-        self.assertNotIn("throttles", dm_ids, "DM은 예약 1 < 최대 2라 스로틀이 예상 동작 (정체 경보로 감지)")
+        self.assertIn("throttles", dm_ids, "DM도 FIFO 전환 후 예약 = 최대라 스로틀이 이상 신호")
         for key, ttl in (("HotShare", 180), ("DmShare", 300)):
             self.assertEqual(alarms(key)[f"{key}SendQueueAgeAlarm"]["Threshold"], ttl)
 

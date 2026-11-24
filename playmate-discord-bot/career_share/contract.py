@@ -29,7 +29,8 @@ TYPE_SEND, TYPE_VERIFY, TYPE_RESULT = "send", "verify", "result"
 OUTCOMES = ("SENT", "FAILED_RETRY", "FAILED_PERMANENT", "EXPIRED", "UNKNOWN", "ABSENT_PROVEN", "INCONCLUSIVE")
 # hot-<id>: HOT 게시글 공유(hot_share, Issue #165). 같은 Worker 코드를 쓰되 별도 큐·채널·이력 테이블을 쓴다.
 #   취업 공유 DB Lambda가 hot- 결과를 받아도 career_discord_announcements에 해당 batch_id가 없어 'ignored'로 끝난다.
-_UNIT = re.compile(r"^(post-\d{1,18}|digest-\d{4}-\d{2}-\d{2}|hot-\d{1,18})$")
+# dm-<notification_id>: 댓글·대댓글 DM(dm_share, Issue #171). Worker마다 UNIT_PREFIXES로 자기 단위만 처리한다.
+_UNIT = re.compile(r"^(post-\d{1,18}|digest-\d{4}-\d{2}-\d{2}|hot-\d{1,18}|dm-\d{1,18})$")
 
 
 class ContractError(ValueError):

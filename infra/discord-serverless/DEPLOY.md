@@ -1,10 +1,12 @@
-# Discord 서버리스 3안 — 취업 공유 Worker 인프라 (AWS SAM)
+# Discord 서버리스 3안 — 취업·HOT·DM Worker 인프라 (AWS SAM)
 
 3안: **PostgreSQL Outbox + Amazon SQS + AWS Lambda**. 이 스택은 그중 **발송 큐·결과 큐·Discord Worker Lambda**만 만든다.
 DB 처리 계층(DB Lambda 또는 기존 EC2 실행기)과 EventBridge Scheduler는 **만들지 않는다** (운영 DB·접속 경로 미확정).
+취업 공유(1~13절)는 항상 만들고, HOT 공유와 댓글·대댓글 DM(15절)은 `DeployHotShare`/`DeployDmShare=true`일 때만 만든다.
 
-> **이 문서의 어떤 단계도 아직 실제 AWS에서 실행·검증하지 않았다.** 로컬에서 확인한 것은 템플릿 정적 검증, 패키징, 핸들러 흐름
-> (가짜 Discord·가짜 큐) 테스트뿐이다 (`playmate-discord-bot/tests/test_serverless_infra.py`). SAM CLI로 `sam validate`/`sam build`도 아직 돌리지 않았다.
+> **이 문서의 어떤 단계도 아직 실제 AWS에서 실행·검증하지 않았다.** 로컬에서 확인한 것: 템플릿 정적 검증, 패키징, 핸들러 흐름
+> (가짜 Discord·가짜 큐) 테스트 (`playmate-discord-bot/tests/test_serverless_infra.py`), SAM CLI 1.174.0 `sam validate --lint`·`sam build`
+> (Issue #182, Docker 없이). `sam deploy`는 실행하지 않았다.
 
 ## 1. 만들어지는 리소스
 
@@ -244,7 +246,7 @@ DB 계층(EC2 실행기 또는 DB Lambda, 미정)은 이 스택의 출력을 쓴
 3. 시험 채널에서 6절 통과 (마커 조회, embed 표시, 중복 전달 시 재게시 없음)
 4. 운영 채널 ID는 운영 배포 때만 파라미터로 넣는다 (`EnvironmentName=prod`, 템플릿·설정 파일에 넣지 않는다)
 5. 경보 SNS 연결과 수신 확인, 계정 동시성 한도(5절 사전 준비 4)
-6. `sam validate --lint`, `sam build`를 실제 SAM CLI로 실행 (이번 로컬 작업에서는 SKIP)
+6. `build_package.py` → `sam validate --lint` → `sam build` (Issue #182에서 로컬 통과. 배포 직전에 다시 실행)
 7. 결과 큐 소비자(DB 계층)를 **먼저** 배포한 뒤 운영 Worker를 켠다 (3절 "결과 큐에 소비자가 없을 때의 위험")
 8. 동시성 2 결정과 남은 중복 위험(3절)을 팀이 수용했는지 확인 (아니면 FIFO 전환을 별도 Issue로)
 
@@ -255,10 +257,187 @@ DB 계층(EC2 실행기 또는 DB Lambda, 미정)은 이 스택의 출력을 쓴
 2. 템플릿 변경 롤백: 이전 커밋으로 `sam build` + `sam deploy` (CloudFormation 변경 세트 확인)
 3. 스택 삭제(`sam delete`)는 **큐와 그 안의 메시지·DLQ·로그 그룹을 함께 지운다**. 삭제 전 DLQ·결과 큐 내용을 확인한다. 시크릿·SNS는 스택 밖이라 남는다
 
-## 14. HOT·DM 확장 (같은 패턴)
+## 14. HOT·DM 확장
 
-`hot-share`, `dm-share`로 같은 4개 큐 + Worker + 역할 + 로그 그룹 + 경보를 추가하고 `build_package.py`의 `PACKAGES`에 `hot_worker`/`dm_worker`를 넣는다.
-- HOT Worker: `HOT_SHARE_CHANNEL_ID`, `HOT_SHARE_RESULT_QUEUE_URL`, `WORKER_TARGET_HANDLER=hot_share.worker_lambda.handler` (패키지에 `hot_share/` 추가)
-- DM Worker: 채널 환경변수 없음(받는 사람 DM 채널), `DM_SHARE_RESULT_QUEUE_URL`, `dm_share.worker_lambda.handler`. DM Worker는
-  `repositories.dm_delivery_repository`(상수·함수)와 `services.notification_policy`를 import하므로 패키지 규칙을 따로 검토한다. DM 큐는 받는 사람 Discord ID가 들어가므로 SSE 유지
-- 세 Worker가 같은 봇 토큰 시크릿을 쓰면 시크릿 읽기 권한만 각 역할에 준다
+Issue #182에서 구현했다 → 15절.
+
+## 15. HOT 공유·댓글 DM Worker (Issue #182)
+
+### 15.1 켜는 방법
+
+| 파라미터 | 기본 | 설명 |
+|---|---|---|
+| `DeployHotShare` | `false` | `true`면 HOT 큐 4개·Worker·역할·로그 그룹·경보 4개를 만든다 |
+| `HotShareChannelId` | `""` | `DeployHotShare=true`면 **필수** (템플릿 Rule이 배포 전에 막는다). 처음에는 시험 채널 |
+| `HotWorkerEventSourceEnabled` | `false` | HOT 발송 큐 → Worker |
+| `DeployDmShare` | `false` | `true`면 DM 큐 4개·Worker·역할·로그 그룹·경보 4개를 만든다. 채널 파라미터 없음 (작업의 `recipient_id`로 DM 채널을 연다) |
+| `DmWorkerEventSourceEnabled` | `false` | DM 발송 큐 → Worker. **Gateway DM 폴링 전환 절차(`playmate-discord-bot/dm_share/DEPLOY.md` 5절)를 따른 뒤에만** 켠다 |
+
+토큰은 취업과 **같은 시크릿**(`DiscordBotTokenSecretArn`)을 쓴다. 새 시크릿을 만들지 않는다. 각 Worker 역할에 그 시크릿 읽기 권한만 있다.
+두 기능 모두 기본값이 `false`라 **취업만 배포하는 기존 명령은 그대로 동작한다** (5절).
+
+```powershell
+python infra/discord-serverless/build_package.py            # career_worker, hot_worker, dm_worker 세 패키지
+cd infra/discord-serverless
+sam validate --lint
+sam build
+sam deploy --config-env test --parameter-overrides `
+  EnvironmentName=test CareerShareChannelId=<시험 채널> DiscordBotTokenSecretArn=<시크릿 ARN> `
+  DeployHotShare=true HotShareChannelId=<HOT 시험 채널> HotWorkerEventSourceEnabled=false `
+  DeployDmShare=true DmWorkerEventSourceEnabled=false `
+  AlarmTopicArn=<SNS ARN 또는 생략>
+```
+명령줄 `--parameter-overrides`는 매번 **모든 값**을 다시 넣는다 (빠진 값이 기본값으로 돌아가면 그 기능이 스택에서 빠진다: 예 `DeployHotShare` 누락).
+큐·DLQ는 Retain으로 남고, 스택 정책·변경 세트 검사로 그런 배포를 미리 막는다 → 15.9.
+
+### 15.2 리소스 (기능당)
+
+| 리소스 | HOT | DM |
+|---|---|---|
+| 발송 큐 | 가시성 540초, 보존 1일, 5회 → DLQ | 가시성 360초, **보존 1시간**, 10회 → DLQ |
+| 발송 DLQ | 보존 14일 | **보존 7일** (받는 사람 ID 포함, 원본 넣은 시각 기준) |
+| 결과 큐 / DLQ | 보존 14일, 5회 → DLQ | 같음 (결과에는 받는 사람 ID·본문이 없다) |
+| Worker | `hot_share.worker_lambda.handler`, 90초, 예약 동시성 2 | `dm_share.worker_lambda.handler`, 60초, **예약 동시성 1** |
+| 이벤트 소스 | 배치 1, 부분 실패 보고, 최대 동시성 2, 기본 비활성 | 같음 |
+| 역할 | 자기 큐·로그 그룹·토큰 시크릿만 | 같음 |
+| 경보 | 4개 (15.6) | 4개 |
+
+모든 큐는 SSE-SQS. VPC·NAT·Scheduler·시크릿·DB 리소스는 만들지 않는다.
+
+### 15.3 패키지와 DM 의존성 분리
+
+| 패키지 | 내용 |
+|---|---|
+| `hot_worker` | 공통 Worker(`career_share` 발송 경로 7개) + `hot_share/{__init__, messages, policy, worker_lambda}` + `discord_rest` core |
+| `dm_worker` | 공통 Worker + `dm_share/{__init__, units, worker_lambda}` + `services/{__init__, notification_policy}` + `discord_rest` core |
+
+DM Worker는 원래 DB 저장소 모듈 `repositories.dm_delivery_repository`에서 순수 상수·함수(`DM_BLOCKED_CODE`, `USER_GONE_CODES`,
+`notification_id_of`)를 가져왔다. 이 4개(+`dm_unit_id`)를 **`dm_share/units.py`(순수 모듈)로 옮기고**, 저장소 모듈은 같은 이름으로
+다시 내보낸다 (Gateway·DB Lambda·테스트의 기존 import 경로와 값·동작 그대로). `services/notification_policy.py`는 이미 순수 모듈
+(`typing`만 import)이라 **파일 단위로만** 허용한다. 빌드는 패키지 파일이 `psycopg`, `discord`(discord.py), `config`, `repositories`,
+그 밖의 `services`, DB 경로 모듈(`*.repository`, `*.db_lambda`, `*.service`, `*.settings`, `dm_share.messages`), `bot`을 import하면 실패한다.
+
+### 15.4 동시성과 중복 발송
+
+| | HOT | DM |
+|---|---|---|
+| 큐 | 표준 | 표준 |
+| 예약 동시성 / 이벤트 소스 최대 동시성 | **2 / 2** | **1 / 2** |
+
+**HOT = 취업과 같은 근거(3절).** HOT 재선점은 재시도 간격이 `5분 x 시도 횟수`라, 이전 작업이 실행 중(최대 90초, TTL 3분)일 때 같은 글의
+새 작업이 동시에 처리되는 일이 없다. 남는 위험은 SQS 표준 큐의 드문 **같은 메시지 동시 중복 전달**뿐이다 (두 Worker가 모두 마커를 못 찾으면 중복 게시).
+
+**DM 최종 판단 (2차 검수): 현재 구성은 시험용 임시 설정이다. 운영에서는 켜지 않는다 (템플릿 Rule로 강제).**
+
+현재 DM 구성(표준 큐, 예약 1, 이벤트 소스 최대 2, 배치 1, `maxReceiveCount` 10, TTL 50초)은 AWS 권장 "함수 예약 동시성 >= 이벤트 소스 최대 동시성"과
+**충돌한다**. 메시지가 두 개 이상 동시에 있으면 스로틀이 생기고, 스로틀된 작업은 가시성 타임아웃(360초) 안에서 다시 호출되는 사이 TTL(50초)을 넘겨
+보내지지 않는다 (`EXPIRED`, 재수신이면 `UNKNOWN` → 마커 확인 복구 수십 분). `maxReceiveCount` 10은 DLQ 이동을 늦출 뿐 **해결책이 아니다**.
+그렇다고 예약 2로 올리면 아래 R4 중복 방지 전제가 깨진다.
+
+R4: DM은 실패(429 등) 후 **60초 만에 재선점**되고 TTL은 50초다. 이전 작업의 SQS 중복 복사본이 TTL 안에 시작해 429 대기 중일 때 새 작업이 동시에 처리되면
+둘 다 마커를 못 찾고 **같은 DM을 두 번 보낼 수 있다**. `dm_share/DEPLOY.md` 7절과 테스트(`test_lambda_reclaim_during_inflight_is_safe_with_concurrency_1`)는
+"예약 동시성 1이면 새 작업이 이전 작업 뒤에 처리되어 마커로 막힌다"를 전제로 한다.
+
+| 대안 | R4 중복 | 스로틀·지연 | DB 발행 코드 | 추가 비용 | 판단 |
+|---|---|---|---|---|---|
+| **A. 현 구성 유지 + 운영 활성화 금지 (채택)** | 막힘 (예약 1) | **있음** (AWS 권장 위반) | 변경 없음 | 없음 | 시험 환경에서만. `EnvironmentName=prod`에서 `DmWorkerEventSourceEnabled=true`면 Rule `DmWorkerNotInProdUntilFifo`가 배포를 거부 |
+| B-1. FIFO + **단일** MessageGroupId | 막힘 | 스로틀 없음. 대신 **한 메시지가 실패하면 그룹 전체가 가시성 타임아웃(360초) 동안 멈춰** 뒤 DM이 TTL을 넘긴다 (머리 막힘) | 필요 | FIFO 요청 단가가 표준보다 높음 (요금표 확인) | 비추천 |
+| B-2. FIFO + MessageGroupId = `unit_id`(`dm-<알림 ID>`), MessageDeduplicationId = `job_id` | 막힘 (같은 알림의 작업만 순서대로, 5분 중복 제거) | 다른 알림은 병렬 → 예약 2 = 최대 2 가능 | **필요**: `career_share/queues.SqsPublisher.send`가 그룹·중복 ID를 넘기게 + DM DB 계층 발행부. 큐 교체(FIFO는 이름 `.fifo`, 새 큐) | 위와 같음 | **추천 후속 Issue** |
+| C. Worker 중복 방지 강화 후 동시성 2 | Worker는 DB를 보지 않고 다른 Worker의 진행 중 요청을 알 수 없어 **증명 불가**. Discord `enforce_nonce`(nonce = 마커)는 문서상 "최근 몇 분"만, 실제 검증 전 | — | — | — | 채택하지 않음 |
+
+**운영에서 DM Worker를 켜기 전 필수 조건**
+1. B-2 FIFO 전환 Issue 완료 (발행 코드·큐·이벤트 소스 변경, 테스트: R4 동시 처리, 실패 시 그룹 정지, 5분 중복 제거)
+2. 그 뒤 Rule `DmWorkerNotInProdUntilFifo` 제거 또는 조건 변경
+3. DM DB 계층(결과 소비자) 배포와 053 적용, Gateway DM 폴링 전환 절차(아래) 준비
+
+**Gateway 버전 구분과 전환 조건 (Worker 쪽 변경 없음)**
+
+| Gateway | 053 테이블 | DM Lambda와 동시 실행 |
+|---|---|---|
+| **공동 선점 버전** (#172 이후 develop, `services.notification_service`가 `DmDeliveryRepository.claim("GATEWAY")`로 선점) | 사용 | **가능**: 같은 알림은 053 PK 선점으로 한 곳만 보낸다. Gateway는 `sender=LAMBDA`인 FAILED 행을 Lambda 선점 후 **16분**(DB 시각) 뒤에만 이어받는다 |
+| **구버전** (#172 이전, 053을 모름, 잠금 없는 `claim_pending`) | 무시 | **불가**: `notifications`가 PENDING인 알림을 그대로 보내 Lambda와 중복된다. DM 이벤트 소스를 켜기 전에 운영 Gateway가 공동 선점 버전인지 확인한다 |
+
+16분 근거는 "진행 중인 Lambda 요청은 Worker 실행이 끝나면 끝나고 실행 상한은 15분"이며, DM Worker 타임아웃 60초는 그 안이다.
+공동 선점 버전이어도 Gateway 배포는 단일 프로세스·재시작형으로 한다 (무중단 배포로 구버전과 겹치지 않게). 전환·롤백 순서: `dm_share/DEPLOY.md` 5절.
+
+### 15.5 DM 개인정보
+
+- 큐 메시지에는 받는 사람 Discord ID와 게시글 제목(embed)이 들어간다 → SSE-SQS, 발송 큐 보존 1시간, 발송 DLQ 7일
+- Worker 로그에는 `unit_id`(`dm-<알림 ID>`)·결과·오류 종류만 남는다. 받는 사람 ID·제목·토큰이 로그에 없는 것을 테스트로 확인했다
+  (`test_dm_logs_contain_no_recipient_title_or_token`: 성공·401·50007·조회 실패·잘못된 작업 경로)
+- DLQ 메시지를 조회할 때는 개인정보로 다룬다 (화면 공유·복사 금지, 확인 후 삭제)
+
+### 15.6 경보 (기능당 4개, 취업 7개를 복제하지 않음)
+
+| 경보 | HOT | DM |
+|---|---|---|
+| `…-worker-failures` (지표 수학) | Lambda `Errors` + `Throttles` + `[ERROR]` 로그 ≥ 1 | `Errors` + `[ERROR]` 로그 ≥ 1 (**Throttles 제외**: 예약 1 < 최대 2라 예상 동작) |
+| `…-dlq-not-empty` (지표 수학) | 발송 DLQ + 결과 DLQ ≥ 1 | 같음 |
+| `…-send-queue-stale` | 가장 오래된 작업 ≥ 180초 (TTL 3분) | ≥ 300초 (지속 스로틀·Worker 정지 감지) |
+| `…-result-queue-stale` | 가장 오래된 결과 ≥ 1시간 | 같음 |
+
+`Errors`에는 타임아웃도 포함된다. **DM POST 401은 Worker가 ERROR 로그 없이 정상 결과(`FAILED_RETRY`, `auth_error`)로 돌려준다**
+(Lambda `Errors`에도 안 잡힘). 남는 로그는 `discord_rest`의 WARNING `Discord 요청 실패 …: DiscordAuthError`뿐이라, DM 로그 필터는
+`?"[ERROR]" ?"DiscordAuthError"`로 그 경고도 센다 (실제 클라이언트·가짜 transport로 재현: `test_post_401_is_a_normal_result_but_matches_dm_filter`).
+DM 채널 열기·마커 조회의 401은 Worker가 ERROR 로그를 남긴다. HOT의 401은 `CareerShareWorker`가 ERROR 로그를 남기므로 `"[ERROR]"`로 충분하다.
+지표 수학 경보는 경보 1개 안에 여러 지표를 쓴다. **CloudWatch 요금은 경보 안 지표 수 기준일 수 있다** (요금표 확인 필요) — 개수는 줄지만 비용이 같을 수 있다.
+
+### 15.7 과금 항목과 수량 (두 기능을 모두 만들 때 추가분, 금액은 요금표로 확인)
+
+| 항목 | 추가 수량 | 비고 |
+|---|---|---|
+| Lambda | 2 | 호출·실행 시간 과금. 이벤트 소스 비활성이면 호출 없음 |
+| SQS 큐 | 8 (작업 2, 결과 2, DLQ 4) | 큐 자체는 무료, 요청 과금. **이벤트 소스가 켜져 있으면 메시지가 없어도 long-poll 요청이 계속 발생** |
+| CloudWatch 경보 | 8 (지표 수학 4개 포함. 지표 수 기준이면 HOT 7 + DM 6 = 경보 지표 13개) | |
+| 사용자 지표 | 2 (로그 지표 필터) | |
+| 로그 그룹 | 2 | 수집·저장 과금, 보존 `LogRetentionInDays` |
+| Secrets Manager | **0** (기존 시크릿 재사용) | 조회 API 호출만 증가 (콜드 스타트마다 1회) |
+| NAT·EC2·RDS·Scheduler | **0** | |
+
+### 15.8 시험 활성화와 롤백
+
+- 시험: 6절과 같다 (작업 1건을 사람이 넣고 이벤트 소스를 잠깐 켠다). HOT은 HOT 시험 채널에 게시된다. **DM 시험은 실제 사용자에게 DM이 가므로**
+  `recipient_id`를 팀원의 시험 계정으로만 쓴다 (봇과 서버를 공유해야 DM이 열린다)
+- 중단: 해당 이벤트 소스 비활성 (`aws lambda update-event-source-mapping --uuid <HotShare/DmShareWorkerEventSourceMappingId> --no-enabled`)
+- 기능 제거: `DeployHotShare=false` / `DeployDmShare=false`로 배포하면 Worker·이벤트 소스·경보·역할·로그 그룹은 지워지고,
+  **큐 8개는 `DeletionPolicy: Retain`으로 계정에 남는다** (스택에서만 빠짐). 스택 정책을 걸었다면 배포 자체가 거부된다 (15.9)
+- DM 롤백은 Gateway 폴링 복구 순서(`dm_share/DEPLOY.md` 5절 롤백)를 따른다
+
+### 15.9 HOT·DM 큐 삭제 방지 (문서 경고만으로는 막히지 않는다)
+
+**위험**: HOT·DM 리소스는 조건(`CreateHotShare`/`CreateDmShare`)으로 만든다. `true`로 배포한 뒤 다음 배포에서 `DeployHotShare`/`DeployDmShare`가
+`false`가 되면(명령줄 `--parameter-overrides`에서 빠뜨려 기본값으로 돌아간 경우 포함) CloudFormation은 그 리소스를 **삭제**한다.
+템플릿 Rules는 이전 파라미터 값을 볼 수 없어 이 전환을 막지 못한다.
+
+적용한 보호 장치 (세 겹):
+
+| 장치 | 무엇을 막나 | 한계 |
+|---|---|---|
+| 1. **`DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`** (HOT·DM 큐·DLQ 8개, 템플릿) | 조건이 꺼지거나 스택을 지우거나 교체가 필요한 변경이 와도 **큐와 메시지가 계정에 남는다** | 스택에서는 빠진다 (Worker·이벤트 소스·경보는 지워짐). 남은 큐는 직접 관리·삭제해야 한다 |
+| 2. **스택 정책** `stack-policy.json` (배포 후 한 번 적용) | 위 8개 큐의 `Update:Delete`·`Update:Replace`를 **거부** → 실수로 `false`가 들어간 업데이트 자체가 실패한다 | `sam deploy`에는 스택 정책 옵션이 없어 CLI로 한 번 건다. 의도한 제거 때는 잠시 풀어야 한다. 스택 삭제는 막지 않는다 (1이 보호) |
+| 3. **변경 세트 사전 검사** `check_changeset.py` | 실행 전에 SQS 큐의 `Remove`·`Replacement(True/Conditional)`를 찾아 멈춘다 | 사람이 순서를 지켜야 한다 |
+
+```powershell
+# 2. 스택 정책 적용 (HOT·DM을 처음 만든 배포 직후 한 번)
+aws cloudformation set-stack-policy --stack-name playmate-test-discord-serverless --stack-policy-body file://infra/discord-serverless/stack-policy.json
+
+# 3. 매 배포: 변경 세트만 만들고 검사한 뒤 실행
+sam deploy --config-env test --no-execute-changeset --parameter-overrides <모든 값>
+aws cloudformation describe-change-set --stack-name playmate-test-discord-serverless --change-set-name <출력된 이름> --output json > changeset.json
+python infra/discord-serverless/check_changeset.py changeset.json      # 0 = 큐 삭제·교체 없음
+aws cloudformation execute-change-set --stack-name playmate-test-discord-serverless --change-set-name <이름>
+```
+`samconfig.toml`의 `confirm_changeset = true`도 실행 전에 변경 목록을 보여 준다 (`Remove`/`Replacement` 열 확인).
+
+**이전 파라미터 유지**: 명령줄 `--parameter-overrides`에 모든 값을 다시 넣는다. 빠진 파라미터가 이전 값으로 유지되는지 기본값으로 돌아가는지는
+SAM CLI 동작에 따라 다를 수 있어 **이 문서에서 보장하지 않는다**. 그래서 위 2·3을 둔다.
+
+**Retain과 고정 큐 이름의 충돌 (실제 AWS 미검증)**: 큐 이름이 고정(`playmate-<env>-hot-share-send` 등)이라, Retain으로 남은 큐가 있는 상태에서
+다시 `Deploy*=true`로 배포하면 같은 이름의 큐를 새로 만들려 한다. SQS는 같은 이름·같은 속성이면 기존 큐를 돌려주고, 속성이 다르면 오류를 낸다.
+CloudFormation이 이를 어떻게 처리하는지는 실제로 확인하지 않았다. 다시 켜기 전에:
+1. 남은 큐·DLQ의 메시지를 확인한다 (8절. DM 큐는 개인정보로 다룬다)
+2. 필요 없으면 큐를 직접 삭제하고 60초 이상 기다린 뒤 배포한다 (SQS는 같은 이름 재생성에 대기 시간이 있다), 또는
+3. 남은 큐를 CloudFormation **리소스 가져오기(import)**로 스택에 다시 넣는다
+
+**의도적으로 HOT·DM을 없앨 때**: 이벤트 소스 비활성 → 큐·DLQ가 비었는지 확인 → 스택 정책에서 해당 큐 거부를 잠시 제거 → `Deploy*=false` 배포 →
+남은 큐 직접 삭제 → 스택 정책 복원.

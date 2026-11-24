@@ -2,6 +2,9 @@
 
 Issue #165. **AWS 리소스는 하나도 만들지 않았고, 운영 배포는 이 Issue 범위가 아니다.** AWS 동작 설명은 #163 `career_share/DEPLOY.md`와
 같은 "문서 기준"이며 실제 AWS에서 확인하지 않았다. **`052_hot_discord_share.sql`은 잠정 번호다. DB 담당자가 확정하기 전에는 적용하지 않는다.**
+열린 PR #174(`052_remove_compat_views.sql`)가 같은 052 번호를 쓴다. 두 파일은 서로 다른 객체만 다루므로(HOT은 새 테이블 2개, #174는
+`career_*`·`recruit_*` 호환 뷰 삭제) 적용 순서 의존은 없고 **번호만 겹친다**. 먼저 머지되는 쪽이 052를 쓰고 다른 쪽 번호를 바꾼다.
+선행 마이그레이션: `030_board_access_scope.sql`(boards.scope_type 등), `045_post_reactions.sql`(LIKE 집계). 둘 다 develop에 있다.
 
 ## 1. 구성
 
@@ -107,15 +110,30 @@ baseline 전에 Scheduler가 켜져도 relay는 `{"skipped":"baseline_required"}
 | 최초 후보 조회·선점 | 같은 트랜잭션의 SQL이 삭제·HIDDEN·미게시·모임 글·비공개 게시판을 제외 | 구현·테스트 |
 | FAILED 재선점(미전송 증명 후 포함) | 같은 SQL로 최신 상태 재확인. 삭제·HIDDEN·게시판 범위 변경 글은 FAILED로 남는다 | 구현·테스트 |
 | 선점 → Worker 전송 사이 | **막지 못한다.** Worker는 DB에 접근하지 않는다. 작업 TTL 3분(#163은 10분)으로 노출 창만 줄였다 | **남은 위험** |
-| 전송 후 | 결과 반영 시 글 상태를 다시 보고, 공유하면 안 되는 글이면 ERROR 로그 + `applied_post_not_shareable` 반환. `hot_summary`의 `SENT_POST_NOT_SHAREABLE`에 post_id·message_id 표시. **Discord 메시지는 자동으로 지우지 않는다** | 감지만 구현·테스트 |
+| 전송 결과 반영 시 | 글 상태를 다시 보고, 공유하면 안 되는 글이면 ERROR 로그 + `applied_post_not_shareable` 반환 | 감지 구현·테스트 |
+| 게시 후 (사용자 삭제·관리자 숨김·게시판 범위 변경) | **5분 relay마다** `SENT`인데 지금은 공유 불가인 글을 찾아 ERROR 로그(`Discord 메시지 삭제 필요`, post_id·message_id)와 relay 응답 `sent_not_shareable` 건수로 알린다. `hot_summary`의 `SENT_POST_NOT_SHAREABLE`에도 표시. **Discord 메시지는 자동으로 지우지 않는다** | 감지·반복 알림 구현·테스트 (PR #170 리뷰 ①) |
 
-운영: `SENT_POST_NOT_SHAREABLE`가 비어 있지 않으면 운영자가 Discord에서 해당 메시지를 지운다. 게시 후 사용자가 글을 삭제하는 경우도 여기에 나타난다.
+**경보는 아직 없다.** 코드가 만드는 것은 CloudWatch Logs에 남는 ERROR 로그뿐이다. 로그만으로는 아무도 알림을 받지 않는다.
+배포 시 CloudWatch Logs 지표 필터(`"Discord 메시지 삭제 필요"`, 그리고 조회 실패용 `"HOT 게시 후 상태 확인 실패"`) + 경보 + 알림 대상(SNS 등)을
+**별도로 만들어야** 이 대응이 동작한다 (이 PR은 AWS 리소스를 만들지 않았다. 8절 미검증 목록).
+
+경보가 오면 운영자가 Discord에서 해당 메시지를 지우고, **실제로 사라졌는지 확인한 뒤에만** `052` 하단 주석의 SQL(post_id·message_id 일치)로
+`RETRACTED`를 기록한다. 삭제에 실패했거나 확인하지 못했으면 기록하지 않는다 (기록하면 경보가 멈춘다). 기록 전까지는 매 주기 다시 알린다.
+`RETRACTED` 글은 복구·재HOT이 돼도 다시 공유하지 않으며, 늦게 도착한 예전 결과(SENT 등)도 상태를 바꾸지 않는다.
+알림 조회가 실패해도 그 주기의 선점·발행 결과는 그대로이며 relay 응답 `sent_not_shareable: null`과 ERROR 로그(예외 종류만)가 남는다.
+경보 건수는 전체 건수이고, 로그·`hot_summary` 목록은 50건까지만 보여 준다.
+
+**구조적 한계 (전송 직전 재검증 불가)**: HOT Worker는 VPC 밖에서 DB 접근 없이 Discord로 보낸다(DB 자격 증명을 인터넷에 노출된 함수에 두지 않는 #163 설계).
+그래서 Worker가 보내기 직전에 글 상태를 확인할 방법이 없다. DB 조회는 선점 시점과 결과 반영 시점·이후 relay에서만 할 수 있다.
+
+**남은 위험 (해결된 것이 아님)**: 선점→전송 사이(최대 작업 TTL 3분)와 게시 이후 상태 변경 모두, 메시지가 Discord에 실제로 보이는 시간은
+"다음 relay(최대 5분) + 운영자가 경보를 보고 지우는 시간"이다. 자동 철회(아래 후속 Issue)를 구현하기 전까지 사람의 대응에 의존한다.
 
 ### 후속 Issue 제안: 게시 후 삭제 동기화
 
 - #161 `DiscordRestClient`에 `delete_message(channel_id, message_id)` 추가 (404는 이미 삭제됨으로 성공 처리)
 - HOT DB Lambda가 `SENT`이면서 지금은 공유 불가인 행(`_STILL_SHAREABLE_SQL` 반대 조건)을 골라 `type: "delete"` 작업 발행
-  (계약에 새 작업 종류, 결과 `DELETED` 추가. 상태 `RETRACTED` 추가가 필요하므로 CHECK 변경 = 새 마이그레이션)
+  (계약에 새 작업 종류, 결과 `DELETED` 추가. 상태 `RETRACTED`는 수동 정리용으로 052에 이미 있으므로 자동 철회도 같은 상태를 쓴다)
 - Worker는 작업의 message_id가 자기 채널 메시지이고 footer 마커가 `ref:hot-<id>`와 일치할 때만 삭제 (다른 메시지 삭제 방지)
 - 선점→전송 사이 창을 없애려면 Worker가 전송 직전 DB Lambda에 확인을 요청하는 왕복 큐가 필요하다 (지연·복잡도 증가, 정책 결정 필요)
 
@@ -125,4 +143,5 @@ baseline 전에 Scheduler가 켜져도 relay는 `{"skipped":"baseline_required"}
 - 운영 `boards` 데이터: 공유 대상이 될 LEGACY·과정 없음 게시판 목록을 사람이 검토 (`SELECT board_id, board_name FROM boards WHERE scope_type='LEGACY' AND course_code IS NULL AND cohort IS NULL`)
 - 5분 주기 HOT 집계 쿼리 비용: `post_reactions` LIKE 전체 중 최근 7일 범위를 매번 집계한다(웹과 같은 방식). 데이터가 많아지면 실행 계획 확인
 - AWS: Scheduler 입력, VPC 엔드포인트, 이벤트 소스 매핑, 예약 동시성, DLQ 동작 (모두 문서 기준, 미확인)
+- AWS: 7절의 CloudWatch 지표 필터·경보·알림 대상 (만들지 않음. 만들기 전에는 게시 후 삭제 알림이 아무에게도 가지 않는다)
 - Discord: 실제 채널 권한과 마커 조회 (가짜 서버로만 확인)

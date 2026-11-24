@@ -813,6 +813,79 @@ class DeliveryTests(PgCase):
         gone = p.service.summary(T0)["SENT_POST_NOT_SHAREABLE"]
         self.assertEqual(gone, [{"post_id": pid, "discord_message_id": self.row(pid)["discord_message_id"]}])
 
+    def test_post_hidden_after_send_is_reported_every_relay_until_retracted(self):
+        """게시 후 삭제·비공개·범위 변경 (PR #170 리뷰 ①): 수동 hot_summary 없이도 5분 relay마다 ERROR로 알린다 (경보 연결 가능).
+        운영자가 Discord 메시지를 지우고 RETRACTED로 기록하면 알림이 멈추고, 그 글은 다시 공유되지 않는다."""
+        boards = [self.board(f"게시 후 변경 {i}") for i in range(3)]
+        deleted, hidden, scoped = [self.post(b) for b in boards]
+        for pid in (deleted, hidden, scoped):
+            self.like(pid, 10)
+        p = self.pipe()
+        relay, applied = p.cycle()
+        self.assertEqual((relay["claimed"], relay["sent_not_shareable"], applied), (3, 0, ["applied"] * 3))
+        self.admin.execute("UPDATE posts SET deleted_at = LOCALTIMESTAMP WHERE post_id = %s", (deleted,))
+        self.admin.execute("UPDATE posts SET post_status = 'HIDDEN' WHERE post_id = %s", (hidden,))
+        self.admin.execute("UPDATE boards SET scope_type = 'COHORT', cohort_id = 1 WHERE board_id = %s", (boards[2],))
+        for minutes in (5, 10):                                # 정리될 때까지 매 주기 반복해서 알린다
+            with self.assertLogs("hot_share", level="ERROR") as logs:
+                out = p.at(T0 + timedelta(minutes=minutes)).relay()
+            self.assertEqual((out["claimed"], out["sent_not_shareable"]), (0, 3))
+            self.assertIn("Discord 메시지 삭제 필요", logs.output[-1])
+            for pid in (deleted, hidden, scoped):
+                self.assertIn(self.row(pid)["discord_message_id"], logs.output[-1])
+
+        # 운영자: Discord 메시지를 지운 뒤 RETRACTED로 기록 (052 하단 주석의 SQL)
+        retract = ("UPDATE hot_discord_shares SET status = 'RETRACTED' "
+                   "WHERE post_id = %s AND discord_message_id = %s AND status = 'SENT'")
+        self.assertEqual(self.admin.execute(retract, (deleted, "wrong-message")).rowcount, 0, "message_id가 다르면 바뀌지 않는다")
+        self.admin.execute(retract, (deleted, self.row(deleted)["discord_message_id"]))
+        self.assertEqual(p.at(T0 + timedelta(minutes=15)).relay()["sent_not_shareable"], 2)
+        for pid in (hidden, scoped):
+            self.admin.execute(retract, (pid, self.row(pid)["discord_message_id"]))
+        with self.assertNoLogs("hot_share", level="ERROR"):
+            self.assertEqual(p.at(T0 + timedelta(minutes=20)).relay()["sent_not_shareable"], 0)
+
+        # 글이 복구되고 좋아요가 더 붙어도 다시 공유하지 않는다. 늦게 도착한 옛 SENT 결과도 RETRACTED를 바꾸지 않는다.
+        self.admin.execute("UPDATE posts SET deleted_at = NULL WHERE post_id = %s", (deleted,))
+        self.like(deleted, 5, T0 + timedelta(minutes=21), first_member=30)
+        self.assertEqual(p.at(T0 + timedelta(minutes=25)).relay()["claimed"], 0)
+        old = next(r for r in p.results if r["unit_id"] == f"hot-{deleted}")
+        p.queue.send(RESULT_Q, contract.dumps(old))
+        self.assertEqual(p.apply_results(), ["duplicate"])
+        summary = p.service.summary(T0 + timedelta(minutes=25))
+        self.assertEqual((summary["RETRACTED"], summary["SENT_POST_NOT_SHAREABLE"]), (3, []))
+        self.assertEqual(len(p.hot_messages()), 3, "자동 삭제는 하지 않는다 (가짜 Discord에는 그대로 남음)")
+
+    def test_report_counts_all_rows_beyond_listing_limit(self):
+        """경보 건수는 전체 건수다 (로그·summary의 목록만 50건으로 자른다). 55건이면 55로 알린다."""
+        for i in range(55):
+            pid = self.post(deleted=True)
+            self.admin.execute("INSERT INTO hot_discord_shares (post_id, status, discord_message_id) VALUES (%s, 'SENT', %s)",
+                               (pid, str(900000 + i)))
+        p = self.pipe()
+        with self.assertLogs("hot_share", level="ERROR") as logs:
+            self.assertEqual(p.relay()["sent_not_shareable"], 55)
+        self.assertIn("55건", logs.output[-1])
+        self.assertEqual(logs.output[-1].count("post_id="), 50, "로그 목록은 50건까지")
+        self.assertEqual(len(p.service.summary(T0)["SENT_POST_NOT_SHAREABLE"]), 50)
+
+    def test_report_failure_does_not_break_relay(self):
+        """게시 후 상태 확인 조회가 실패해도 이번 주기의 선점·발행 결과는 그대로 돌려준다 (알림 조회는 부가 기능)."""
+        pid = self.post()
+        self.like(pid, 10)
+        p = self.pipe()
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("조회 실패")
+        p.service.repo = type("Broken", (), {})()
+        for name in ("claim_hot", "claim_verifications"):
+            setattr(p.service.repo, name, getattr(self.repo, name))
+        p.service.repo.sent_not_shareable = broken
+        with self.assertLogs("hot_share", level="ERROR") as logs:
+            out = p.relay()
+        self.assertEqual((out["claimed"], out["published"], out["sent_not_shareable"]), (1, 1, None))
+        self.assertIn("게시 후 상태 확인 실패", logs.output[-1])
+
     def test_message_contains_no_author_or_body(self):
         pid = self.post(title="좋은 글")
         self.like(pid, 10)

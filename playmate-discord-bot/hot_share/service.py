@@ -46,7 +46,24 @@ class HotShareService(CareerShareService):
             return {"skipped": BASELINE_REQUIRED}
         result = self._publish_claims(claims, now)
         result["recover"] = self.recover(now)
+        result["sent_not_shareable"] = self._report_sent_not_shareable()
         return result
+
+    def _report_sent_not_shareable(self) -> int | None:
+        """게시 후 삭제·비공개·범위 변경된 글을 매 주기 ERROR로 알린다 (CloudWatch 경보 연결용, PR #170 리뷰 ①).
+
+        Worker는 DB를 보지 않으므로 선점 뒤 또는 게시 뒤의 상태 변경을 막지 못한다. 수동 hot_summary에만 의존하지 않도록
+        정리(RETRACTED 기록)될 때까지 반복해서 알린다. 조회 실패는 이번 주기의 선점·발행 결과를 바꾸지 않는다.
+        """
+        try:
+            gone = self.repo.sent_not_shareable()
+        except Exception as error:  # 알림 조회는 부가 기능: 다음 주기에 다시 확인한다
+            log.error("HOT 게시 후 상태 확인 실패: %s", type(error).__name__)
+            return None
+        if gone:
+            log.error("게시 후 공유 불가가 된 HOT 글 %d건 (Discord 메시지 삭제 필요, 삭제 확인 후 RETRACTED 기록): %s", len(gone),
+                      ", ".join(f"post_id={g['post_id']} message_id={g['discord_message_id']}" for g in gone[:50]))
+        return len(gone)
 
     def digest(self, *args, **kwargs):
         raise NotImplementedError("HOT 공유에는 묶음 공유가 없습니다.")

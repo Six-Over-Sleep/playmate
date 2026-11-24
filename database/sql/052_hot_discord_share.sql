@@ -12,6 +12,8 @@
 --             FAILED   : 미전송이 확실함. next_retry_at이 있고 attempt_count < 한도이며 **그때도 HOT·공개 게시판이면** 재선점
 --             UNKNOWN  : 전송되었을 수도 있음. 자동 재발송하지 않고 메시지 마커로 확인한다
 --             SKIPPED  : 운영자가 수동으로 "공유하지 않음"으로 정리한 행 (코드는 만들지 않는다)
+--             RETRACTED: 게시 후 삭제·비공개된 글의 Discord 메시지를 운영자가 지운 뒤 기록한 행 (코드는 만들지 않는다).
+--                        relay가 매 주기 ERROR로 알리는 대상(SENT인데 지금은 공유 불가)에서 빠지고, 다시 공유되지 않는다
 --   claim_token / claimed_at / claim_expires_at : 선점 소유권과 시각. 결과는 claim_token이 같을 때만 반영된다
 --   next_retry_at, attempt_count             : FAILED 재시도 시각과 횟수 한도
 --   verify_count / last_verified_at / absent_count / last_absent_job_id : UNKNOWN 정착 대기와 "미전송 증명" 횟수 (#163과 같은 규칙)
@@ -49,7 +51,7 @@ CREATE TABLE IF NOT EXISTS hot_discord_shares (
     updated_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
 
     CONSTRAINT ck_hot_discord_shares_status
-        CHECK (status IN ('BASELINE', 'PENDING', 'SENT', 'FAILED', 'UNKNOWN', 'SKIPPED')),
+        CHECK (status IN ('BASELINE', 'PENDING', 'SENT', 'FAILED', 'UNKNOWN', 'SKIPPED', 'RETRACTED')),
     CONSTRAINT ck_hot_discord_shares_counts
         CHECK (attempt_count >= 0 AND verify_count >= 0 AND absent_count >= 0)
 );
@@ -77,6 +79,14 @@ COMMIT;
 --   이미 게시된 것을 확인: UPDATE hot_discord_shares SET status = 'SENT', discord_message_id = '<message_id>',
 --       sent_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE post_id = <post_id> AND status = 'UNKNOWN';
 --   공유하지 않기로 함: UPDATE hot_discord_shares SET status = 'SKIPPED' WHERE post_id = <post_id> AND status IN ('UNKNOWN', 'FAILED');
+--
+-- 게시 후 삭제·비공개된 글 (relay ERROR 로그 "Discord 메시지 삭제 필요" 또는 hot_summary의 SENT_POST_NOT_SHAREABLE)
+--   1) Discord 채널에서 해당 message_id 메시지를 지운다.
+--   2) 메시지가 실제로 사라졌는지 확인한다 (채널에서 보이지 않음, 또는 메시지 조회가 404). 삭제가 실패했거나 확인하지 못했으면
+--      RETRACTED로 바꾸지 않는다: 바꾸는 순간 경보가 멈추므로, 메시지가 남은 채 알림만 사라진다.
+--   3) 확인 후에만 기록한다 (message_id까지 일치해야 바뀐다. 0행이면 다른 글이거나 이미 정리된 것):
+--   UPDATE hot_discord_shares SET status = 'RETRACTED', updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+--    WHERE post_id = <post_id> AND discord_message_id = '<message_id>' AND status = 'SENT';
 --
 -- 되돌리기 (이 기능의 이력만 지운다. 다시 켜려면 baseline부터 다시 해야 한다)
 --   DROP TABLE IF EXISTS hot_discord_shares, hot_discord_share_state;

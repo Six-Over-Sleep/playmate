@@ -251,6 +251,20 @@ class PostgresHotShareRepository:
         return self._db.transaction(work)
 
     # -- 운영 확인 ---------------------------------------------------------------------------------------------
+    def sent_not_shareable(self) -> list[dict]:
+        """게시(SENT)됐지만 지금은 공유하면 안 되는 글 전체 (게시 후 삭제·비공개·게시판 범위 변경). Discord 메시지를 지워야 한다.
+
+        운영자가 메시지 삭제를 확인한 뒤 RETRACTED로 기록하면 여기서 빠진다. 자동 삭제는 하지 않는다 (DEPLOY.md 7절).
+        건수를 정확히 알리기 위해 자르지 않는다 (SENT 행은 HOT 글 수만큼이라 적다). 표시용 자르기는 호출하는 쪽이 한다.
+        """
+        sent = self._db.execute("SELECT post_id, discord_message_id FROM public.hot_discord_shares WHERE status = 'SENT' "
+                                "ORDER BY post_id", fetch="all")
+        if not sent:
+            return []
+        live = {row["post_id"] for row in self._db.execute(
+            _STILL_SHAREABLE_SQL, {"ids": [r["post_id"] for r in sent], "notice": policy.NOTICE_BOARD_NAME}, fetch="all")}
+        return [{"post_id": r["post_id"], "discord_message_id": r["discord_message_id"]} for r in sent if r["post_id"] not in live]
+
     def summary(self, now: datetime, *, max_attempts: int) -> dict:
         rows = self._db.execute("SELECT status, COUNT(*) AS n FROM public.hot_discord_shares GROUP BY status", fetch="all")
         counts: dict = {row["status"]: int(row["n"]) for row in rows}
@@ -258,13 +272,8 @@ class PostgresHotShareRepository:
             "SELECT COUNT(*) AS n FROM public.hot_discord_shares WHERE status = 'FAILED' "
             "AND (next_retry_at IS NULL OR attempt_count >= %s)", (max_attempts,), fetch="one")
         counts["FAILED_NO_AUTO_RETRY"] = int(exhausted["n"])
-        sent = self._db.execute("SELECT post_id, discord_message_id FROM public.hot_discord_shares WHERE status = 'SENT'",
-                                fetch="all")
-        live = {row["post_id"] for row in self._db.execute(
-            _STILL_SHAREABLE_SQL, {"ids": [r["post_id"] for r in sent], "notice": policy.NOTICE_BOARD_NAME}, fetch="all")}
         # 게시 후 삭제·비공개된 글: 이번 Issue는 자동 삭제하지 않는다 (후속 Issue). 사람이 확인해 Discord에서 지운다.
-        gone = [{"post_id": r["post_id"], "discord_message_id": r["discord_message_id"]} for r in sent if r["post_id"] not in live]
-        counts["SENT_POST_NOT_SHAREABLE"] = gone[:50]
+        counts["SENT_POST_NOT_SHAREABLE"] = self.sent_not_shareable()[:50]
         done = self.baseline_completed_at()
         counts["baseline_completed_at"] = done.isoformat() if done else None
         return counts

@@ -1,0 +1,28 @@
+# SAM CLI 설정 (비밀값·채널 ID 없음).
+# parameter_overrides는 여기 두지 않는다: 명령줄 --parameter-overrides가 이 값을 통째로 대체하므로, 여기 둔 EnvironmentName이
+# 조용히 빠져 기본값(test)으로 배포될 수 있다. 모든 파라미터는 배포 명령에서 한 번에 넘긴다 (DEPLOY.md 5절).
+version = 0.1
+
+[default.global.parameters]
+region = "ap-northeast-2"
+
+[default.build.parameters]
+template_file = "template.yaml"
+
+[default.validate.parameters]
+template_file = "template.yaml"
+lint = true
+
+[test.deploy.parameters]
+stack_name = "playmate-test-discord-serverless"
+region = "ap-northeast-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+
+[prod.deploy.parameters]
+stack_name = "playmate-prod-discord-serverless"
+region = "ap-northeast-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true

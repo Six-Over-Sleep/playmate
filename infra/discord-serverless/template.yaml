@@ -1,0 +1,385 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  PlayMate Discord serverless (option 3: PostgreSQL outbox + SQS + Lambda) - career share send/result queues and
+  Discord Worker Lambda only. No DB layer, no EventBridge Scheduler, no VPC/NAT. See DEPLOY.md.
+
+# 명명 규칙: playmate-<EnvironmentName>-<feature>-<role>
+#   feature = career-share | hot-share | dm-share (HOT·DM은 같은 패턴으로 리소스를 추가한다)
+#   role    = send | send-dlq | result | result-dlq | worker
+# 이 템플릿은 DB 처리 계층(DB Lambda 또는 EC2 실행기)과 Scheduler를 만들지 않는다. 결과 큐는 소비자가 생길 때까지 쌓인다.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [test, prod]
+    Default: test
+    Description: Resource name prefix (playmate-<env>-...). test and prod stacks never share queues or functions.
+
+  CareerShareChannelId:
+    Type: String
+    AllowedPattern: "^[0-9]{17,20}$"
+    ConstraintDescription: Discord channel snowflake (17-20 digits).
+    Description: >-
+      Discord channel ID the career Worker posts to. No default on purpose - pass a TEST channel first. Never hard-code
+      the production channel here.
+
+  DiscordBotTokenSecretArn:
+    Type: String
+    AllowedPattern: "^arn:aws[a-zA-Z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$"
+    ConstraintDescription: Full Secrets Manager secret ARN.
+    Description: >-
+      Existing Secrets Manager secret that holds the Discord bot token (created outside this stack). The token value is
+      read at Lambda cold start; it is never stored in the template or Lambda environment.
+
+  DiscordBotTokenSecretJsonKey:
+    Type: String
+    Default: ""
+    AllowedPattern: "^[A-Za-z0-9_.-]{0,64}$"
+    Description: Leave empty if the secret value is the raw token. If the secret is JSON, the key that holds the token.
+
+  DiscordBotTokenSecretKmsKeyArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:aws[a-zA-Z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/.+$"
+    Description: Leave empty when the secret uses the AWS managed key (aws/secretsmanager). Set it for a customer managed key.
+
+  AlarmTopicArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:aws[a-zA-Z-]*:sns:[a-z0-9-]+:[0-9]{12}:.+$"
+    Description: Existing SNS topic for alarm notifications. Empty = alarms are created without actions.
+
+  CareerWorkerEventSourceEnabled:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+    Description: >-
+      SQS -> Worker event source mapping. Default false: deploying never starts Discord posting. Enable only for a
+      test-channel run (see DEPLOY.md 6).
+
+  LogRetentionInDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [7, 14, 30, 60, 90, 180, 365]
+
+  ThrottleAlarmThreshold:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    Description: >-
+      Throttles per 5 minutes before alarming. Reserved concurrency equals the event source MaximumConcurrency (2), so
+      throttles are not expected; any throttle means the account/function concurrency changed.
+
+  DiscordBotTokenVersion:
+    Type: String
+    Default: "1"
+    AllowedPattern: "^[A-Za-z0-9._-]{1,32}$"
+    Description: >-
+      Bump after rotating the token secret. Changing it updates the function configuration so Lambda retires execution
+      environments that cached the old token (see DEPLOY.md 5).
+
+Conditions:
+  HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, ""]]
+  HasSecretKmsKey: !Not [!Equals [!Ref DiscordBotTokenSecretKmsKeyArn, ""]]
+  EnableCareerWorker: !Equals [!Ref CareerWorkerEventSourceEnabled, "true"]
+
+Resources:
+  # ------------------------------------------------------------------ 취업 공유 큐 (표준 큐, SQS 관리형 암호화)
+  CareerShareSendDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-career-share-send-dlq
+      MessageRetentionPeriod: 1209600          # 14일: 사람이 원인을 확인할 시간
+      SqsManagedSseEnabled: true
+
+  CareerShareSendQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-career-share-send
+      # Worker Timeout(90초) x 6 = 540초 (AWS 권장). 처리 실패로 보고된 메시지는 이 시간 뒤 다시 보인다.
+      # 작업 TTL(10분)과 비슷해, 일시 오류 뒤 재수신은 대개 TTL 경과 -> Worker가 UNKNOWN/EXPIRED로 끝내고 DB가 복구한다.
+      VisibilityTimeout: 540
+      # 작업의 not_after는 10분(CAREER_SHARE_JOB_TTL_MINUTES)이다. 그보다 오래된 작업은 Worker가 보내지 않으므로 1일이면 충분하다.
+      MessageRetentionPeriod: 86400
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CareerShareSendDLQ.Arn
+        # 예약 동시성 = 이벤트 소스 최대 동시성이라 구조적 스로틀이 없다. 일시 오류 재수신 5회(약 45분)면 TTL(10분)을 넘어
+        # Worker가 UNKNOWN/EXPIRED 결과로 끝내므로, DLQ에는 형식 오류·결과 발행 반복 실패만 남는다.
+        maxReceiveCount: 5
+
+  CareerShareResultDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-career-share-result-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  CareerShareResultQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-career-share-result
+      # 소비자(DB 처리 계층)는 아직 없다. 생기면 그 소비자 타임아웃 x 6 이상인지 다시 확인한다.
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 1209600          # 14일(최대): 소비자가 배포되기 전 시험 결과를 잃지 않게
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CareerShareResultDLQ.Arn
+        maxReceiveCount: 5
+
+  # ------------------------------------------------------------------ Worker 로그·역할·함수
+  CareerShareWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/playmate-${EnvironmentName}-career-share-worker
+      RetentionInDays: !Ref LogRetentionInDays
+
+  CareerShareWorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: PlayMate career share Discord Worker - send queue consume, result queue send, token secret read only.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: career-share-worker
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteOwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt CareerShareWorkerLogGroup.Arn
+              - Sid: ConsumeSendQueue
+                Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+                Resource: !GetAtt CareerShareSendQueue.Arn
+              - Sid: PublishResults
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt CareerShareResultQueue.Arn
+              - Sid: ReadDiscordTokenSecret
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref DiscordBotTokenSecretArn
+              - !If
+                - HasSecretKmsKey
+                - Sid: DecryptTokenSecretViaSecretsManager
+                  Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref DiscordBotTokenSecretKmsKeyArn
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: !Sub secretsmanager.${AWS::Region}.amazonaws.com
+                - !Ref AWS::NoValue
+
+  CareerShareWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub playmate-${EnvironmentName}-career-share-worker
+      Description: Career share Discord Worker (outside VPC, no DB access). Reuses career_share.worker_lambda.handler.
+      # build_package.py가 만든 최소 패키지 (career_share 발송 모듈 + discord_rest core + secret_bootstrap).
+      CodeUri: .build/career_worker/
+      Handler: secret_bootstrap.handler
+      Runtime: python3.13
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 90
+      Role: !GetAtt CareerShareWorkerRole.Arn
+      # 이벤트 소스 최대 동시성(2, AWS 최솟값)과 같게 둔다 (AWS 권장: 예약 동시성 >= 최대 동시성).
+      # 1로 두면 이벤트 소스가 2개까지 호출해 스로틀이 상시 발생하고, 스로틀된 메시지는 가시성 타임아웃 안에서 재시도되다
+      # 작업 TTL(10분)을 넘길 수 있다. 같은 메시지의 동시 처리는 가시성 타임아웃(540초 > 함수 90초)이 막고,
+      # 남는 경우는 SQS의 드문 "동시 중복 전달"뿐이다 (DEPLOY.md 3절 남은 위험).
+      ReservedConcurrentExecutions: 2
+      LoggingConfig:
+        LogGroup: !Ref CareerShareWorkerLogGroup
+        LogFormat: Text
+      # VpcConfig 없음: Discord(인터넷)와 SQS 공개 엔드포인트로 바로 나간다. NAT가 필요 없다.
+      Environment:
+        Variables:
+          WORKER_TARGET_HANDLER: career_share.worker_lambda.handler
+          DISCORD_BOT_TOKEN_SECRET_ARN: !Ref DiscordBotTokenSecretArn
+          DISCORD_BOT_TOKEN_SECRET_JSON_KEY: !Ref DiscordBotTokenSecretJsonKey
+          CAREER_SHARE_CHANNEL_ID: !Ref CareerShareChannelId
+          CAREER_SHARE_RESULT_QUEUE_URL: !Ref CareerShareResultQueue
+          PLAYMATE_ENVIRONMENT: !Ref EnvironmentName
+          # 값 자체는 쓰지 않는다. 토큰 교체 뒤 이 값을 바꾸면 함수 설정이 갱신되어 이전 토큰을 캐시한 실행 환경이 교체된다.
+          DISCORD_BOT_TOKEN_VERSION: !Ref DiscordBotTokenVersion
+
+  # SAM Events 대신 명시적 매핑: Enabled에 조건식(!If)을 확실히 쓰고, 출력에서 UUID를 바로 참조한다.
+  CareerShareWorkerSendQueueMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt CareerShareSendQueue.Arn
+      FunctionName: !Ref CareerShareWorkerFunction
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      Enabled: !If [EnableCareerWorker, true, false]
+      # 최솟값 2 (1은 허용되지 않음). 함수 예약 동시성(2)과 같게 둔다.
+      ScalingConfig:
+        MaximumConcurrency: 2
+
+  # ------------------------------------------------------------------ 경보 (AlarmTopicArn이 비면 동작 없이 만든다)
+  CareerShareWorkerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-career-share-worker-errors
+      AlarmDescription: Worker invocation errors (e.g. token secret load failure). Per-message failures are reported separately.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref CareerShareWorkerFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  CareerShareWorkerThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-career-share-worker-throttles
+      AlarmDescription: Worker throttles above threshold (reserved concurrency 1). Sustained throttling delays posts.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [{Name: FunctionName, Value: !Ref CareerShareWorkerFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: !Ref ThrottleAlarmThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  # handle_records는 메시지별 오류를 잡아 batchItemFailures로 돌려준다 (Lambda Errors에는 잡히지 않음). ERROR 로그로 따로 센다.
+  CareerShareWorkerErrorLogMetric:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CareerShareWorkerLogGroup
+      FilterPattern: '"[ERROR]"'
+      MetricTransformations:
+        - MetricNamespace: PlayMate/DiscordServerless
+          MetricName: !Sub ${EnvironmentName}-career-share-worker-error-logs
+          MetricValue: "1"
+          DefaultValue: 0
+
+  CareerShareWorkerErrorLogAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-career-share-worker-error-logs
+      AlarmDescription: ERROR log lines from the Worker (bad job format, permanent Discord errors, unexpected errors).
+      Namespace: PlayMate/DiscordServerless
+      MetricName: !Sub ${EnvironmentName}-career-share-worker-error-logs
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  CareerShareSendDLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-career-share-send-dlq-not-empty
+      AlarmDescription: Send jobs moved to the DLQ (bad format or repeated failures). Inspect before discarding.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt CareerShareSendDLQ.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  CareerShareResultDLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-career-share-result-dlq-not-empty
+      AlarmDescription: Results moved to the DLQ (DB layer could not apply them). Redrive after the DB layer is fixed.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt CareerShareResultDLQ.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  CareerShareSendQueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-career-share-send-queue-stale
+      AlarmDescription: >-
+        Oldest send job is older than the job TTL (10 min). Worker is disabled, throttled or failing; such jobs will not be
+        posted (EXPIRED/UNKNOWN) and the DB layer must recover them.
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt CareerShareSendQueue.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 600
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  # 결과 소비자(DB 처리 계층)가 없거나 멈추면 결과가 쌓이고, 14일 보존을 넘기면 결과가 사라져 DB가 SENT를 모르게 된다.
+  # 소비자 배포 전에는 시험 결과를 지우지 않는 한 계속 ALARM이다 (의도: 결과를 방치하지 않게).
+  CareerShareResultQueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-career-share-result-queue-stale
+      AlarmDescription: >-
+        Oldest result is older than 1 hour - the DB layer is not consuming results. Results expire after 14 days and are
+        then lost (the DB would never learn about SENT posts).
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt CareerShareResultQueue.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3600
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+Outputs:
+  CareerShareSendQueueUrl:
+    Description: Set as CAREER_SHARE_SEND_QUEUE_URL in the DB layer (not deployed by this stack).
+    Value: !Ref CareerShareSendQueue
+  CareerShareSendQueueArn:
+    Value: !GetAtt CareerShareSendQueue.Arn
+  CareerShareSendDLQUrl:
+    Value: !Ref CareerShareSendDLQ
+  CareerShareResultQueueUrl:
+    Description: The DB layer consumes this queue and applies results (not deployed by this stack).
+    Value: !Ref CareerShareResultQueue
+  CareerShareResultQueueArn:
+    Value: !GetAtt CareerShareResultQueue.Arn
+  CareerShareResultDLQUrl:
+    Value: !Ref CareerShareResultDLQ
+  CareerShareWorkerFunctionName:
+    Value: !Ref CareerShareWorkerFunction
+  CareerShareWorkerEventSourceMappingId:
+    Description: UUID for enabling/disabling the SQS trigger (aws lambda update-event-source-mapping --uuid ...).
+    Value: !Ref CareerShareWorkerSendQueueMapping

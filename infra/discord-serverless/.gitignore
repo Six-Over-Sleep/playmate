@@ -1,0 +1,3 @@
+# build_package.py 결과물과 sam build 산출물 (커밋하지 않는다)
+.build/
+.aws-sam/

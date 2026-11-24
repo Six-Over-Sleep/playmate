@@ -12,8 +12,11 @@ from config import (
     CAREER_CHANNEL_ID,
     CAREER_NOTICE_ENABLED,
     DB_CONFIGURED,
+    DM_POLL_ENABLED,
     GUILD_ID,
     HOT_CHANNEL_ID,
+    NOTIFICATION_MAX_ATTEMPTS,
+    NOTIFICATION_RETRY_DELAY_SECONDS,
     OFFICIAL_CHANNEL_NAMES,
     OFFICIAL_RETRY_MINUTES,
     TEST_MODE,
@@ -27,6 +30,7 @@ from repositories.career_content_repository import UnconnectedCareerContentRepos
 from repositories.career_notice_repository import PostgresCareerNoticeRepository
 from repositories.content_repository import PostgresContentRepository
 from repositories.db import Database
+from repositories.dm_delivery_repository import DmDeliveryRepository
 from repositories.meeting_repository import (
     InMemoryMeetingRepository,
     PostgresMeetingRepository,
@@ -63,11 +67,18 @@ commands_synced = False
 official_channels_ready = False
 if DB_CONFIGURED:
     feature_db = Database.from_env()
-    notification_service = NotificationService(client, PostgresNotificationRepository(feature_db))
+    # 공동 선점(053, Issue #171): 테이블이 있으면 DM Lambda와 같은 테이블로 선점한 뒤에만 보낸다.
+    notification_service = NotificationService(
+        client, PostgresNotificationRepository(feature_db),
+        deliveries=DmDeliveryRepository(feature_db, retry_seconds=NOTIFICATION_RETRY_DELAY_SECONDS,
+                                        max_attempts=NOTIFICATION_MAX_ATTEMPTS))
     hot_service = HotContentService(client, PostgresContentRepository(feature_db), HOT_CHANNEL_ID)
-    tree.add_command(build_notification_command(notification_service), guild=guild_object)
+    tree.add_command(build_notification_command(notification_service), guild=guild_object)   # /알림설정은 항상 유지
     tree.add_command(build_promotion_command(hot_service, ADMIN_ROLE_ID), guild=guild_object)
-    feature_tasks.append(("알림 polling (10초)", create_notification_task(client, notification_service)))
+    if DM_POLL_ENABLED:
+        feature_tasks.append(("알림 polling (10초)", create_notification_task(client, notification_service)))
+    else:
+        print("[알림] PLAYMATE_DM_POLL_ENABLED=false: DM 폴링을 실행하지 않습니다 (dm_share Lambda로 대체). /알림설정은 유지합니다.")
     # HOT 자동 게시는 없다. 팀원의 HOT 게시판 API·DB가 확정되면 연동한다 (수동 /게시글추천만 동작).
     if not CAREER_NOTICE_ENABLED:
         print("[취업 공지] PLAYMATE_CAREER_NOTICE_ENABLED=false: 18:00 공지를 실행하지 않습니다 (career_share로 대체).")

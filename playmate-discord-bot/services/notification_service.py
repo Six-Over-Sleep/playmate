@@ -5,13 +5,21 @@
 처리: 보낼 대상이 아니면 SKIPPED, 성공 SENT, 실패는 retry_count + 1 후 총 3회 실패 시 FAILED
 (그 전에는 PENDING으로 남아 재시도). 한 건의 실패가 다른 알림이나 루프를 멈추지 않는다.
 
-제한 사항 (MVP에서 허용): PROCESSING 상태가 없어 DM 전송 직후 SENT 저장 전에 Bot이 죽으면
-같은 DM이 다시 갈 수 있다. Bot은 한 프로세스로만 실행한다는 전제다.
+공동 선점 (Issue #171): notification_dm_deliveries(053)가 있으면 **보내기 전에** DM Lambda와 같은 테이블로 선점한다
+(repositories.dm_delivery_repository). 그러면 Gateway와 Lambda가 동시에 켜져 있어도 같은 알림은 한 곳만 보낸다.
+  - 전송되지 않았음이 확실한 실패(403, 4xx, 사용자 조회 실패)는 기존 정책 그대로: retry_count + 1, 60초 뒤 재시도, 3회째 FAILED
+  - 결과가 불명확한 실패(5xx, 타임아웃, 연결 끊김)와 선점 후 만료는 재발송하지 않고 FAILED로 마감한다 (중복 대신 누락 가능, 경고 로그)
+테이블이 없으면(053 적용 전) 기존 방식으로 동작한다. 기존 방식의 제한 사항 (MVP에서 허용): PROCESSING 상태가 없어
+DM 전송 직후 SENT 저장 전에 Bot이 죽으면 같은 DM이 다시 갈 수 있다. Bot은 한 프로세스로만 실행한다는 전제다.
 """
+from datetime import datetime, timezone
+from functools import partial
+
 import discord
 from discord.ext import tasks
 
 from config import (
+    DM_GATEWAY_CLAIM_SECONDS,
     WEB_BASE_URL,
     NOTIFICATION_BATCH_SIZE,
     NOTIFICATION_MAX_ATTEMPTS,
@@ -20,6 +28,10 @@ from config import (
 )
 from repositories.meeting_repository import call
 from repositories.notification_repository import NotificationRepository, PendingNotification
+from services.notification_policy import (  # noqa: F401  (기존 import 경로 유지: 다시 내보낸다)
+    DM_MESSAGES, LINK_LABEL, build_dm_message, dm_allowed, skip_reason as _policy_skip_reason,
+    to_discord_id as _to_int,
+)
 from services.web_links import notification_post_url
 
 
@@ -31,47 +43,14 @@ class SettingSaveFailed(Exception):
     """수신 동의 값을 저장하지 못했다 (DB 권한 부족, 연결 오류 등)."""
 
 
-def dm_allowed(opt_in: bool | None) -> bool:
-    """기본 ON: 사용자가 직접 끈 false만 미허용이다. true와 NULL(아직 선택하지 않음)은 허용한다."""
-    return opt_in is not False
-
-
-DM_MESSAGES = {
-    "COMMENT": "💬 내 게시글에 새 댓글이 달렸어요.",   # 받는 사람: 게시글 작성자
-    "REPLY": "↪️ 내 댓글에 새 답글이 달렸어요.",       # 받는 사람: 부모 댓글 작성자
-}
-
-
-LINK_LABEL = "🔗 PlayMate에서 보기"
-
-
-def build_dm_message(notification: PendingNotification, url: str | None = None) -> str | None:
-    """알림 종류에 맞는 DM 문구. 아직 지원하지 않는 종류(REACTION 등)면 None (SKIPPED 처리).
-
-    url이 있으면 마지막 줄에 원본 게시글 링크를 붙인다. 제목과 문구, 보낼 대상은 링크와 무관하게 같다.
-    """
-    message = DM_MESSAGES.get(notification["notification_type"])
-    if message is None:
-        return None
-    title = (notification.get("post_title") or "").strip()
-    text = f"{message}\n게시글: {title}" if title else message
-    return f"{text}\n{LINK_LABEL}: {url}" if url else text
-
-
-def _to_int(value) -> int | None:
-    try:
-        number = int(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-    return number if number > 0 else None
-
-
 class NotificationService:
     def __init__(self, client: discord.Client, repository: NotificationRepository,
-                 base_url: str | None = WEB_BASE_URL):
+                 base_url: str | None = WEB_BASE_URL, deliveries=None):
         self.client = client
         self.repository = repository
         self.base_url = base_url  # PLAYMATE_WEB_BASE_URL. 없으면 링크 없이 DM만 보낸다.
+        # repositories.dm_delivery_repository.DmDeliveryRepository. 053이 적용돼 있으면 반드시 이걸로 선점한다.
+        self.deliveries = deliveries
         self._reported: set[str] = set()
 
     def _report_once(self, key: str, message: str) -> None:
@@ -112,6 +91,9 @@ class NotificationService:
         if not await call(self.repository.notifications_available):
             self._report_once("missing", "[알림] notifications 테이블이 없어 알림 polling을 건너뜁니다.")
             return
+        if self.deliveries is not None and await call(self.deliveries.available):
+            await self._poll_claimed()
+            return
         pending = await call(self.repository.claim_pending, NOTIFICATION_BATCH_SIZE,
                              NOTIFICATION_RETRY_DELAY_SECONDS)
         for notification in pending:
@@ -136,18 +118,8 @@ class NotificationService:
 
     @staticmethod
     def skip_reason(notification: PendingNotification) -> str | None:
-        """DM을 보내지 않아야 하는 이유. 보내야 하면 None."""
-        if notification["actor_member_id"] == notification["receiver_member_id"]:
-            return "본인 알림"
-        if notification.get("target_missing"):
-            return "대상 없음"
-        if not dm_allowed(notification.get("receiver_dm_opt_in")):
-            return "DM 알림 꺼짐"
-        if _to_int(notification.get("receiver_discord_id")) is None:
-            return "Discord 계정 없음"
-        if build_dm_message(notification) is None:
-            return f"지원하지 않는 알림 종류: {notification['notification_type']}"
-        return None
+        """DM을 보내지 않아야 하는 이유. 보내야 하면 None (규칙은 services.notification_policy)."""
+        return _policy_skip_reason(notification)
 
     async def deliver(self, notification: PendingNotification) -> str:
         """알림 한 건을 처리하고 결과 상태(SENT / SKIPPED / PENDING / FAILED)를 돌려준다."""
@@ -173,6 +145,57 @@ class NotificationService:
         # 여기서 Bot이 죽거나 저장이 실패하면 다음 polling에서 중복 DM이 갈 수 있다 (MVP 허용).
         await call(self.repository.mark_sent, notification_id)
         return "SENT"
+
+    # -- 공동 선점 경로 (053 적용 후) ------------------------------------------------------------------------
+    async def _poll_claimed(self) -> None:
+        now = datetime.now(timezone.utc)
+        await call(self.deliveries.expire_gateway_claims, now)   # 만료된 Gateway 선점: 재발송 없이 마감 + 경고
+        claims = await call(partial(self.deliveries.claim, "GATEWAY", now, limit=NOTIFICATION_BATCH_SIZE,
+                                    stale_seconds=DM_GATEWAY_CLAIM_SECONDS))
+        for claim in claims:
+            try:
+                await self.deliver_claimed(claim)
+            except Exception as error:
+                print(f"[알림] 처리 실패 notification_id={claim['notification'].get('notification_id')}: {error!r}")
+
+    @staticmethod
+    def _failure_certain(error: Exception) -> bool:
+        """전송되지 않았음이 확실한가. 403/404/그 밖의 4xx는 확실, 5xx·타임아웃·연결 오류 등은 불명."""
+        if isinstance(error, (discord.Forbidden, discord.NotFound)):
+            return True
+        status = getattr(error, "status", None)
+        return isinstance(error, discord.HTTPException) and isinstance(status, int) and 400 <= status < 500
+
+    async def deliver_claimed(self, claim: dict) -> str:
+        """선점한 알림 한 건을 보낸다 (건너뛸 대상은 선점 단계에서 이미 SKIPPED). 결과 상태를 돌려준다."""
+        notification, token = claim["notification"], claim["claim_token"]
+        notification_id = notification["notification_id"]
+        discord_id = _to_int(notification["receiver_discord_id"])
+        try:
+            user = self.client.get_user(discord_id) or await self.client.fetch_user(discord_id)
+        except discord.NotFound:
+            await call(self.deliveries.gateway_skipped, notification_id, token, datetime.now(timezone.utc),
+                       "Discord 사용자 없음")
+            return "SKIPPED"
+        except Exception as error:   # 보내기 전 단계: 전송되지 않았음이 확실하다
+            return await self._claimed_failure(notification_id, token, f"Discord 사용자 조회 실패: {error!r}", final=False)
+        try:
+            await user.send(build_dm_message(notification, self.post_link(notification)))
+        except discord.Forbidden:
+            return await self._claimed_failure(notification_id, token, "DM 수신 차단 (403)", final=False)
+        except Exception as error:
+            certain = self._failure_certain(error)
+            return await self._claimed_failure(notification_id, token, f"DM 전송 실패: {error!r}", final=not certain)
+        # 여기서 Bot이 죽거나 저장이 실패하면 선점이 만료된 뒤 재발송 없이 FAILED로 마감된다 (중복 대신 누락 가능).
+        await call(self.deliveries.gateway_sent, notification_id, token, datetime.now(timezone.utc))
+        return "SENT"
+
+    async def _claimed_failure(self, notification_id: int, token: str, error: str, *, final: bool) -> str:
+        status = await call(partial(self.deliveries.gateway_failure, notification_id, token, datetime.now(timezone.utc),
+                                    error, final=final))
+        print(f"[알림] DM 전송 실패 notification_id={notification_id} -> {status}: {error}"
+              + (" (결과 불명: 재발송하지 않음)" if final else ""))
+        return status or "PENDING"
 
     async def _record_failure(self, notification_id: int, error: str) -> str:
         status = await call(self.repository.record_failure, notification_id, error,

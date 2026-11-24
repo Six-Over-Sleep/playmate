@@ -58,7 +58,7 @@ class PostgresCareerNoticeRepository:
                 """
                 SELECT p.post_id, cp.category_code, p.title
                   FROM posts p
-                  JOIN career_posts cp ON cp.post_id = p.post_id
+                  JOIN career cp ON cp.post_id = p.post_id
                   LEFT JOIN career_discord_announcements a ON a.post_id = p.post_id
                  WHERE cp.category_code = ANY(%s)
                    AND p.post_type = 'CAREER'

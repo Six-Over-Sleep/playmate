@@ -31,6 +31,10 @@ class Lookup:
 
 
 class CareerShareWorker:
+    # 이 Worker(=자기 환경변수의 채널)가 처리할 작업 단위. 계약(contract)은 다른 기능의 단위(hot-)도 허용하므로
+    # Worker가 따로 거부해야 잘못 연결된 큐의 작업이 이 채널로 게시되지 않는다. 하위 클래스가 자기 단위로 바꾼다.
+    UNIT_PREFIXES: tuple[str, ...] = ("post-", "digest-")
+
     def __init__(self, client, channel_id: int, clock=lambda: datetime.now(timezone.utc)):
         self.client, self.channel_id, self.clock = client, channel_id, clock
 
@@ -79,6 +83,9 @@ class CareerShareWorker:
     def process(self, job: dict, *, receive_count: int = 1) -> dict:
         """작업 하나를 처리하고 결과(dict)를 돌려준다. 판단할 수 없으면 TransientWorkerError (큐가 다시 전달)."""
         job = contract.validate_job(job)
+        # Discord 조회·전송보다 먼저 검사한다. ContractError는 재시도해도 같으므로 handle_records가 실패로 보고해 DLQ로 간다.
+        if not job["unit_id"].startswith(self.UNIT_PREFIXES):
+            raise contract.ContractError("이 Worker가 처리하지 않는 작업 단위입니다.")
         since = contract.parse_time(job["claimed_at"])
         if job["type"] == contract.TYPE_VERIFY:
             found = self.lookup(job["marker"], since)

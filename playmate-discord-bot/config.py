@@ -150,6 +150,11 @@ NOTIFICATION_BATCH_SIZE = 20
 # DM 전송 실패 시 총 시도 횟수 한도(도달하면 FAILED)와, 실패한 알림을 다시 시도하기까지의 간격(초).
 NOTIFICATION_MAX_ATTEMPTS = 3
 NOTIFICATION_RETRY_DELAY_SECONDS = 60
+# DM Lambda(dm_share, Issue #171)로 넘어갈 때 Gateway의 DM 폴링만 끄는 스위치. 기본은 켜짐(기존 동작 유지):
+# 값이 비었거나 없으면 켜지고, false/0/no/off일 때만 꺼진다. /알림설정 명령은 이 값과 무관하게 계속 Gateway가 처리한다.
+DM_POLL_ENABLED = (os.getenv("PLAYMATE_DM_POLL_ENABLED") or "true").strip().lower() not in ("false", "0", "no", "off")
+# 공동 선점(053) 후 Gateway가 결과를 남기지 못하면 이 시간 뒤 재발송 없이 FAILED로 마감한다 (전송 소요보다 넉넉하게).
+DM_GATEWAY_CLAIM_SECONDS = 600
 
 # 취업게시판 신규 글 자동 공지: 매일 18:00 (KST), 취준 도감·커리어 연구소, 하루 최대 5개.
 # 채널은 PLAYMATE_CAREER_CHANNEL_ID(#취업-소식)를 쓴다. 실패한 글은 다음 실행에서 총 3회까지 다시 시도한다.

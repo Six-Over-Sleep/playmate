@@ -951,7 +951,7 @@ COMMENT(내 게시글에 댓글)와 REPLY(내 댓글에 대댓글) DM 끝에 원
 | --- | --- | --- |
 | 일반 게시판 | `posts.post_type='BOARD'`, `posts.board_id` | `/board/{board_id}/posts/{post_id}` |
 | 모임 | `post_type='RECRUIT'`, `recruits.post_id`로 찾은 `recruit_id` | `/meetup/{recruit_id}` (post_id가 아님) |
-| 취업 | `post_type='CAREER'`, `career_posts.category_code`가 `reviews`/`talk`/`lounge`/`lab` | `/career/{category}/{post_id}` |
+| 취업 | `post_type='CAREER'`, `career.category_code`가 `reviews`/`talk`/`lounge`/`lab` | `/career/{category}/{post_id}` |
 
 - 웹 주소는 `PLAYMATE_WEB_BASE_URL`에서만 가져옵니다 (코드에 도메인을 고정하지 않음). 비어 있거나 http(s)가 아니면, 운영에서 localhost이면
   링크만 생략하고 DM은 그대로 보냅니다 (localhost는 `PLAYMATE_TEST_MODE=true`일 때만 허용하는 기존 정책 유지).
@@ -960,7 +960,7 @@ COMMENT(내 게시글에 댓글)와 REPLY(내 댓글에 대댓글) DM 끝에 원
 - 삭제되었거나 존재하지 않는 글·댓글은 기존대로 DM 없이 `SKIPPED`(대상 없음)입니다. 링크 생성 중 예외가 나도 DM은 링크 없이 발송됩니다.
 - 로그인 전후: 링크는 로그인 상태와 무관하게 같은 주소입니다. 다만 현재 웹의 Discord 로그인은 완료 후 `/`로 돌아와서(백엔드 콜백이 원래 경로를 보관하지 않음),
   **로그인하지 않은 상태에서 링크를 열면 로그인 후 원래 글이 아니라 기본 화면으로 이동할 수 있습니다.** 이를 고치려면 백엔드/프론트에 로그인 후 복귀 경로 기능이 필요합니다(이 Bot의 범위 밖).
-- DB 계정에 `recruits`, `career_posts`의 SELECT 권한이 필요합니다 (모임 동기화와 HOT/취업 공지에서 이미 읽는 테이블입니다).
+- DB 계정에 `recruits`, `career`의 SELECT 권한이 필요합니다 (모임 동기화와 HOT/취업 공지에서 이미 읽는 테이블입니다).
 
 **제한 사항 (MVP에서 허용)**
 
@@ -974,7 +974,7 @@ COMMENT(내 게시글에 댓글)와 REPLY(내 댓글에 대댓글) DM 끝에 원
 - `/게시글추천 유형:<게시판|모임|취업> id:<ID>`: `PLAYMATE_ADMIN_ROLE_ID` 역할만 실행할 수 있습니다.
   최소 조건 없이 `PLAYMATE_HOT_CHANNEL_ID` 채널에 게시합니다. 중복 추천을 허용하고 이력은 저장하지 않습니다.
   게시판·취업은 `post_id`, 모임은 `recruit_id`를 입력합니다. 대상 조건은 Backend와 같습니다
-  (삭제 제외, 모집글은 게시판에서 제외, 취업 글은 `post_type='CAREER'` + `career_posts`). 작성자는 표시하지 않습니다.
+  (삭제 제외, 모집글은 게시판에서 제외, 취업 글은 `post_type='CAREER'` + `career`). 작성자는 표시하지 않습니다.
 - `🔥 HOT PLAYMATE` Embed에 PlayMate 웹 상세 페이지 링크(제목 링크 + "PlayMate에서 보기")를 붙입니다.
   `PLAYMATE_WEB_BASE_URL`이 비어 있거나 http(s)가 아니면 링크 없이 게시합니다.
   `localhost` 주소는 `PLAYMATE_TEST_MODE=true`일 때만 쓰고, 운영에서는 무시합니다.
@@ -983,7 +983,7 @@ COMMENT(내 게시글에 댓글)와 REPLY(내 댓글에 대댓글) DM 끝에 원
   | --- | --- |
   | 게시판 | `/board/{board_id}/posts/{post_id}` |
   | 모임 | `/meetup/{recruit_id}` |
-  | 취업 | `/career/{reviews\|talk\|lounge\|lab}/{post_id}` (`career_posts.category_code`) |
+  | 취업 | `/career/{reviews\|talk\|lounge\|lab}/{post_id}` (`career.category_code`) |
 
 - **자동 선정 제거**: 좋아요·댓글·참여자 점수로 13:00 / 19:00에 게시하던 자체 HOT 선정과 집계 SQL을 없앴습니다.
   팀원이 별도 HOT 게시판을 만들고 있어, 그 API·DB 구조가 확정되면 연동합니다. 그 전까지 자동 게시는 없습니다.
@@ -1013,7 +1013,7 @@ COMMENT(내 게시글에 댓글)와 REPLY(내 댓글에 대댓글) DM 끝에 원
 - 안전 처리: `PLAYMATE_WEB_BASE_URL`이 없거나(또는 운영에서 localhost) 채널을 찾지 못하면 선점·전송하지 않고 로그만 남깁니다.
   전송에 실패한 글은 `SENT`로 기록하지 않습니다.
 - Bot이 18:00에 꺼져 있었다면 그날 공지는 건너뛰고, 다음 날 18:00에 남은 글을 이어서 공지합니다.
-- 필요한 DB 권한: `posts`, `career_posts` SELECT / `career_discord_announcements` SELECT·INSERT·UPDATE.
+- 필요한 DB 권한: `posts`, `career` SELECT / `career_discord_announcements` SELECT·INSERT·UPDATE.
 
 ### 취업 소식 — 구조만
 

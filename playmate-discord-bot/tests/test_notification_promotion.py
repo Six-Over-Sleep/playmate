@@ -376,7 +376,7 @@ async def promotion_service():
     check(fields.get("취업") == "이직 고민" and fields.get("게시판") == "커리어 톡톡" and fields.get("댓글") == "2",
           "취업 Embed: 제목·게시판 이름·댓글 수")
     sql = db.executed[0][0]
-    check("JOIN career_posts cp" in sql and "p.post_type = 'CAREER'" in sql and "p.deleted_at IS NULL" in sql,
+    check("JOIN career cp" in sql and "p.post_type = 'CAREER'" in sql and "p.deleted_at IS NULL" in sql,
           "취업 글 조회: Backend와 같은 대상 조건 (삭제 제외)")
     check("author" not in sql and "nickname" not in sql, "취업 글 조회는 작성자를 읽지 않음 (익명 보호)")
     check(await service.recommend(C, 999) is False, "없는 취업 글은 False")

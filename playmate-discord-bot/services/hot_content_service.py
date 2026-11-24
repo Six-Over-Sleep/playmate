@@ -17,7 +17,7 @@ BOARD = "BOARD"
 RECRUIT = "RECRUIT"
 CAREER = "CAREER"
 CONTENT_LABELS = {BOARD: "게시판", RECRUIT: "모임", CAREER: "취업"}
-# career_posts.category_code -> 웹 화면의 게시판 이름 (pages/career/CareerPage.jsx CATEGORIES)
+# career.category_code -> 웹 화면의 게시판 이름 (pages/career/CareerPage.jsx CATEGORIES)
 CAREER_CATEGORY_LABELS = {
     "reviews": "취준 도감",
     "talk": "커리어 톡톡",

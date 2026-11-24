@@ -367,15 +367,15 @@ def grant_career_review_xp(member_id: int, post_id: int) -> dict:
                 SELECT
                     p.author_member_id,
                     cp.subcategory_code,
-                    cr.process_stage,
-                    cr.process_result,
+                    ((cp.details ->> 'process_stage')::varchar(30)) AS process_stage,
+                    ((cp.details ->> 'process_result')::varchar(20)) AS process_result,
                     LENGTH(BTRIM(p.body))
                 FROM posts AS p
-                JOIN career_posts AS cp ON cp.post_id = p.post_id
-                JOIN career_reviews AS cr ON cr.post_id = p.post_id
+                JOIN career AS cp ON cp.post_id = p.post_id
                 WHERE p.post_id = %s
                   AND p.post_type = 'CAREER'
                   AND cp.category_code = 'reviews'
+            AND cp.details <> '{}'::jsonb
                   AND p.post_status = 'PUBLISHED'
                   AND p.deleted_at IS NULL
                 FOR UPDATE OF p
@@ -487,15 +487,15 @@ def reconcile_career_review_xp(
         """
         SELECT p.author_member_id,
                cp.subcategory_code,
-               cr.process_stage,
-               cr.process_result,
+               ((cp.details ->> 'process_stage')::varchar(30)) AS process_stage,
+               ((cp.details ->> 'process_result')::varchar(20)) AS process_result,
                LENGTH(BTRIM(p.body)) AS body_length
         FROM posts AS p
-        JOIN career_posts AS cp ON cp.post_id = p.post_id
-        JOIN career_reviews AS cr ON cr.post_id = p.post_id
+        JOIN career AS cp ON cp.post_id = p.post_id
         WHERE p.post_id = %s
           AND p.post_type = 'CAREER'
           AND cp.category_code = 'reviews'
+            AND cp.details <> '{}'::jsonb
           AND p.deleted_at IS NULL
         FOR UPDATE OF p
         """,
@@ -868,18 +868,18 @@ def grant_career_guide_xp(cursor, member_id: int, post_id: int) -> dict:
         """
         SELECT p.post_id
         FROM posts p
-        JOIN career_posts cp ON cp.post_id = p.post_id
-        JOIN career_labs cl ON cl.post_id = p.post_id
+        JOIN career cp ON cp.post_id = p.post_id
         WHERE p.post_id = %s
           AND p.author_member_id = %s
           AND p.post_type = 'CAREER'
           AND p.post_status = 'PUBLISHED'
           AND p.deleted_at IS NULL
           AND cp.category_code = 'lab'
-          AND cl.post_type = 'GUIDE'
+            AND cp.details <> '{}'::jsonb
+          AND ((cp.details ->> 'post_type')::varchar(20)) = 'GUIDE'
           AND LENGTH(BTRIM(p.body)) >= 500
-          AND LENGTH(BTRIM(COALESCE(cl.guide_experience, ''))) >= 100
-          AND LENGTH(BTRIM(COALESCE(cl.guide_advice, ''))) >= 100
+          AND LENGTH(BTRIM(COALESCE(((cp.details ->> 'guide_experience')::text), ''))) >= 100
+          AND LENGTH(BTRIM(COALESCE(((cp.details ->> 'guide_advice')::text), ''))) >= 100
         FOR UPDATE OF p
         """,
         (post_id, member_id),

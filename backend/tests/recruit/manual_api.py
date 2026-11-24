@@ -77,16 +77,11 @@ def create_app():
     from backend.app.models.recruit import (
         Recruit,
         RecruitMember,
-        RecruitStudyDetail,
-        RecruitSportsDetail,
-        RecruitGameDetail,
-        RecruitGroupBuyDetail,
     )
     from backend.app.models.recruit_program import (
         ActivityRecord,
         ApplicationRecord,
         CommandRecord,
-        CurriculumRecord,
         EligibilityRecord,
         OutboxRecord,
         ProgramRecord,
@@ -110,16 +105,11 @@ def create_app():
         Comment,
         Recruit,
         RecruitMember,
-        RecruitStudyDetail,
-        RecruitSportsDetail,
-        RecruitGameDetail,
-        RecruitGroupBuyDetail,
         PostLike,  # post_reactions: 좋아요·스크랩 공용 테이블(045)
         ProgramRecord,
         ApplicationRecord,
         EligibilityRecord,
         WithdrawalRecord,
-        CurriculumRecord,
         ActivityRecord,
         RecognitionRecord,
         OutboxRecord,

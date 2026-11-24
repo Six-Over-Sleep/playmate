@@ -7,6 +7,10 @@
 from app.repositories import board_repository
 from app.repositories.career_content_writer import create_content, update_content
 
+# 039/040의 ck_career_details/ck_career_poll_options가 날짜·숫자·boolean과
+# 선택지 레코드를 검증한다. 숫자/날짜의 빈 값은 NULL로 읽고, 문자열의
+# 빈 값은 보존한다. 명시적 cast/alias로 기존 cursor 응답 타입과 이름을 유지한다.
+
 def create_review(cursor, member_id: int, data: dict) -> int:
     return create_content(cursor, member_id, "reviews", data)
 
@@ -23,31 +27,31 @@ def get_review(cursor, post_id: int, member_id: int) -> dict | None:
             p.updated_at::timestamptz AS updated_at,
             (p.author_member_id = %s) AS is_owner,
             CASE
-                WHEN cp.is_anonymous THEN '익명'
+                WHEN p.is_anonymous THEN '익명'
                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
             cp.category_code,
             cp.subcategory_code,
-            cp.is_anonymous,
+            p.is_anonymous,
             CASE
-                WHEN cr.is_company_private AND p.author_member_id <> %s THEN NULL
-                ELSE cr.company_name
+                WHEN (NULLIF(cp.details ->> 'is_company_private', '')::boolean) AND p.author_member_id <> %s THEN NULL
+                ELSE ((cp.details ->> 'company_name')::varchar(150))
             END AS company_name,
-            cr.is_company_private,
-            cr.job_category_code,
-            cr.application_type,
-            cr.process_stage,
-            cr.process_result,
-            cr.process_date,
-            cr.interview_format
+            (NULLIF(cp.details ->> 'is_company_private', '')::boolean) AS is_company_private,
+            ((cp.details ->> 'job_category_code')::varchar(50)) AS job_category_code,
+            ((cp.details ->> 'application_type')::varchar(20)) AS application_type,
+            ((cp.details ->> 'process_stage')::varchar(30)) AS process_stage,
+            ((cp.details ->> 'process_result')::varchar(20)) AS process_result,
+            (NULLIF(cp.details ->> 'process_date', '')::date) AS process_date,
+            ((cp.details ->> 'interview_format')::varchar(50)) AS interview_format
         FROM posts AS p
         JOIN members AS m ON m.member_id = p.author_member_id
-        JOIN career_posts AS cp ON cp.post_id = p.post_id
-        JOIN career_reviews AS cr ON cr.post_id = p.post_id
+        JOIN career AS cp ON cp.post_id = p.post_id
         WHERE p.post_id = %s
           AND p.post_type = 'CAREER'
           AND cp.category_code = 'reviews'
+          AND cp.details <> '{}'::jsonb
           AND p.deleted_at IS NULL
         """,
         (member_id, member_id, post_id),
@@ -72,6 +76,7 @@ def list_reviews(
         "p.post_type = 'CAREER'",
         "p.deleted_at IS NULL",
         "cp.category_code = 'reviews'",
+        "cp.details <> '{}'::jsonb",
     ]
 
     params = []
@@ -86,17 +91,17 @@ def list_reviews(
 
     # 직무 필터
     if job_category_code:
-        conditions.append("cr.job_category_code = %s")
+        conditions.append("((cp.details ->> 'job_category_code')::varchar(50)) = %s")
         params.append(job_category_code)
 
     # 전형 단계 필터
     if process_stage:
-        conditions.append("cr.process_stage = %s")
+        conditions.append("((cp.details ->> 'process_stage')::varchar(30)) = %s")
         params.append(process_stage)
 
     # 전형 결과 필터
     if process_result:
-        conditions.append("cr.process_result = %s")
+        conditions.append("((cp.details ->> 'process_result')::varchar(20)) = %s")
         params.append(process_result)
 
     # 검색: 비공개 기업명은 작성자만 검색 가능
@@ -109,9 +114,9 @@ def list_reviews(
                 p.title ILIKE %s
                 OR p.body ILIKE %s
                 OR (
-                    (cr.is_company_private = FALSE
+                    ((NULLIF(cp.details ->> 'is_company_private', '')::boolean) = FALSE
                      OR p.author_member_id = %s)
-                    AND cr.company_name ILIKE %s
+                    AND ((cp.details ->> 'company_name')::varchar(150)) ILIKE %s
                 )
             )
             """
@@ -128,10 +133,8 @@ def list_reviews(
 
     from_sql = """
         FROM posts AS p
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-        JOIN career_reviews AS cr
-            ON cr.post_id = p.post_id
         JOIN members AS m
             ON m.member_id = p.author_member_id
     """
@@ -163,7 +166,7 @@ def list_reviews(
             (p.author_member_id = %s) AS is_owner,
 
             CASE
-                WHEN cp.is_anonymous THEN '익명'
+                WHEN p.is_anonymous THEN '익명'
                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
@@ -171,15 +174,15 @@ def list_reviews(
             cp.subcategory_code,
 
             CASE
-                WHEN cr.is_company_private
+                WHEN (NULLIF(cp.details ->> 'is_company_private', '')::boolean)
                      AND p.author_member_id <> %s
                 THEN NULL
-                ELSE cr.company_name
+                ELSE ((cp.details ->> 'company_name')::varchar(150))
             END AS company_name,
 
-            cr.job_category_code,
-            cr.process_stage,
-            cr.process_result
+            ((cp.details ->> 'job_category_code')::varchar(50)) AS job_category_code,
+            ((cp.details ->> 'process_stage')::varchar(30)) AS process_stage,
+            ((cp.details ->> 'process_result')::varchar(20)) AS process_result
 
         {from_sql}
         WHERE {where_sql}
@@ -214,13 +217,12 @@ def get_review_author_for_update(cursor, post_id: int) -> int | None:
         """
         SELECT p.author_member_id
         FROM posts AS p
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-        JOIN career_reviews AS cr
-            ON cr.post_id = p.post_id
         WHERE p.post_id = %s
             AND p.post_type = 'CAREER'
             AND cp.category_code = 'reviews'
+            AND cp.details <> '{}'::jsonb
             AND p.deleted_at IS NULL
         FOR UPDATE OF p
         """,
@@ -260,6 +262,10 @@ def delete_review(cursor, post_id: int, member_id: int) -> bool:
             AND author_member_id = %s
             AND post_type = 'CAREER'
             AND deleted_at IS NULL
+            AND EXISTS (
+                SELECT 1 FROM career AS c
+                WHERE c.post_id = posts.post_id AND c.category_code = 'reviews'
+            )
         """,
         (post_id, member_id),
     )
@@ -295,32 +301,30 @@ def get_talk(cursor, post_id: int, member_id: int) -> dict | None:
             (p.author_member_id = %s) AS is_owner,
 
             CASE
-                WHEN cp.is_anonymous THEN '익명'
+                WHEN p.is_anonymous THEN '익명'
                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
 
             cp.category_code,
             cp.subcategory_code,
-            cp.is_anonymous,
+            p.is_anonymous,
 
-            ct.job_category_code,
-            ct.current_status
+            ((cp.details ->> 'job_category_code')::varchar(50)) AS job_category_code,
+            ((cp.details ->> 'current_status')::varchar(20)) AS current_status
 
         FROM posts AS p
 
         JOIN members AS m
             ON m.member_id = p.author_member_id
 
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-
-        JOIN career_talks AS ct
-            ON ct.post_id = p.post_id
 
         WHERE p.post_id = %s
             AND p.post_type = 'CAREER'
             AND cp.category_code = 'talk'
+            AND cp.details <> '{}'::jsonb
             AND p.deleted_at IS NULL
         """,
         (member_id, post_id),
@@ -350,6 +354,7 @@ def list_talks(
         "p.post_type = 'CAREER'",
         "p.deleted_at IS NULL",
         "cp.category_code = 'talk'",
+        "cp.details <> '{}'::jsonb",
     ]
 
     params = []
@@ -364,12 +369,12 @@ def list_talks(
 
     # 2. 직무 필터
     if job_category_code:
-        conditions.append("ct.job_category_code = %s")
+        conditions.append("((cp.details ->> 'job_category_code')::varchar(50)) = %s")
         params.append(job_category_code)
 
     # 3. 취업 상태 필터
     if current_status:
-        conditions.append("ct.current_status = %s")
+        conditions.append("((cp.details ->> 'current_status')::varchar(20)) = %s")
         params.append(current_status)
 
     # 4. 제목 및 본문 검색
@@ -390,11 +395,8 @@ def list_talks(
         JOIN members AS m
             ON m.member_id = p.author_member_id
 
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-
-        JOIN career_talks AS ct
-            ON ct.post_id = p.post_id
     """
 
     # 5. 전체 게시글 수 확인
@@ -424,16 +426,16 @@ def list_talks(
             (p.author_member_id = %s) AS is_owner,
 
             CASE
-                WHEN cp.is_anonymous THEN '익명'
+                WHEN p.is_anonymous THEN '익명'
                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
             END AS author_name,
 
             cp.subcategory_code,
-            cp.is_anonymous,
+            p.is_anonymous,
 
-            ct.job_category_code,
-            ct.current_status
+            ((cp.details ->> 'job_category_code')::varchar(50)) AS job_category_code,
+            ((cp.details ->> 'current_status')::varchar(20)) AS current_status
 
         {from_sql}
 
@@ -478,15 +480,13 @@ def get_talk_author_for_update(
 
         FROM posts AS p
 
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-
-        JOIN career_talks AS ct
-            ON ct.post_id = p.post_id
 
         WHERE p.post_id = %s
             AND p.post_type = 'CAREER'
             AND cp.category_code = 'talk'
+            AND cp.details <> '{}'::jsonb
             AND p.deleted_at IS NULL
 
         FOR UPDATE OF p
@@ -535,11 +535,10 @@ def delete_talk(
             AND p.deleted_at IS NULL
             AND EXISTS (
                 SELECT 1
-                FROM career_posts AS cp
-                JOIN career_talks AS ct
-                    ON ct.post_id = cp.post_id
+                FROM career AS cp
                 WHERE cp.post_id = p.post_id
                     AND cp.category_code = 'talk'
+                    AND cp.details <> '{}'::jsonb
             )
         """,
         (post_id, member_id),
@@ -573,19 +572,17 @@ def list_talk_attachments(cursor, post_id: int) -> list:
             a.display_order,
             a.created_at
 
-        FROM career_talk_attachments AS a
+        FROM post_attachments AS a
 
-        JOIN career_talks AS ct
-            ON ct.post_id = a.post_id
-
-        JOIN career_posts AS cp
-            ON cp.post_id = ct.post_id
+        JOIN career AS cp ON cp.post_id = a.post_id
 
         JOIN posts AS p
             ON p.post_id = cp.post_id
 
-        WHERE a.post_id = %s
+        WHERE a.attachment_scope = 'CAREER_TALK'
+            AND a.post_id = %s
             AND cp.category_code = 'talk'
+            AND cp.details <> '{}'::jsonb
             AND p.deleted_at IS NULL
 
         ORDER BY a.display_order ASC
@@ -621,8 +618,9 @@ def get_next_talk_attachment_order(
 
         WHERE NOT EXISTS (
             SELECT 1
-            FROM career_talk_attachments AS a
-            WHERE a.post_id = %s
+            FROM post_attachments AS a
+            WHERE a.attachment_scope = 'CAREER_TALK'
+                AND a.post_id = %s
                 AND a.display_order = slot.display_order
         )
 
@@ -659,7 +657,8 @@ def create_talk_attachment(
 
     cursor.execute(
         """
-        INSERT INTO career_talk_attachments (
+        INSERT INTO post_attachments (
+            attachment_scope,
             post_id,
             original_filename,
             stored_path,
@@ -669,7 +668,7 @@ def create_talk_attachment(
             display_order
         )
         VALUES (
-            %s, %s, %s, %s, %s, %s, %s
+            'CAREER_TALK', %s, %s, %s, %s, %s, %s, %s
         )
 
         RETURNING
@@ -720,20 +719,18 @@ def get_talk_attachment(
             a.display_order,
             a.created_at
 
-        FROM career_talk_attachments AS a
+        FROM post_attachments AS a
 
-        JOIN career_talks AS ct
-            ON ct.post_id = a.post_id
-
-        JOIN career_posts AS cp
-            ON cp.post_id = ct.post_id
+        JOIN career AS cp ON cp.post_id = a.post_id
 
         JOIN posts AS p
             ON p.post_id = cp.post_id
 
-        WHERE a.attachment_id = %s
+        WHERE a.attachment_scope = 'CAREER_TALK'
+            AND a.attachment_id = %s
             AND a.post_id = %s
             AND cp.category_code = 'talk'
+            AND cp.details <> '{}'::jsonb
             AND p.deleted_at IS NULL
         """,
         (attachment_id, post_id),
@@ -759,9 +756,10 @@ def delete_talk_attachment(
 
     cursor.execute(
         """
-        DELETE FROM career_talk_attachments
+        DELETE FROM post_attachments
 
-        WHERE attachment_id = %s
+        WHERE attachment_scope = 'CAREER_TALK'
+            AND attachment_id = %s
             AND post_id = %s
 
         RETURNING
@@ -813,7 +811,7 @@ def get_lounge(
             (p.author_member_id = %s) AS is_owner,
 
             CASE
-                WHEN cp.is_anonymous THEN '익명'
+                WHEN p.is_anonymous THEN '익명'
                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(
                     NULLIF(m.nickname, ''),
@@ -823,26 +821,24 @@ def get_lounge(
 
             cp.category_code,
             cp.subcategory_code,
-            cp.is_anonymous,
+            p.is_anonymous,
 
-            cl.job_category_code,
-            cl.experience_years,
-            cl.company_name
+            ((cp.details ->> 'job_category_code')::varchar(50)) AS job_category_code,
+            (NULLIF(cp.details ->> 'experience_years', '')::smallint) AS experience_years,
+            ((cp.details ->> 'company_name')::varchar(150)) AS company_name
 
         FROM posts AS p
 
         JOIN members AS m
             ON m.member_id = p.author_member_id
 
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-
-        JOIN career_lounges AS cl
-            ON cl.post_id = p.post_id
 
         WHERE p.post_id = %s
             AND p.post_type = 'CAREER'
             AND cp.category_code = 'lounge'
+            AND cp.details <> '{}'::jsonb
             AND p.deleted_at IS NULL
         """,
         (member_id, post_id),
@@ -872,6 +868,7 @@ def list_lounges(
         "p.post_type = 'CAREER'",
         "p.deleted_at IS NULL",
         "cp.category_code = 'lounge'",
+        "cp.details <> '{}'::jsonb",
     ]
 
     params = []
@@ -887,14 +884,14 @@ def list_lounges(
     # 2. 직무 필터
     if job_category_code:
         conditions.append(
-            "cl.job_category_code = %s"
+            "((cp.details ->> 'job_category_code')::varchar(50)) = %s"
         )
         params.append(job_category_code)
 
     # 3. 경력 연차 필터
     if experience_years is not None:
         conditions.append(
-            "cl.experience_years = %s"
+            "(NULLIF(cp.details ->> 'experience_years', '')::smallint) = %s"
         )
         params.append(experience_years)
 
@@ -916,11 +913,8 @@ def list_lounges(
         JOIN members AS m
             ON m.member_id = p.author_member_id
 
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-
-        JOIN career_lounges AS cl
-            ON cl.post_id = p.post_id
     """
 
     # 5. 전체 게시글 수 조회
@@ -956,7 +950,7 @@ def list_lounges(
             (p.author_member_id = %s) AS is_owner,
 
             CASE
-                WHEN cp.is_anonymous THEN '익명'
+                WHEN p.is_anonymous THEN '익명'
                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(
                     NULLIF(m.nickname, ''),
@@ -965,11 +959,11 @@ def list_lounges(
             END AS author_name,
 
             cp.subcategory_code,
-            cp.is_anonymous,
+            p.is_anonymous,
 
-            cl.job_category_code,
-            cl.experience_years,
-            cl.company_name
+            ((cp.details ->> 'job_category_code')::varchar(50)) AS job_category_code,
+            (NULLIF(cp.details ->> 'experience_years', '')::smallint) AS experience_years,
+            ((cp.details ->> 'company_name')::varchar(150)) AS company_name
 
         {from_sql}
 
@@ -1014,15 +1008,13 @@ def get_lounge_author_for_update(
 
         FROM posts AS p
 
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-
-        JOIN career_lounges AS cl
-            ON cl.post_id = p.post_id
 
         WHERE p.post_id = %s
             AND p.post_type = 'CAREER'
             AND cp.category_code = 'lounge'
+            AND cp.details <> '{}'::jsonb
             AND p.deleted_at IS NULL
 
         FOR UPDATE OF p
@@ -1076,13 +1068,11 @@ def delete_lounge(
             AND EXISTS (
                 SELECT 1
 
-                FROM career_posts AS cp
-
-                JOIN career_lounges AS cl
-                    ON cl.post_id = cp.post_id
+                FROM career AS cp
 
                 WHERE cp.post_id = p.post_id
                     AND cp.category_code = 'lounge'
+                    AND cp.details <> '{}'::jsonb
             )
         """,
         (post_id, member_id),
@@ -1128,7 +1118,7 @@ def get_lab(
             (p.author_member_id = %s) AS is_owner,
 
             CASE
-                WHEN cp.is_anonymous THEN '익명'
+                WHEN p.is_anonymous THEN '익명'
                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(
                     NULLIF(m.nickname, ''),
@@ -1138,27 +1128,25 @@ def get_lab(
 
             cp.category_code,
             cp.subcategory_code,
-            cp.is_anonymous,
+            p.is_anonymous,
 
-            cl.post_type,
-            cl.is_resolved,
-            cl.guide_experience,
-            cl.guide_advice
+            ((cp.details ->> 'post_type')::varchar(20)) AS post_type,
+            (NULLIF(cp.details ->> 'is_resolved', '')::boolean) AS is_resolved,
+            ((cp.details ->> 'guide_experience')::text) AS guide_experience,
+            ((cp.details ->> 'guide_advice')::text) AS guide_advice
             
         FROM posts AS p
 
         JOIN members AS m
             ON m.member_id = p.author_member_id
 
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-
-        JOIN career_labs AS cl
-            ON cl.post_id = p.post_id
 
         WHERE p.post_id = %s
             AND p.post_type = 'CAREER'
             AND cp.category_code = 'lab'
+            AND cp.details <> '{}'::jsonb
             AND p.deleted_at IS NULL
         """,
         (
@@ -1182,7 +1170,15 @@ def get_lab(
 
             COUNT(pv.member_id) AS vote_count
 
-        FROM career_lab_poll_options AS po
+        FROM (
+            SELECT c.post_id, x.option_id, x.option_text, x.display_order
+            FROM career AS c
+            CROSS JOIN LATERAL jsonb_to_recordset(
+                CASE WHEN jsonb_typeof(c.poll_options) = 'array'
+                     THEN c.poll_options ELSE '[]'::jsonb END
+            ) AS x(option_id bigint, option_text varchar(200), display_order smallint)
+            WHERE c.category_code = 'lab'
+        ) AS po
 
         LEFT JOIN career_lab_poll_votes AS pv
             ON pv.post_id = po.post_id
@@ -1262,6 +1258,7 @@ def list_labs(
         "p.post_type = 'CAREER'",
         "p.deleted_at IS NULL",
         "cp.category_code = 'lab'",
+        "cp.details <> '{}'::jsonb",
     ]
 
     params = []
@@ -1277,14 +1274,14 @@ def list_labs(
     # 3. 질문·토론 유형 필터
     if post_type:
         conditions.append(
-            "cl.post_type = %s"
+            "((cp.details ->> 'post_type')::varchar(20)) = %s"
         )
         params.append(post_type)
 
     # 4. 해결 여부 필터
     if is_resolved is not None:
         conditions.append(
-            "cl.is_resolved = %s"
+            "(NULLIF(cp.details ->> 'is_resolved', '')::boolean) = %s"
         )
         params.append(is_resolved)
 
@@ -1309,11 +1306,8 @@ def list_labs(
         JOIN members AS m
             ON m.member_id = p.author_member_id
 
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-
-        JOIN career_labs AS cl
-            ON cl.post_id = p.post_id
     """
 
     # 6. 전체 게시글 개수
@@ -1350,7 +1344,7 @@ def list_labs(
             (p.author_member_id = %s) AS is_owner,
 
             CASE
-                WHEN cp.is_anonymous THEN '익명'
+                WHEN p.is_anonymous THEN '익명'
                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
                 ELSE COALESCE(
                     NULLIF(m.nickname, ''),
@@ -1359,10 +1353,10 @@ def list_labs(
             END AS author_name,
 
             cp.subcategory_code,
-            cp.is_anonymous,
+            p.is_anonymous,
 
-            cl.post_type,
-            cl.is_resolved
+            ((cp.details ->> 'post_type')::varchar(20)) AS post_type,
+            (NULLIF(cp.details ->> 'is_resolved', '')::boolean) AS is_resolved
 
         {from_sql}
 
@@ -1407,15 +1401,13 @@ def get_lab_author_for_update(
 
         FROM posts AS p
 
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-
-        JOIN career_labs AS cl
-            ON cl.post_id = p.post_id
 
         WHERE p.post_id = %s
             AND p.post_type = 'CAREER'
             AND cp.category_code = 'lab'
+            AND cp.details <> '{}'::jsonb
             AND p.deleted_at IS NULL
 
         FOR UPDATE OF p
@@ -1466,13 +1458,11 @@ def delete_lab(
             AND EXISTS (
                 SELECT 1
 
-                FROM career_posts AS cp
-
-                JOIN career_labs AS cl
-                    ON cl.post_id = cp.post_id
+                FROM career AS cp
 
                 WHERE cp.post_id = p.post_id
                     AND cp.category_code = 'lab'
+                    AND cp.details <> '{}'::jsonb
             )
         """,
         (
@@ -1507,10 +1497,11 @@ def update_lab_resolved(
     # 1. 질문 해결 상태 변경
     cursor.execute(
         """
-        UPDATE career_labs
-        SET is_resolved = %s
+        UPDATE career
+        SET details = jsonb_set(details, '{is_resolved}', to_jsonb(%s::boolean))
         WHERE post_id = %s
-            AND post_type = 'QUESTION'
+            AND category_code = 'lab'
+            AND details ->> 'post_type' = 'QUESTION'
         RETURNING post_id
         """,
         (
@@ -1556,19 +1547,17 @@ def get_lab_poll_for_update(
         """
         SELECT
             p.post_id,
-            cl.post_type
+            ((cp.details ->> 'post_type')::varchar(20)) AS post_type
 
         FROM posts AS p
 
-        JOIN career_posts AS cp
+        JOIN career AS cp
             ON cp.post_id = p.post_id
-
-        JOIN career_labs AS cl
-            ON cl.post_id = p.post_id
 
         WHERE p.post_id = %s
             AND p.post_type = 'CAREER'
             AND cp.category_code = 'lab'
+            AND cp.details <> '{}'::jsonb
             AND p.deleted_at IS NULL
 
         FOR UPDATE OF p
@@ -1594,7 +1583,15 @@ def lab_poll_option_exists(
         """
         SELECT 1
 
-        FROM career_lab_poll_options
+        FROM (
+            SELECT c.post_id, x.option_id, x.option_text, x.display_order
+            FROM career AS c
+            CROSS JOIN LATERAL jsonb_to_recordset(
+                CASE WHEN jsonb_typeof(c.poll_options) = 'array'
+                     THEN c.poll_options ELSE '[]'::jsonb END
+            ) AS x(option_id bigint, option_text varchar(200), display_order smallint)
+            WHERE c.category_code = 'lab'
+        ) AS po
 
         WHERE post_id = %s
             AND option_id = %s
@@ -1660,13 +1657,13 @@ def career_post_exists(cursor, post_id: int) -> bool:
     """삭제되지 않은 취업 게시글(4종 공통)인지 확인한다.
 
     취업 글은 board_id가 NULL이라 게시판 존재 확인을 쓸 수 없으므로
-    posts.post_type과 career_posts 연결로 대상 여부를 판단한다.
+    posts.post_type과 career 연결로 대상 여부를 판단한다.
     """
     cursor.execute(
         """
         SELECT 1
         FROM posts AS p
-        JOIN career_posts AS cp ON cp.post_id = p.post_id
+        JOIN career AS cp ON cp.post_id = p.post_id
         WHERE p.post_id = %s
           AND p.post_type = 'CAREER'
           AND p.deleted_at IS NULL

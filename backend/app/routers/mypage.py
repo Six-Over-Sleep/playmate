@@ -514,7 +514,7 @@ def get_my_posts(
             FROM posts p
             LEFT JOIN boards b
                 ON p.board_id = b.board_id
-            LEFT JOIN career_posts cp
+            LEFT JOIN career cp
                 ON cp.post_id = p.post_id
             WHERE p.author_member_id = %s
               AND p.deleted_at IS NULL
@@ -596,7 +596,7 @@ def get_my_comments(
             FROM comments c
             JOIN posts p ON c.post_id = p.post_id
             LEFT JOIN boards b ON b.board_id = p.board_id
-            LEFT JOIN career_posts cp
+            LEFT JOIN career cp
                 ON cp.post_id = p.post_id
             WHERE c.author_member_id = %s
               AND c.deleted_at IS NULL
@@ -664,7 +664,7 @@ def get_my_scraps(
             FROM post_reactions AS s
             JOIN posts p ON s.post_id = p.post_id
             LEFT JOIN boards b ON b.board_id = p.board_id
-            LEFT JOIN career_posts cp ON cp.post_id = p.post_id
+            LEFT JOIN career cp ON cp.post_id = p.post_id
             WHERE s.reaction_type = 'SCRAP' AND s.member_id = %s
               AND p.deleted_at IS NULL
             ORDER BY s.created_at DESC, s.post_id DESC
@@ -1090,7 +1090,7 @@ def get_my_liked_posts_dashboard_v1(
                 l.created_at::timestamptz AS liked_at
             FROM post_reactions AS l
             JOIN posts p ON p.post_id = l.post_id
-            LEFT JOIN career_posts cp ON cp.post_id = p.post_id
+            LEFT JOIN career cp ON cp.post_id = p.post_id
             LEFT JOIN recruits r ON r.post_id = p.post_id
             LEFT JOIN boards b ON b.board_id = p.board_id
             WHERE l.reaction_type = 'LIKE' AND l.member_id = %s AND p.deleted_at IS NULL

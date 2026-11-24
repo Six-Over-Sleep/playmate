@@ -311,7 +311,7 @@ def create_talk(
 ) -> CareerTalkResponse:
     """커리어 톡톡 게시글을 등록한다.
 
-    posts, career_posts, career_talks를
+    posts, career를
     하나의 트랜잭션으로 저장한다.
     """
 
@@ -541,7 +541,7 @@ def create_lounge(
 ) -> CareerLoungeResponse:
     """현직자 라운지 게시글을 등록한다.
 
-    posts, career_posts, career_lounges
+    posts, career
     세 테이블을 하나의 트랜잭션으로 저장한다.
     """
 

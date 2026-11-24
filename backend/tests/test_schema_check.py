@@ -29,7 +29,7 @@ class FakeCursor:
         if "information_schema.tables" in text:
             self.result = [(t,) for t in self.tables]
         elif "information_schema.columns" in text:
-            self.result = [
+            self.result = list(schema_check.BASE_COLUMNS) + [
                 ("member_xp_history", "history_id"), ("member_xp_history", "created_at"),
                 ("comments", "parent_comment_id"), ("comments", "reply_to_comment_id"),
                 ("boards", "course_code"), ("boards", "cohort"),
@@ -39,7 +39,7 @@ class FakeCursor:
                 ("member_board_visit_events", "board_id"),
             ]
             if self.missing_column in self.result:
-                self.result.remove(self.missing_column)
+                self.result = [column for column in self.result if column != self.missing_column]
         elif "from xp_award_policies" in text:
             self.result = [(a,) for a in self.awards]
         elif "from xp_limit_policies" in text:
@@ -57,7 +57,7 @@ class FakeCursor:
 
 ALL_TABLES = set(schema_check.BASE_TABLES) | {
     "xp_award_policies", "member_board_visit_events", "post_attachments", "post_reactions",
-    "level_policies", "xp_limit_policies", "recruit_programs",
+    "level_policies", "xp_limit_policies", "recruit_programs", "career", "career_lab_poll_votes",
 }
 
 
@@ -65,7 +65,7 @@ def test_complete_schema_passes_in_order_without_writes():
     cursor = FakeCursor(ALL_TABLES)
     report = check_schema(cursor)
     assert report.ok and report.issues == []
-    assert report.checked == ["000·001", "023", "024", "025", "027", "037", "044", "045"]
+    assert report.checked == ["000·001", "023", "024", "025", "027", "037", "040", "044", "045"]
 
 
 @pytest.mark.parametrize("column", ["course_code", "cohort"])
@@ -88,6 +88,10 @@ def test_missing_reply_target_column_points_to_041():
 
 
 @pytest.mark.parametrize("table,column,step", [
+    ("career", "details", "040"),
+    ("career", "poll_options", "040"),
+    ("posts", "is_anonymous", "037"),
+    ("post_attachments", "attachment_scope", "037"),
     ("recruits", "details", "042"),
     ("recruit_programs", "meetup_curriculum_version", "043"),
     ("recruit_programs", "meetup_curriculum_items", "043"),

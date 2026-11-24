@@ -2,7 +2,7 @@
 # 모임 모집 정보, 참여 회원 및 카테고리별 상세 정보를 관리하는 모델
 from sqlalchemy import (
     ARRAY, BigInteger, Boolean, Column, Date, DateTime,
-    ForeignKey, Integer, Numeric, String, Time, JSON
+    ForeignKey, Integer, String, Time, JSON
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from backend.app.core.database import Base
@@ -88,55 +88,3 @@ class RecruitMember(Base):
     joined_at = Column(DateTime)
     canceled_at = Column(DateTime)
     updated_at = Column(DateTime)
-
-
-# 042 이후 이 이름은 물리 테이블이 아니라 레거시 호환 뷰이다. (Base.metadata.create_all 금지)
-# 운동 모임의 상세 정보를 관리하는 모델
-class RecruitSportsDetail(Base):
-    __tablename__ = "recruit_sports_details"
-
-    # recruit_id : 운동 모임 고유 번호 (기본키 + 외래키)
-    # sport_name : 운동 종목 (러닝, 헬스, 축구 등)
-    recruit_id = Column(BigInteger, ForeignKey("recruits.recruit_id"), primary_key=True)
-    sport_name = Column(String)
-
-
-# 게임 모임의 상세 정보를 관리하는 모델
-class RecruitGameDetail(Base):
-    __tablename__ = "recruit_game_details"
-
-    # recruit_id : 게임 모임 고유 번호 (기본키 + 외래키)
-    # game_name : 게임 이름 (LoL, 발로란트, 보드게임 등)
-    recruit_id = Column(BigInteger, ForeignKey("recruits.recruit_id"), primary_key=True)
-    game_name = Column(String)
-
-
-# 스터디 모임의 상세 정보를 관리하는 모델
-class RecruitStudyDetail(Base):
-    __tablename__ = "recruit_study_details"
-
-    # recruit_id : 스터디 모임 고유 번호 (기본키 + 외래키)
-    # study_topic : 스터디 주제 (알고리즘, 자격증, 프로젝트 등)
-    # study_period : 스터디 진행 기간
-    # study_method : 스터디 진행 방식 (온라인, 오프라인 등)
-    recruit_id = Column(BigInteger, ForeignKey("recruits.recruit_id"), primary_key=True)
-    study_topic = Column(String)
-    study_period = Column(String)
-    study_method = Column(String)
-
-
-# 공동구매 모임의 상세 정보를 관리하는 모델
-class RecruitGroupBuyDetail(Base):
-    __tablename__ = "recruit_group_buy_details"
-
-    # recruit_id : 공동구매 모임 고유 번호 (기본키 + 외래키)
-    # product_name : 공동구매 상품 이름
-    # purchase_url : 상품 구매 페이지 주소
-    recruit_id = Column(BigInteger, ForeignKey("recruits.recruit_id"), primary_key=True)
-    product_name = Column(String)
-    purchase_url = Column(String)
-
-    # estimated_price_per_person : 1인당 예상 구매 금액
-    # pickup_method : 상품 수령 방법 (직접 수령, 배송 등)
-    estimated_price_per_person = Column(Numeric)
-    pickup_method = Column(String)

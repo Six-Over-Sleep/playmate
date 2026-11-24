@@ -15,14 +15,9 @@ from sqlalchemy.orm import Session
 # Post : 모임에 연결되는 게시글 모델
 from backend.app.models.post import Post
 # Recruit / RecruitMember : 모임 기본 정보 / 참여자 정보 모델
-# Recruit*Detail : 운동·게임·스터디·공동구매별 상세 정보 모델
 from backend.app.models.recruit import (
     Recruit,
-    RecruitGameDetail,
     RecruitMember,
-    RecruitGroupBuyDetail,
-    RecruitSportsDetail,
-    RecruitStudyDetail,
 )
 # recruit_repo : 모임 데이터의 조회와 DB 세션 등록을 담당함.
 from backend.app.repositories import recruit as recruit_repo
@@ -32,34 +27,27 @@ from backend.app.schemas.recruit import RecruitCreate, RecruitUpdate
 from backend.app.services.recruit_member import ensure_capacity_not_below_joined
 
 
-# 카테고리 이름을 실제 SQLAlchemy 상세 모델과 연결하는 딕셔너리임.
-# 상세 조회 시 카테고리에 맞는 테이블을 선택하는 데 사용함.
-DETAIL_MODELS = {
-    "sports": RecruitSportsDetail,
-    "game": RecruitGameDetail,
-    "study": RecruitStudyDetail,
-    "group_buy": RecruitGroupBuyDetail,
-}
+DETAIL_CATEGORIES = {"sports", "game", "study", "group_buy"}
 
 
-def _get_detail_model_and_values(data: RecruitCreate):
-    """모임 카테고리에 맞는 상세 테이블 모델과 저장할 값을 반환함."""
+def _get_detail_values(data: RecruitCreate):
+    """모임 카테고리에 맞는 details JSON 값을 반환함."""
     # 카테고리별로 저장해야 하는 컬럼이 달라 각각 별도로 매핑함.
     # 운동 모임 : 운동 종목 정보를 사용함.
     if data.category == "sports":
-        return RecruitSportsDetail, {
+        return {
             "sport_name": data.sport_name,
         }
 
     # 게임 모임 : 게임 이름을 사용함.
     if data.category == "game":
-        return RecruitGameDetail, {
+        return {
             "game_name": data.game_name,
         }
 
     # 스터디 모임 : 주제·기간·진행 방식을 사용함.
     if data.category == "study":
-        return RecruitStudyDetail, {
+        return {
             "study_topic": data.study_topic,
             "study_period": data.study_period,
             "study_method": data.study_method,
@@ -67,7 +55,7 @@ def _get_detail_model_and_values(data: RecruitCreate):
 
     # 공동구매 모임 : 상품·구매 주소·예상 가격·수령 방법을 사용함.
     if data.category == "group_buy":
-        return RecruitGroupBuyDetail, {
+        return {
             "product_name": data.product_name,
             "purchase_url": data.purchase_url,
             "estimated_price_per_person": data.estimated_price_per_person,
@@ -99,7 +87,7 @@ def create_recruit(
     """
     try:
         # 카테고리를 먼저 검사해 잘못된 요청은 DB에 쓰기 전에 차단함.
-        _, detail_values = _get_detail_model_and_values(data)
+        detail_values = _get_detail_values(data)
 
         # 1단계 : 모임과 연결할 게시글 객체를 먼저 생성함.
         # post_type="RECRUIT"로 일반 게시판 글과 모임 모집 글을 구분함.
@@ -201,7 +189,7 @@ def get_recruit(
         post, recruit, like_count, liked_by_me, scrapped_by_me,
         member_role, member_status, history,
     ) = row
-    if recruit.category not in DETAIL_MODELS:
+    if recruit.category not in DETAIL_CATEGORIES:
         raise HTTPException(status_code=400, detail="지원하지 않는 모임 카테고리입니다.")
 
     members = recruit_repo.list_joined_members_with_profiles(db, recruit_id)

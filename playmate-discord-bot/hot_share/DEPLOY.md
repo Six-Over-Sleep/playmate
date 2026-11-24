@@ -2,8 +2,7 @@
 
 Issue #165. **AWS 리소스는 하나도 만들지 않았고, 운영 배포는 이 Issue 범위가 아니다.** AWS 동작 설명은 #163 `career_share/DEPLOY.md`와
 같은 "문서 기준"이며 실제 AWS에서 확인하지 않았다. **`052_hot_discord_share.sql`은 잠정 번호다. DB 담당자가 확정하기 전에는 적용하지 않는다.**
-열린 PR #174(`052_remove_compat_views.sql`)가 같은 052 번호를 쓴다. 두 파일은 서로 다른 객체만 다루므로(HOT은 새 테이블 2개, #174는
-`career_*`·`recruit_*` 호환 뷰 삭제) 적용 순서 의존은 없고 **번호만 겹친다**. 먼저 머지되는 쪽이 052를 쓰고 다른 쪽 번호를 바꾼다.
+PR #174 now uses `068_remove_compat_views.sql` to avoid the migration number collision. The HOT migration number remains provisional; both migrations require deployment review.
 선행 마이그레이션: `030_board_access_scope.sql`(boards.scope_type 등), `045_post_reactions.sql`(LIKE 집계). 둘 다 develop에 있다.
 
 ## 1. 구성

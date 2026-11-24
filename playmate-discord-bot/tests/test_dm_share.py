@@ -283,6 +283,60 @@ class PolicyAndMessages(unittest.TestCase):
         self.assertIn("create_notification_task", src[gate:gate + 200])
 
 
+class DiscordPyRetryNonce(unittest.TestCase):
+    """PR #172 리뷰 ③: Gateway(discord.py 2.7.1)는 POST 500/502/504/524를 라이브러리 안에서 최대 5회 자동 재시도한다.
+    Messageable.send는 nonce를 주지 않아도 호출마다 임의 nonce를 만들고 enforce_nonce=true를 붙이며, 본문을 한 번만 직렬화해
+    재시도마다 같은 값을 보낸다. 그래서 Gateway는 nonce를 따로 넘기지 않는다. 이 테스트는 그 라이브러리 동작이 바뀌면(버전 변경 등) 실패한다.
+    Discord가 enforce_nonce로 실제 중복 생성을 막는지는 공식 문서 기준이며 실제 Discord에서는 확인하지 않았다."""
+
+    def test_internal_5xx_retries_resend_identical_nonce_with_enforce(self):
+        from unittest.mock import patch
+        bodies, statuses = [], [500, 502, 200]
+        user = {"id": "1", "username": "bot", "discriminator": "0", "avatar": None, "global_name": None}
+        message = {"id": "900", "channel_id": "123", "type": 0, "content": "x", "author": user, "attachments": [],
+                   "embeds": [], "mentions": [], "mention_roles": [], "pinned": False, "mention_everyone": False, "tts": False,
+                   "timestamp": "2026-11-24T00:00:00+00:00", "edited_timestamp": None, "flags": 0, "components": []}
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def _reply(self, status, body):
+                raw = json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_GET(self):                                   # static_login의 /users/@me
+                self._reply(200, user)
+
+            def do_POST(self):
+                bodies.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                status = statuses.pop(0)
+                self._reply(status, message if status == 200 else {"message": "server error", "code": 0})
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        async def send_once():
+            client = discord.Client(intents=discord.Intents.none())
+            try:
+                await client.http.static_login("verification-only")
+                await discord.PartialMessageable(state=client._connection, id=123).send("x")   # Gateway와 같이 nonce 미지정
+            finally:
+                await client.close()
+
+        with patch.object(discord.http.Route, "BASE", f"http://127.0.0.1:{server.server_port}/api/v10"):
+            run(send_once())
+        self.assertEqual(len(bodies), 3, "500·502 뒤 라이브러리가 두 번 더 보냈다")
+        self.assertTrue(bodies[0].get("nonce") and bodies[0].get("enforce_nonce") is True)
+        self.assertTrue(all(b == bodies[0] for b in bodies), "재시도마다 같은 nonce·같은 본문")
+
+
 class WorkerIsolation(unittest.TestCase):
     """DM·취업·HOT 작업이 다른 Worker로 가도 Discord 호출 전에 거부된다."""
 
@@ -333,7 +387,9 @@ CREATE TABLE posts (post_id BIGINT PRIMARY KEY, board_id BIGINT, post_type VARCH
 CREATE TABLE comments (comment_id BIGINT PRIMARY KEY, post_id BIGINT REFERENCES posts(post_id), author_member_id BIGINT,
     deleted_at TIMESTAMP);
 CREATE TABLE recruits (recruit_id BIGINT PRIMARY KEY, post_id BIGINT UNIQUE);
-CREATE TABLE career_posts (post_id BIGINT PRIMARY KEY, category_code VARCHAR(20));
+-- develop 039/040과 같은 구조: career 기본 테이블 + career_posts 호환 뷰 (PR #174가 이 뷰를 지운다)
+CREATE TABLE career (post_id BIGINT PRIMARY KEY REFERENCES posts(post_id) ON DELETE CASCADE, category_code VARCHAR(20));
+CREATE VIEW career_posts AS SELECT c.post_id, c.category_code FROM career c JOIN posts p ON p.post_id = c.post_id;
 CREATE TABLE member_enrollments (enrollment_id BIGINT PRIMARY KEY, member_id BIGINT);
 CREATE TABLE enrollment_verifications (verification_id BIGINT PRIMARY KEY,
     enrollment_id BIGINT REFERENCES member_enrollments(enrollment_id));
@@ -382,12 +438,13 @@ class PgCase(unittest.TestCase):
     def repo(self, app="dm_test"):
         return dmr.DmDeliveryRepository(self.new_db(app), retry_seconds=60, max_attempts=3)
 
-    def notify(self, kind="COMMENT", receiver=RECEIVER, actor=ACTOR):
+    def notify(self, kind="COMMENT", receiver=RECEIVER, actor=ACTOR, post_id=10):
         self.comment_seq += 1
-        self.admin.execute("INSERT INTO comments VALUES (%s, 10, %s, NULL)", (self.comment_seq, actor))
+        self.admin.execute("INSERT INTO comments VALUES (%s, %s, %s, NULL)", (self.comment_seq, post_id, actor))
         return self.admin.execute(
             "INSERT INTO notifications (receiver_member_id, actor_member_id, notification_type, post_id, comment_id) "
-            "VALUES (%s, %s, %s, 10, %s) RETURNING notification_id", (receiver, actor, kind, self.comment_seq)).fetchone()[0]
+            "VALUES (%s, %s, %s, %s, %s) RETURNING notification_id",
+            (receiver, actor, kind, post_id, self.comment_seq)).fetchone()[0]
 
     def notif(self, nid):
         cur = self.admin.cursor(row_factory=self.psycopg.rows.dict_row)
@@ -558,6 +615,21 @@ class NormalPathTests(PgCase):
                          {off: "DM 알림 꺼짐", gone: "Discord 계정 없음", self_n: "본인 알림", reaction: "지원하지 않는 알림 종류: REACTION"})
         self.assertEqual({self.notif(n)["status"] for n in (off, gone, self_n, reaction)}, {"SKIPPED"})
         self.assertIsNone(self.delivery(off))
+
+    def test_claim_path_does_not_depend_on_career_posts_view(self):
+        """PR #172 리뷰 ④ / #174: career_posts 호환 뷰가 지워져도 공동 선점(Gateway·Lambda)과 취업 글 링크가 동작한다."""
+        self.admin.execute("INSERT INTO posts VALUES (20, NULL, 'CAREER', '취업 글', 1, NULL)")
+        self.admin.execute("INSERT INTO career VALUES (20, 'reviews')")
+        self.admin.execute("DROP VIEW career_posts")                    # #174 적용 후 상태
+        gateway_nid = self.notify(post_id=20)
+        service, client = self.gateway()
+        run(service.poll_once())
+        self.assertEqual(self.notif(gateway_nid)["status"], "SENT")
+        self.assertIn(f"{BASE}/career/reviews/20", client.sent[0][1])
+        lambda_nid = self.notify(post_id=20)
+        claims = self.repo().claim("LAMBDA", T0, limit=5, stale_seconds=600)
+        self.assertEqual([c["notification"]["notification_id"] for c in claims], [lambda_nid])
+        self.assertEqual(claims[0]["notification"]["career_category"], "reviews")
 
     def test_legacy_gateway_path_when_table_absent(self):
         self.admin.execute(f"DROP TABLE {dmr.TABLE}")

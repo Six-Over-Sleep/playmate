@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS notification_dm_deliveries (
 COMMIT;
 
 -- 필요한 DB 권한 (Gateway Bot 계정과 DM DB Lambda 계정 모두)
---   SELECT: notifications, members, posts, recruits, career_posts, comments   (기존 Gateway 권한과 같음)
+--   SELECT: notifications, members, posts, recruits, career, comments
+--           (공동 선점 SQL은 career_posts 뷰 대신 career 기본 테이블을 읽는다. 053이 없을 때의 기존 Gateway 경로는 계속 career_posts)
 --   UPDATE: notifications (status, sent_at, error_message, retry_count, last_attempt_at)   (기존과 같음. 선점 시 FOR UPDATE에도 필요)
 --   SELECT, INSERT, UPDATE: notification_dm_deliveries
 --

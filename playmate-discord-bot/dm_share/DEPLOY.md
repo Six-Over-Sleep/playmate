@@ -69,6 +69,18 @@ backend 댓글 → notifications(PENDING)                                  ← �
 
 기존 Gateway 경로(053 없음)의 동작과 다른 점: 결과 불명 실패를 재시도하지 않는다 (기존은 재시도 → 중복 가능). Lambda는 50007을 즉시 FAILED로 끝낸다.
 
+**nonce와 자동 재시도 (PR #172 리뷰 ③)**
+- Gateway(discord.py 2.7.1): POST가 500/502/504/524를 받으면 **라이브러리 안에서 최대 5회 자동 재시도한다** (위 표의 "재발송 없음"은 라이브러리가
+  예외를 올린 뒤의 이야기다). 대신 `Messageable.send`는 nonce를 주지 않아도 **호출마다 임의 nonce를 만들고 `enforce_nonce=true`를 붙이며**,
+  본문을 한 번만 직렬화해 재시도마다 같은 값을 보낸다 (라이브러리 코드와 로컬 가짜 서버로 확인, `DiscordPyRetryNonce` 테스트). 그래서 Gateway는
+  nonce를 따로 넘기지 않는다. 이 보호는 **한 번의 `user.send` 호출 안의 재시도에만** 적용된다 (Gateway의 다음 시도는 다른 nonce지만, 다음 시도는
+  "미전송이 확실한 실패" 뒤에만 일어난다).
+- Lambda Worker(`discord_rest`): POST는 5xx·타임아웃에 자동 재시도하지 않고(결과 불명 → 마커 확인), nonce `ref:dm-<id>`(25자 이내)와
+  `enforce_nonce=true`를 보낸다. 같은 알림의 SQS 복사본은 같은 nonce를 쓴다.
+- Gateway와 Lambda의 nonce는 다르다 (공동 선점으로 같은 알림을 두 경로가 함께 보내지 않으므로 맞출 필요가 없다).
+- **보장 범위**: "최근 몇 분 안의 같은 작성자·같은 nonce 메시지를 새로 만들지 않는다"는 Discord 공식 문서 기준이며 실제 Discord에서 확인하지 않았다.
+  "몇 분"의 길이도 문서에 없다. Discord가 이를 지키지 않으면 discord.py 내부 재시도로 Gateway 중복 DM이 생길 수 있다.
+
 ## 4. DM 형식 (Lambda)
 
 embed 카드 1개. 제목 `💬 내 게시글에 새 댓글이 달렸어요.` / `↪️ 내 댓글에 새 답글이 달렸어요.`, 본문 `게시글: {제목}` +
@@ -99,7 +111,18 @@ SQS 작업에 받는 사람의 Discord ID가 들어가므로 큐 암호화(SSE)�
    `dm_recover`는 **신규 선점 없이** 진행 중 건의 마커 확인과 한도 초과 마감만 한다. 결과 큐 처리와 Worker는 계속 켜 둔다
 3. `LAMBDA:PENDING`/`LAMBDA:UNKNOWN`이 마감될 때까지 기다린다 (`dm_summary`로 확인. 최대: 선점 만료 10분 + 정착 30분 + 확인 6회 x 10분)
 4. 그 뒤 Worker와 결과 처리를 끈다. 전송 행은 지우지 않는다. Gateway는 Lambda의 진행 중·불명 건을 보내지 않고, 미전송이 확실한 FAILED만 이어받는다 (테스트로 확인)
-5. **구버전 Gateway(공동 선점 없음)로 되돌리는 것은 금지**
+5. **구버전 Gateway(공동 선점 없음)로 되돌리는 것은 금지**. 구버전은 이 표를 보지 않으므로 `notifications`가 아직 PENDING인 알림
+   (Lambda UNKNOWN 건, Gateway 결과 대기 건 포함)을 다시 보낸다. 다른 이유로 봇 코드를 되돌려야 하면 Lambda를 모두 끄고 3단계가 끝난 뒤에도
+   중복 가능성이 남는다는 것을 받아들이고 진행한다 (가능하면 공동 선점 코드만 남긴 수정 버전으로 되돌린다).
+
+**배포 중 주의**
+- Gateway는 한 프로세스만 실행한다 (무중단 배포로 신·구 Gateway가 겹치면 구버전이 공동 선점을 모른다). 재시작형 배포를 쓴다.
+- 053 적용과 신버전 Gateway 배포 사이에는 Lambda를 켜지 않는다 (구버전 Gateway + Lambda = 중복). 053만 먼저 적용하는 것은 안전하다 (구버전은 표를 무시).
+- `PLAYMATE_DM_POLL_ENABLED` 값을 잘못 적으면(예: `fasle`) 폴링은 켜진 채로 남는다. 공동 선점 때문에 중복은 없지만 Gateway가 계속 보낸다.
+
+**#174(호환 뷰 삭제)와의 관계**: 공동 선점 SQL은 `career_posts` 뷰가 아니라 **`career` 기본 테이블**을 읽는다 (039/040, 뷰 = `career JOIN posts`라
+결과가 같다. 뷰를 지운 DB에서 Gateway·Lambda 선점과 취업 글 링크를 테스트로 확인). 단 053이 없는 기존 Gateway 경로(`notification_repository.claim_pending`)와
+develop의 다른 봇 코드(`content_repository`, `career_notice_repository`)는 아직 `career_posts`를 읽는다 → #174 담당자 공유 사항.
 
 ## 6. 남은 위험 (코드로 없앨 수 없음)
 

@@ -120,9 +120,8 @@ SQS 작업에 받는 사람의 Discord ID가 들어가므로 큐 암호화(SSE)�
 - 053 적용과 신버전 Gateway 배포 사이에는 Lambda를 켜지 않는다 (구버전 Gateway + Lambda = 중복). 053만 먼저 적용하는 것은 안전하다 (구버전은 표를 무시).
 - `PLAYMATE_DM_POLL_ENABLED` 값을 잘못 적으면(예: `fasle`) 폴링은 켜진 채로 남는다. 공동 선점 때문에 중복은 없지만 Gateway가 계속 보낸다.
 
-**#174(호환 뷰 삭제)와의 관계**: 공동 선점 SQL은 `career_posts` 뷰가 아니라 **`career` 기본 테이블**을 읽는다 (039/040, 뷰 = `career JOIN posts`라
-결과가 같다. 뷰를 지운 DB에서 Gateway·Lambda 선점과 취업 글 링크를 테스트로 확인). 단 053이 없는 기존 Gateway 경로(`notification_repository.claim_pending`)와
-develop의 다른 봇 코드(`content_repository`, `career_notice_repository`)는 아직 `career_posts`를 읽는다 → #174 담당자 공유 사항.
+**PR #174 (compatibility View removal)**: Gateway, Lambda, notification, content and career notice repositories read the consolidated `career` table directly. The legacy View removal must be deployed only after the updated consumers have been verified.
+
 
 ## 6. 남은 위험 (코드로 없앨 수 없음)
 

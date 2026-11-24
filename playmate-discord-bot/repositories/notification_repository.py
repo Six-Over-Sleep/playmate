@@ -76,8 +76,8 @@ class PostgresNotificationRepository:
         실패한 적이 있는 알림은 마지막 시도 후 retry_delay_seconds가 지나야 다시 가져온다.
         행을 잠그거나 상태를 바꾸지 않는다. Bot은 한 프로세스로만 실행한다는 전제다.
         원본 게시글 링크에 필요한 종류 정보(post_type, 게시판 ID, 모임 ID, 취업 카테고리)도 함께 가져온다.
-        recruits.post_id는 UNIQUE, career_posts.post_id는 기본키라서 JOIN이 알림 행을 늘리지 않는다.
-        필요한 DB 권한: recruits, career_posts SELECT.
+        recruits.post_id는 UNIQUE, career.post_id는 기본키라서 JOIN이 알림 행을 늘리지 않는다.
+        필요한 DB 권한: recruits, career SELECT.
         """
         return self._db.execute(
             """
@@ -95,7 +95,7 @@ class PostgresNotificationRepository:
               JOIN members m ON m.member_id = n.receiver_member_id
               LEFT JOIN posts p ON p.post_id = n.post_id
               LEFT JOIN recruits r ON r.post_id = n.post_id
-              LEFT JOIN career_posts cp ON cp.post_id = n.post_id
+              LEFT JOIN career cp ON cp.post_id = n.post_id
               LEFT JOIN comments c ON c.comment_id = n.comment_id
              WHERE n.status = 'PENDING'
                AND (n.last_attempt_at IS NULL

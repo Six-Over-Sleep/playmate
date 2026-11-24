@@ -57,7 +57,7 @@ class PostgresContentRepository:
                    (SELECT COUNT(*) FROM comments c
                      WHERE c.post_id = p.post_id AND c.deleted_at IS NULL) AS comment_count
               FROM posts p
-              JOIN career_posts cp ON cp.post_id = p.post_id
+              JOIN career cp ON cp.post_id = p.post_id
              WHERE p.post_id = %s
                AND p.post_type = 'CAREER'
                AND p.deleted_at IS NULL

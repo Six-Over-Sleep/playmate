@@ -37,3 +37,5 @@ uploads/
 crawler/career_news_crawler/data/
 
 *.bak
+# 채용 인사이트 원본·정제 CSV와 분석 보고서는 로컬에만 보관
+/data/insights_import/

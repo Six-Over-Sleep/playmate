@@ -20,6 +20,8 @@ from datetime import datetime, timedelta, timezone
 
 from career_share import state
 from career_share.contract import new_token
+# 순수 상수·함수는 DM Worker 패키지용으로 dm_share.units에 있다 (Issue #182). 기존 경로(이 모듈) import도 그대로 되도록 다시 내보낸다.
+from dm_share.units import DM_BLOCKED_CODE, USER_GONE_CODES, dm_unit_id, notification_id_of  # noqa: F401
 from services.notification_policy import skip_reason, to_discord_id
 
 log = logging.getLogger("dm_share")
@@ -38,8 +40,6 @@ AUTH_PROBE = "DISCORD_AUTH_PROBE"       # 차단 중 시험 발송으로 선점�
 AUTH_HOLD_MINUTES = 10
 AUTH_ALERT_HOURS = 24
 ERROR_LIMIT = 500
-DM_BLOCKED_CODE = 50007                 # Cannot send messages to this user
-USER_GONE_CODES = (10013, 50033)        # Unknown user / Invalid recipient (공식 문서 코드. HTTP 상태는 실환경 미확인)
 GATEWAY_UNCERTAIN = "Gateway 전송 결과 불명: 중복 방지를 위해 재발송하지 않음"
 GATEWAY_EXPIRED = "Gateway 선점 후 결과 없음(만료): 중복 방지를 위해 재발송하지 않음"
 LAMBDA_UNVERIFIABLE = "DM 전송 결과 불명(확인 한도 초과): 중복 방지를 위해 재발송하지 않음"
@@ -53,16 +53,6 @@ def _naive(value: datetime) -> datetime:
 
 def _aware(value: datetime | None) -> datetime | None:
     return None if value is None else value.replace(tzinfo=UTC)
-
-
-def dm_unit_id(notification_id: int) -> str:
-    return f"dm-{int(notification_id)}"
-
-
-def notification_id_of(unit_id) -> int | None:
-    if isinstance(unit_id, str) and unit_id.startswith("dm-") and unit_id[3:].isdigit():
-        return int(unit_id[3:])
-    return None
 
 
 # 기존 PostgresNotificationRepository.claim_pending과 같은 JOIN·조건 + 공동 선점 조건 + 행 잠금

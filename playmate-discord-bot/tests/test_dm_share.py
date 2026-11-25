@@ -263,9 +263,13 @@ class PolicyAndMessages(unittest.TestCase):
         self.assertEqual(contract.parse_time(job["not_after"]) - T0, timedelta(seconds=50))
 
     def test_settings(self):
-        env = {"DM_SHARE_SEND_QUEUE_URL": "https://sqs/dm"}
+        env = {"DM_SHARE_SEND_QUEUE_URL": "https://sqs/dm.fifo"}
         self.assertEqual(dm_settings.load_dm_settings(env).job_ttl_seconds, 50)
-        for bad in ({}, env | {"CAREER_SHARE_SEND_QUEUE_URL": "https://sqs/dm"}, env | {"HOT_SHARE_SEND_QUEUE_URL": "https://sqs/dm"},
+        # Issue #182: 표준 큐는 명시적으로 허용할 때만 (로컬 시험). 운영 설정은 FIFO를 강제한다.
+        self.assertEqual(dm_settings.load_dm_settings({"DM_SHARE_SEND_QUEUE_URL": "https://sqs/dm", "PLAYMATE_ENVIRONMENT": "test",
+                                                       "DM_SHARE_ALLOW_STANDARD_QUEUE": "1"}).send_queue_url, "https://sqs/dm")
+        for bad in ({}, {"DM_SHARE_SEND_QUEUE_URL": "https://sqs/dm"},
+                    env | {"CAREER_SHARE_SEND_QUEUE_URL": "https://sqs/dm.fifo"}, env | {"HOT_SHARE_SEND_QUEUE_URL": "https://sqs/dm.fifo"},
                     env | {"DM_SHARE_JOB_TTL_SECONDS": "60"}, env | {"DM_SHARE_JOB_TTL_SECONDS": "90"},   # R4: TTL >= 재시도 간격 거부
                     env | {"DM_SHARE_CLAIM_STALE_MINUTES": "1", "DM_SHARE_JOB_TTL_SECONDS": "90", "DM_SHARE_RETRY_SECONDS": "200"}):
             with self.assertRaises(SettingsError, msg=bad):

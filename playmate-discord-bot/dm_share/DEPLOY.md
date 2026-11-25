@@ -90,13 +90,23 @@ Gateway는 기존 텍스트 형식을 유지하므로 **전환 기간에는 같�
 
 ## 5. 환경변수와 전환·롤백
 
-DM DB Lambda: `DB_*`, `DM_SHARE_SEND_QUEUE_URL`(필수, 취업·HOT 발송 큐와 같으면 시작하지 않음), `PLAYMATE_WEB_BASE_URL`(선택),
+DM DB Lambda: `DB_*`, `DM_SHARE_SEND_QUEUE_URL`(필수, **FIFO 큐 `.fifo`여야 시작**(Issue #182, 아래 표준 큐 예외), 취업·HOT 발송 큐와 같으면 시작하지 않음),
+**`PLAYMATE_ENVIRONMENT`(배포 시 반드시 설정: `prod` 또는 `test`)**, `PLAYMATE_WEB_BASE_URL`(선택),
 선택: `DM_SHARE_RELAY_LIMIT`(20) `_JOB_TTL_SECONDS`(50, `_RETRY_SECONDS`보다 짧아야 시작) `_CLAIM_STALE_MINUTES`(10) `_RETRY_SECONDS`(60) `_MAX_ATTEMPTS`(3)
 `_VERIFY_INTERVAL_MINUTES`(10) `_VERIFY_SETTLE_MINUTES`(30) `_ABSENT_REQUIRED`(2) `_MAX_VERIFIES`(6).
 DM Worker: `DISCORD_BOT_TOKEN`, `DM_SHARE_RESULT_QUEUE_URL`. 채널은 작업의 받는 사람 DM 채널이다 (채널 ID 환경변수 없음).
 Gateway: `PLAYMATE_DM_POLL_ENABLED` (기본 true, false/0/no/off면 DM 폴링만 끈다. `/알림설정`은 계속 Gateway가 처리).
 AWS 요구사항(VPC 엔드포인트, Worker 예약 동시성 1·배치 크기 1·ReportBatchItemFailures, DLQ, IAM 분리)은 #163 문서 4절과 같다.
 SQS 작업에 받는 사람의 Discord ID가 들어가므로 큐 암호화(SSE)를 켠다. DB 권한은 053 하단 주석.
+
+**표준 큐 예외 (Issue #182, `dm_share/settings.py` `standard_queue_allowed`)**: DM 발송 큐는 FIFO여야 한다. 표준 큐는 아래 **두 조건을 모두** 만족할 때만 허용한다.
+- `PLAYMATE_ENVIRONMENT`가 `local` 또는 `test` (앞뒤 공백·대소문자 무시)
+- `DM_SHARE_ALLOW_STANDARD_QUEUE=1` (정확히 `1`. `true` 등은 거부)
+
+`prod`·`production`, 값 없음, 빈 값, 그 밖의 값(`dev`, `staging` 등)이면 플래그가 있어도 **시작하지 않는다** (`SettingsError`).
+FIFO 큐(`.fifo`)는 환경과 플래그에 관계없이 그대로 허용된다.
+**DM DB Lambda를 배포할 때 `PLAYMATE_ENVIRONMENT`를 반드시 설정한다** (`prod` 또는 `test`, SAM의 `EnvironmentName`과 같은 값).
+DM DB 계층은 SAM 템플릿 밖이라 이 값을 자동으로 넣어 주는 곳이 없다. 비워 두면 표준 큐 우회는 막히고(안전한 기본값) FIFO 발행은 정상 동작한다.
 
 **전환**
 1. 053 적용 (번호 확정 후, DB 담당자)
@@ -139,6 +149,10 @@ SQS 작업에 받는 사람의 Discord ID가 들어가므로 큐 암호화(SSE)�
 - DM 지연: Gateway 10초 → Lambda 1분 주기 (평균 약 30초 증가).
 
 ## 7. R4: 교차 재선점 제한과 TTL 50초
+
+> **Issue #182 (FIFO 전환)**: 아래의 "Lambda→Lambda는 예약 동시성 1과 마커로 막힌다"는 이제 **FIFO 메시지 그룹(= `dm-<알림 ID>`) 직렬화와 마커**로 막는다.
+> 발송 큐는 FIFO, `MessageDeduplicationId = job_id`, Worker 예약 동시성 2 = 이벤트 소스 최대 동시성 2 (`dm_share/fifo.py`,
+> `infra/discord-serverless/DEPLOY.md` 15.4). Gateway의 16분 인수 제한, TTL 50초 < 재시도 60초 검증, POST 직전 만료 확인은 그대로다.
 
 **왜 바꿨나**: Lambda 작업이 429로 실패(FAILED_RETRY)한 뒤 60초가 지나 Gateway가 이어받아 텍스트 DM을 보냈는데, 같은 Lambda 작업의
 SQS 중복 복사본이 TTL(90초) 안에 도착해 embed DM을 한 번 더 보냈다 (Gateway DM에는 마커가 없어 Worker가 확인할 수 없다).

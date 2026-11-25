@@ -26,7 +26,7 @@ from career_share.queues import SqsPublisher
 from career_share.worker import CareerShareWorker, TransientWorkerError
 from career_share.worker_lambda import handle_records
 from discord_rest import errors
-from repositories.dm_delivery_repository import DM_BLOCKED_CODE, USER_GONE_CODES, notification_id_of
+from dm_share.units import DM_BLOCKED_CODE, USER_GONE_CODES, notification_id_of   # DB 저장소 모듈 대신 순수 모듈 (#182)
 from services.notification_policy import to_discord_id
 
 log = logging.getLogger("dm_share")

@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >-
-  PlayMate Discord serverless (option 3: PostgreSQL outbox + SQS + Lambda) - career share send/result queues and
-  Discord Worker Lambda only. No DB layer, no EventBridge Scheduler, no VPC/NAT. See DEPLOY.md.
+  PlayMate Discord serverless (option 3: PostgreSQL outbox + SQS + Lambda) - send/result queues and Discord Worker
+  Lambdas for career share, and optionally HOT share and comment/reply DM. No DB layer, no EventBridge Scheduler,
+  no VPC/NAT. See DEPLOY.md.
 
 # 명명 규칙: playmate-<EnvironmentName>-<feature>-<role>
 #   feature = career-share | hot-share | dm-share (HOT·DM은 같은 패턴으로 리소스를 추가한다)
@@ -79,10 +80,77 @@ Parameters:
       Bump after rotating the token secret. Changing it updates the function configuration so Lambda retires execution
       environments that cached the old token (see DEPLOY.md 5).
 
+  # ------------------------------------------------------------------ HOT / DM (Issue #182). 기본은 만들지 않는다 (취업만 배포하는 기존 명령 유지)
+  DeployHotShare:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+    Description: Create the HOT share queues, Worker and alarms.
+
+  HotShareChannelId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{17,20}$"
+    ConstraintDescription: Empty, or a Discord channel snowflake (17-20 digits).
+    Description: >-
+      Discord channel the HOT Worker posts to (required when DeployHotShare=true). Pass a TEST channel first; never
+      hard-code the production channel here.
+
+  HotWorkerEventSourceEnabled:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+    Description: SQS -> HOT Worker event source mapping. Default false (deploying never starts posting).
+
+  DeployDmShare:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+    Description: Create the comment/reply DM queues, Worker and alarms. The DM recipient comes from each job (no channel parameter).
+
+  DmProdActivationApproved:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+    Description: >-
+      Step 7 approval (DEPLOY.md 15.10). Required to enable the DM Worker event source when EnvironmentName=prod.
+      Set only after test-environment AWS/Discord verification, result consumer deployment and Gateway cutover checks.
+
+  DmWorkerEventSourceEnabled:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+    Description: >-
+      SQS -> DM Worker event source mapping. Default false. Enable only after the Gateway DM poller is switched over
+      (playmate-discord-bot/dm_share/DEPLOY.md 5).
+
 Conditions:
   HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, ""]]
   HasSecretKmsKey: !Not [!Equals [!Ref DiscordBotTokenSecretKmsKeyArn, ""]]
   EnableCareerWorker: !Equals [!Ref CareerWorkerEventSourceEnabled, "true"]
+  CreateHotShare: !Equals [!Ref DeployHotShare, "true"]
+  EnableHotWorker: !And [!Condition CreateHotShare, !Equals [!Ref HotWorkerEventSourceEnabled, "true"]]
+  CreateDmShare: !Equals [!Ref DeployDmShare, "true"]
+  EnableDmWorker: !And [!Condition CreateDmShare, !Equals [!Ref DmWorkerEventSourceEnabled, "true"]]
+
+Rules:
+  HotShareNeedsChannel:
+    RuleCondition: !Equals [!Ref DeployHotShare, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref HotShareChannelId, ""]]
+        AssertDescription: HotShareChannelId is required when DeployHotShare=true.
+  # 운영 DM 발송은 단계 승인 전까지 막는다 (DEPLOY.md 15.10). FIFO 코드·로컬 테스트(1~2단계)는 끝났지만 AWS·Discord 실환경 검증,
+  # 결과 소비자·DB 계층 배포, Gateway 전환 검증(3~6단계)은 남았다. 7단계 승인 때만 DmProdActivationApproved=true로 배포한다.
+  # 이 Rule은 CloudFormation 배포만 막는다. 콘솔·CLI로 이벤트 소스를 직접 켜는 것은 막지 못한다.
+  DmWorkerProdRequiresApproval:
+    RuleCondition: !And
+      - !Equals [!Ref EnvironmentName, prod]
+      - !Equals [!Ref DmWorkerEventSourceEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref DmProdActivationApproved, "true"]
+        AssertDescription: >-
+          Enabling the DM Worker in prod requires DmProdActivationApproved=true after AWS/Discord verification
+          (DEPLOY.md 15.10).
 
 Resources:
   # ------------------------------------------------------------------ 취업 공유 큐 (표준 큐, SQS 관리형 암호화)
@@ -363,6 +431,572 @@ Resources:
       AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
       OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
 
+  # ================================================================== HOT 게시글 공유 (Issue #182)
+  # 기존 hot_share.worker_lambda.handler 재사용: HOT 작업(kind=HOT, unit hot-<id>)만 처리하고 다른 작업은 Discord 호출 전에 거부한다.
+  # 공개 범위 판단은 DB 계층(선점 SQL)에 있다. Worker에는 새 판단 로직이 없다.
+  HotShareSendDLQ:
+    Type: AWS::SQS::Queue
+    Condition: CreateHotShare
+    # 기능을 끄거나(Deploy*=false) 스택을 지워도 큐·메시지를 남긴다 (DEPLOY.md 15.9). 교체가 필요한 변경도 기존 큐를 지우지 않는다.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-hot-share-send-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  HotShareSendQueue:
+    Type: AWS::SQS::Queue
+    Condition: CreateHotShare
+    # 기능을 끄거나(Deploy*=false) 스택을 지워도 큐·메시지를 남긴다 (DEPLOY.md 15.9). 교체가 필요한 변경도 기존 큐를 지우지 않는다.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-hot-share-send
+      VisibilityTimeout: 540                   # Worker Timeout 90초 x 6
+      MessageRetentionPeriod: 86400            # 작업 TTL은 3분(HOT_SHARE_JOB_TTL_MINUTES)
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt HotShareSendDLQ.Arn
+        maxReceiveCount: 5                     # 예약 동시성 = 최대 동시성이라 구조적 스로틀 없음 (취업과 같은 근거)
+
+  HotShareResultDLQ:
+    Type: AWS::SQS::Queue
+    Condition: CreateHotShare
+    # 기능을 끄거나(Deploy*=false) 스택을 지워도 큐·메시지를 남긴다 (DEPLOY.md 15.9). 교체가 필요한 변경도 기존 큐를 지우지 않는다.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-hot-share-result-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  HotShareResultQueue:
+    Type: AWS::SQS::Queue
+    Condition: CreateHotShare
+    # 기능을 끄거나(Deploy*=false) 스택을 지워도 큐·메시지를 남긴다 (DEPLOY.md 15.9). 교체가 필요한 변경도 기존 큐를 지우지 않는다.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-hot-share-result
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 1209600
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt HotShareResultDLQ.Arn
+        maxReceiveCount: 5
+
+  HotShareWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: CreateHotShare
+    Properties:
+      LogGroupName: !Sub /aws/lambda/playmate-${EnvironmentName}-hot-share-worker
+      RetentionInDays: !Ref LogRetentionInDays
+
+  HotShareWorkerRole:
+    Type: AWS::IAM::Role
+    Condition: CreateHotShare
+    Properties:
+      Description: PlayMate HOT share Discord Worker - send queue consume, result queue send, token secret read only.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: hot-share-worker
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteOwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt HotShareWorkerLogGroup.Arn
+              - Sid: ConsumeSendQueue
+                Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+                Resource: !GetAtt HotShareSendQueue.Arn
+              - Sid: PublishResults
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt HotShareResultQueue.Arn
+              - Sid: ReadDiscordTokenSecret
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref DiscordBotTokenSecretArn
+              - !If
+                - HasSecretKmsKey
+                - Sid: DecryptTokenSecretViaSecretsManager
+                  Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref DiscordBotTokenSecretKmsKeyArn
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: !Sub secretsmanager.${AWS::Region}.amazonaws.com
+                - !Ref AWS::NoValue
+
+  HotShareWorkerFunction:
+    Type: AWS::Serverless::Function
+    Condition: CreateHotShare
+    Properties:
+      FunctionName: !Sub playmate-${EnvironmentName}-hot-share-worker
+      Description: HOT share Discord Worker (outside VPC, no DB access). Reuses hot_share.worker_lambda.handler.
+      CodeUri: .build/hot_worker/
+      Handler: secret_bootstrap.handler
+      Runtime: python3.13
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 90
+      Role: !GetAtt HotShareWorkerRole.Arn
+      # 취업과 같은 근거로 2 (= 이벤트 소스 최대 동시성). HOT 재선점은 재시도 간격(5분 x 시도)이 TTL(3분)과 함수 타임아웃(90초)보다
+      # 길어, 이전 작업이 실행 중일 때 새 작업이 동시에 처리되는 경우가 없다. 남는 것은 SQS 동시 중복 전달뿐 (DEPLOY.md 3절).
+      ReservedConcurrentExecutions: 2
+      LoggingConfig:
+        LogGroup: !Ref HotShareWorkerLogGroup
+        LogFormat: Text
+      Environment:
+        Variables:
+          WORKER_TARGET_HANDLER: hot_share.worker_lambda.handler
+          DISCORD_BOT_TOKEN_SECRET_ARN: !Ref DiscordBotTokenSecretArn
+          DISCORD_BOT_TOKEN_SECRET_JSON_KEY: !Ref DiscordBotTokenSecretJsonKey
+          DISCORD_BOT_TOKEN_VERSION: !Ref DiscordBotTokenVersion
+          HOT_SHARE_CHANNEL_ID: !Ref HotShareChannelId
+          HOT_SHARE_RESULT_QUEUE_URL: !Ref HotShareResultQueue
+          PLAYMATE_ENVIRONMENT: !Ref EnvironmentName
+
+  HotShareWorkerSendQueueMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: CreateHotShare
+    Properties:
+      EventSourceArn: !GetAtt HotShareSendQueue.Arn
+      FunctionName: !Ref HotShareWorkerFunction
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      Enabled: !If [EnableHotWorker, true, false]
+      ScalingConfig:
+        MaximumConcurrency: 2
+
+  HotShareWorkerErrorLogMetric:
+    Type: AWS::Logs::MetricFilter
+    Condition: CreateHotShare
+    Properties:
+      LogGroupName: !Ref HotShareWorkerLogGroup
+      FilterPattern: '"[ERROR]"'
+      MetricTransformations:
+        - MetricNamespace: PlayMate/DiscordServerless
+          MetricName: !Sub ${EnvironmentName}-hot-share-worker-error-logs
+          MetricValue: "1"
+          DefaultValue: 0
+
+  # 경보는 기능당 4개로 줄인다 (취업 7개를 복제하지 않음): Lambda Errors·Throttles·ERROR 로그를 지표 수학 1개로 합치고, 두 DLQ를 1개로 합친다.
+  HotShareWorkerFailuresAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateHotShare
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-hot-share-worker-failures
+      AlarmDescription: HOT Worker invocation errors (incl. timeouts), throttles (not expected) or ERROR log lines. Check the log group.
+      Metrics:
+        - Id: errors
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Errors
+              Dimensions: [{Name: FunctionName, Value: !Ref HotShareWorkerFunction}]
+            Period: 300
+            Stat: Sum
+        - Id: throttles
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Throttles
+              Dimensions: [{Name: FunctionName, Value: !Ref HotShareWorkerFunction}]
+            Period: 300
+            Stat: Sum
+        - Id: errorlogs
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: PlayMate/DiscordServerless
+              MetricName: !Sub ${EnvironmentName}-hot-share-worker-error-logs
+            Period: 300
+            Stat: Sum
+        - Id: failures
+          Expression: FILL(errors, 0) + FILL(throttles, 0) + FILL(errorlogs, 0)
+          Label: HOT worker failures
+          ReturnData: true
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  HotShareDLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateHotShare
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-hot-share-dlq-not-empty
+      AlarmDescription: HOT send or result DLQ has messages. Inspect both DLQs.
+      Metrics:
+        - Id: senddlq
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/SQS
+              MetricName: ApproximateNumberOfMessagesVisible
+              Dimensions: [{Name: QueueName, Value: !GetAtt HotShareSendDLQ.QueueName}]
+            Period: 300
+            Stat: Maximum
+        - Id: resultdlq
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/SQS
+              MetricName: ApproximateNumberOfMessagesVisible
+              Dimensions: [{Name: QueueName, Value: !GetAtt HotShareResultDLQ.QueueName}]
+            Period: 300
+            Stat: Maximum
+        - Id: dlq
+          Expression: FILL(senddlq, 0) + FILL(resultdlq, 0)
+          Label: HOT DLQ messages
+          ReturnData: true
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  HotShareSendQueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateHotShare
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-hot-share-send-queue-stale
+      AlarmDescription: Oldest HOT send job is older than the job TTL (3 min) - Worker disabled, throttled or failing.
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt HotShareSendQueue.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 180
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  HotShareResultQueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateHotShare
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-hot-share-result-queue-stale
+      AlarmDescription: Oldest HOT result is older than 1 hour - the DB layer is not consuming results (they expire after 14 days).
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt HotShareResultQueue.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3600
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  # ================================================================== 댓글·대댓글 DM (Issue #182)
+  # 기존 dm_share.worker_lambda.handler 재사용: DM 작업(kind=DM, unit dm-<id>)과 유효한 recipient_id만 처리한다.
+  # 큐 메시지에 받는 사람 Discord ID와 게시글 제목이 들어가므로 SSE, 짧은 보존, 로그에 본문·받는 사람을 남기지 않는 기존 코드를 유지한다.
+  # 발송 큐는 FIFO: MessageGroupId = unit_id(dm-<알림 ID>), MessageDeduplicationId = job_id (dm_share/fifo.py, DEPLOY.md 15.4).
+  # 같은 알림의 작업은 한 번에 하나씩 순서대로 처리되고(R4 방지), 서로 다른 알림은 병렬로 처리된다. 결과 큐는 표준 유지 (반영이 멱등).
+  DmShareSendDLQ:
+    Type: AWS::SQS::Queue
+    Condition: CreateDmShare
+    # 기능을 끄거나(Deploy*=false) 스택을 지워도 큐·메시지를 남긴다 (DEPLOY.md 15.9). 교체가 필요한 변경도 기존 큐를 지우지 않는다.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-dm-share-send-dlq.fifo    # FIFO 큐의 DLQ도 FIFO여야 한다
+      FifoQueue: true
+      MessageRetentionPeriod: 604800           # 7일: 원인 확인 시간과 개인정보 보존 최소화 사이 (원본 넣은 시각 기준으로 만료)
+      SqsManagedSseEnabled: true
+
+  DmShareSendQueue:
+    Type: AWS::SQS::Queue
+    Condition: CreateDmShare
+    # 기능을 끄거나(Deploy*=false) 스택을 지워도 큐·메시지를 남긴다 (DEPLOY.md 15.9). 교체가 필요한 변경도 기존 큐를 지우지 않는다.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-dm-share-send.fifo
+      FifoQueue: true
+      ContentBasedDeduplication: false         # 본문 해시가 아니라 발행기가 넘기는 job_id로 중복 제거 (재선점 작업은 새 job_id)
+      VisibilityTimeout: 360                   # Worker Timeout 60초 x 6
+      MessageRetentionPeriod: 3600             # 작업 TTL은 50초. 오래 둘 이유가 없고 받는 사람 정보 보존을 줄인다
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DmShareSendDLQ.Arn
+        # 예약 동시성 = 최대 동시성이라 구조적 스로틀이 없다. 실패한 메시지는 그 알림의 그룹만 가시성 타임아웃 동안 멈추게 한다.
+        maxReceiveCount: 5
+
+  DmShareResultDLQ:
+    Type: AWS::SQS::Queue
+    Condition: CreateDmShare
+    # 기능을 끄거나(Deploy*=false) 스택을 지워도 큐·메시지를 남긴다 (DEPLOY.md 15.9). 교체가 필요한 변경도 기존 큐를 지우지 않는다.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-dm-share-result-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  DmShareResultQueue:
+    Type: AWS::SQS::Queue
+    Condition: CreateDmShare
+    # 기능을 끄거나(Deploy*=false) 스택을 지워도 큐·메시지를 남긴다 (DEPLOY.md 15.9). 교체가 필요한 변경도 기존 큐를 지우지 않는다.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-dm-share-result
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 1209600          # 결과에는 받는 사람 ID·본문이 없다 (unit_id, 토큰, outcome, DM 채널·메시지 ID)
+      ReceiveMessageWaitTimeSeconds: 20
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DmShareResultDLQ.Arn
+        maxReceiveCount: 5
+
+  DmShareWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: CreateDmShare
+    Properties:
+      LogGroupName: !Sub /aws/lambda/playmate-${EnvironmentName}-dm-share-worker
+      RetentionInDays: !Ref LogRetentionInDays
+
+  DmShareWorkerRole:
+    Type: AWS::IAM::Role
+    Condition: CreateDmShare
+    Properties:
+      Description: PlayMate DM Discord Worker - send queue consume, result queue send, token secret read only.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: dm-share-worker
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteOwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt DmShareWorkerLogGroup.Arn
+              - Sid: ConsumeSendQueue
+                Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+                Resource: !GetAtt DmShareSendQueue.Arn
+              - Sid: PublishResults
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt DmShareResultQueue.Arn
+              - Sid: ReadDiscordTokenSecret
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref DiscordBotTokenSecretArn
+              - !If
+                - HasSecretKmsKey
+                - Sid: DecryptTokenSecretViaSecretsManager
+                  Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref DiscordBotTokenSecretKmsKeyArn
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: !Sub secretsmanager.${AWS::Region}.amazonaws.com
+                - !Ref AWS::NoValue
+
+  DmShareWorkerFunction:
+    Type: AWS::Serverless::Function
+    Condition: CreateDmShare
+    Properties:
+      FunctionName: !Sub playmate-${EnvironmentName}-dm-share-worker
+      Description: Comment/reply DM Discord Worker (outside VPC, no DB access). Reuses dm_share.worker_lambda.handler.
+      CodeUri: .build/dm_worker/
+      Handler: secret_bootstrap.handler
+      Runtime: python3.13
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 60
+      Role: !GetAtt DmShareWorkerRole.Arn
+      # 예약 2 = 이벤트 소스 최대 동시성 2 (AWS 권장 "예약 >= 최대" 충족, 구조적 스로틀 없음).
+      # R4(429 대기 중인 이전 작업과 60초 뒤 재선점한 새 작업의 동시 처리)는 예약 동시성 1 대신 FIFO 그룹(= 알림 단위) 직렬화가 막는다:
+      # 같은 알림의 다음 작업은 앞 작업이 삭제(처리 완료)되거나 가시성 타임아웃이 지나야 Worker에 전달된다 (AWS FIFO 보장, DEPLOY.md 15.4).
+      ReservedConcurrentExecutions: 2
+      LoggingConfig:
+        LogGroup: !Ref DmShareWorkerLogGroup
+        LogFormat: Text
+      Environment:
+        Variables:
+          WORKER_TARGET_HANDLER: dm_share.worker_lambda.handler
+          DISCORD_BOT_TOKEN_SECRET_ARN: !Ref DiscordBotTokenSecretArn
+          DISCORD_BOT_TOKEN_SECRET_JSON_KEY: !Ref DiscordBotTokenSecretJsonKey
+          DISCORD_BOT_TOKEN_VERSION: !Ref DiscordBotTokenVersion
+          DM_SHARE_RESULT_QUEUE_URL: !Ref DmShareResultQueue
+          PLAYMATE_ENVIRONMENT: !Ref EnvironmentName
+
+  DmShareWorkerSendQueueMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: CreateDmShare
+    Properties:
+      EventSourceArn: !GetAtt DmShareSendQueue.Arn
+      FunctionName: !Ref DmShareWorkerFunction
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      Enabled: !If [EnableDmWorker, true, false]
+      ScalingConfig:
+        MaximumConcurrency: 2                  # 최솟값 = 함수 예약 동시성. 서로 다른 알림 그룹 최대 2개를 동시에 처리
+
+  DmShareWorkerErrorLogMetric:
+    Type: AWS::Logs::MetricFilter
+    Condition: CreateDmShare
+    Properties:
+      LogGroupName: !Ref DmShareWorkerLogGroup
+      # DM Worker는 POST 401을 ERROR 로그 없이 정상 결과(FAILED_RETRY, auth_error)로 돌려준다 (dm_share/worker_lambda.py _send).
+      # 그때 남는 것은 discord_rest의 WARNING "Discord 요청 실패 …: DiscordAuthError"뿐이라 그 단어도 센다 (토큰 장애 감지).
+      FilterPattern: '?"[ERROR]" ?"DiscordAuthError"'
+      MetricTransformations:
+        - MetricNamespace: PlayMate/DiscordServerless
+          MetricName: !Sub ${EnvironmentName}-dm-share-worker-error-logs
+          MetricValue: "1"
+          DefaultValue: 0
+
+  # 예약 = 최대 동시성이 되었으므로 HOT과 같이 Throttles도 이상 신호로 센다.
+  DmShareWorkerFailuresAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateDmShare
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-dm-share-worker-failures
+      AlarmDescription: DM Worker invocation errors (incl. timeouts), throttles (not expected) or ERROR/401 log lines. Check the log group.
+      Metrics:
+        - Id: errors
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Errors
+              Dimensions: [{Name: FunctionName, Value: !Ref DmShareWorkerFunction}]
+            Period: 300
+            Stat: Sum
+        - Id: throttles
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/Lambda
+              MetricName: Throttles
+              Dimensions: [{Name: FunctionName, Value: !Ref DmShareWorkerFunction}]
+            Period: 300
+            Stat: Sum
+        - Id: errorlogs
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: PlayMate/DiscordServerless
+              MetricName: !Sub ${EnvironmentName}-dm-share-worker-error-logs
+            Period: 300
+            Stat: Sum
+        - Id: failures
+          Expression: FILL(errors, 0) + FILL(throttles, 0) + FILL(errorlogs, 0)
+          Label: DM worker failures
+          ReturnData: true
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  DmShareDLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateDmShare
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-dm-share-dlq-not-empty
+      AlarmDescription: DM send or result DLQ has messages (send DLQ contains recipient IDs - handle as personal data).
+      Metrics:
+        - Id: senddlq
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/SQS
+              MetricName: ApproximateNumberOfMessagesVisible
+              Dimensions: [{Name: QueueName, Value: !GetAtt DmShareSendDLQ.QueueName}]
+            Period: 300
+            Stat: Maximum
+        - Id: resultdlq
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/SQS
+              MetricName: ApproximateNumberOfMessagesVisible
+              Dimensions: [{Name: QueueName, Value: !GetAtt DmShareResultDLQ.QueueName}]
+            Period: 300
+            Stat: Maximum
+        - Id: dlq
+          Expression: FILL(senddlq, 0) + FILL(resultdlq, 0)
+          Label: DM DLQ messages
+          ReturnData: true
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  DmShareSendQueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateDmShare
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-dm-share-send-queue-stale
+      AlarmDescription: >-
+        Oldest DM send job is older than 5 minutes (job TTL is 50 s) - Worker disabled, persistently throttled or failing.
+        Such jobs are not sent (EXPIRED/UNKNOWN) and the DB layer recovers them later.
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt DmShareSendQueue.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 300
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  DmShareResultQueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateDmShare
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-dm-share-result-queue-stale
+      AlarmDescription: Oldest DM result is older than 1 hour - the DB layer is not consuming results (they expire after 14 days).
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt DmShareResultQueue.QueueName}]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3600
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+      OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
 Outputs:
   CareerShareSendQueueUrl:
     Description: Set as CAREER_SHARE_SEND_QUEUE_URL in the DB layer (not deployed by this stack).
@@ -383,3 +1017,43 @@ Outputs:
   CareerShareWorkerEventSourceMappingId:
     Description: UUID for enabling/disabling the SQS trigger (aws lambda update-event-source-mapping --uuid ...).
     Value: !Ref CareerShareWorkerSendQueueMapping
+
+  HotShareSendQueueUrl:
+    Condition: CreateHotShare
+    Description: Set as HOT_SHARE_SEND_QUEUE_URL in the HOT DB layer (not deployed by this stack).
+    Value: !Ref HotShareSendQueue
+  HotShareResultQueueUrl:
+    Condition: CreateHotShare
+    Value: !Ref HotShareResultQueue
+  HotShareSendDLQUrl:
+    Condition: CreateHotShare
+    Value: !Ref HotShareSendDLQ
+  HotShareResultDLQUrl:
+    Condition: CreateHotShare
+    Value: !Ref HotShareResultDLQ
+  HotShareWorkerFunctionName:
+    Condition: CreateHotShare
+    Value: !Ref HotShareWorkerFunction
+  HotShareWorkerEventSourceMappingId:
+    Condition: CreateHotShare
+    Value: !Ref HotShareWorkerSendQueueMapping
+
+  DmShareSendQueueUrl:
+    Condition: CreateDmShare
+    Description: Set as DM_SHARE_SEND_QUEUE_URL in the DM DB layer (not deployed by this stack).
+    Value: !Ref DmShareSendQueue
+  DmShareResultQueueUrl:
+    Condition: CreateDmShare
+    Value: !Ref DmShareResultQueue
+  DmShareSendDLQUrl:
+    Condition: CreateDmShare
+    Value: !Ref DmShareSendDLQ
+  DmShareResultDLQUrl:
+    Condition: CreateDmShare
+    Value: !Ref DmShareResultDLQ
+  DmShareWorkerFunctionName:
+    Condition: CreateDmShare
+    Value: !Ref DmShareWorkerFunction
+  DmShareWorkerEventSourceMappingId:
+    Condition: CreateDmShare
+    Value: !Ref DmShareWorkerSendQueueMapping

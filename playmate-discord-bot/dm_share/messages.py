@@ -6,7 +6,7 @@
 작성자(닉네임), 댓글 본문은 넣지 않는다 (기존 텍스트 DM과 같은 정보). 멘션은 보내지 않는다.
 """
 from career_share import messages as base
-from repositories.dm_delivery_repository import dm_unit_id
+from dm_share.units import dm_unit_id
 from services.notification_policy import DM_MESSAGES, LINK_LABEL
 
 DM_COLOR = 0x5865F2

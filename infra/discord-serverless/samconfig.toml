@@ -1,6 +1,9 @@
 # SAM CLI 설정 (비밀값·채널 ID 없음).
 # parameter_overrides는 여기 두지 않는다: 명령줄 --parameter-overrides가 이 값을 통째로 대체하므로, 여기 둔 EnvironmentName이
 # 조용히 빠져 기본값(test)으로 배포될 수 있다. 모든 파라미터는 배포 명령에서 한 번에 넘긴다 (DEPLOY.md 5절).
+# HOT·DM(DeployHotShare/DeployDmShare 등)도 마찬가지다: 한 번 켠 뒤 다음 배포에서 빠뜨리면 기본값 false로 돌아가 그 기능이 스택에서 빠진다.
+# 큐는 Retain으로 남지만, 배포 전 변경 세트 검사(check_changeset.py)와 스택 정책(stack-policy.json)을 쓴다 (DEPLOY.md 15.9).
+# 빌드 순서: python build_package.py (세 Worker 패키지) -> sam validate --lint -> sam build
 version = 0.1
 
 [default.global.parameters]

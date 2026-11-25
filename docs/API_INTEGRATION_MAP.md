@@ -125,5 +125,6 @@
 - 시간대 위험(표시 안 됨): `recruit_members.joined_at/canceled_at`, `posts.deleted_at`(모임)을 서버 로컬 `datetime.now()`로 기록.
 - 모임 게시글 `posts.created_at`이 ORM에서 NULL로 저장됨(기존 코드).
 - 사용하지 않는 중복 파일 `frontend/src/components/admin/AdminUsagePanel (1).jsx`.
-- ORM `Member` 모델의 `public_anonymous_id`는 공유 DB `members`에 없는 컬럼이다. 현재 코드는 필요한 컬럼만 조회해 오류가 나지 않지만, `Member` 전체를 읽는 코드를 추가하면 운영에서 실패한다.
+- ORM 정합성 개선(#186): DB에 없는 `members.public_anonymous_id`, `members.student_verification_status`, `members.verified_at` 매핑을 제거하고 컬럼 타입·NULL 제약을 정렬했다.
+- ORM 매핑 예외: `posts.board_id`의 DB 외래키는 존재하지만 `boards` 테이블은 ORM에 매핑하지 않아 FK를 별도로 선언하지 않았다.
 - 기존 `004_career_posts.sql`, `012_recruit_programs.sql`은 다시 실행하면 오류가 난다(IF NOT EXISTS 없음).

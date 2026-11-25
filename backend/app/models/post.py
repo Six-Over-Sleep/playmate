@@ -16,19 +16,19 @@ class Post(Base):
     # ForeignKey() : members 테이블의 member_id와 연결
     # post_type : 게시글 유형 (일반 게시글, 모임 게시글 등)
     author_member_id = Column(BigInteger, ForeignKey("members.member_id"), nullable=False)
-    post_type = Column(String)
+    post_type = Column(String(30))
 
     # title : 게시글 제목 (필수 입력)
     # body : 게시글 본문
     # tag_name : 게시글 분류 및 검색용 태그
-    title = Column(String, nullable=False)
+    title = Column(String(100), nullable=False)
     body = Column(Text)
-    tag_name = Column(String)
+    tag_name = Column(String(30))
 
     # source_type : 게시글 작성 또는 수집 출처 구분
     # post_status : 게시글 상태 (게시, 숨김, 삭제 등)
-    source_type = Column(String)
-    post_status = Column(String)
+    source_type = Column(String(20))
+    post_status = Column(String(20))
 
     # view_count : 게시글 조회수
     view_count = Column(Integer)

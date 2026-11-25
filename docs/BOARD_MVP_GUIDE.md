@@ -4,7 +4,7 @@
 
 React → FastAPI → Aiven PostgreSQL로 동작한다. 기존 `members`, `posts`, `recruits`, `boards`, `comments`를 재사용하고 누락된 게시판 컬럼과 `post_images`만 추가한다. 글과 댓글은 `deleted_at` 논리 삭제이며, `recruits`에 연결된 모임 글은 게시판 API의 조회·수정·삭제에서 제외된다.
 
-기본 자유게시판은 마이그레이션이 여러 번 실행되어도 `WHERE NOT EXISTS`로 한 번만 생성된다. 공개 작성자명은 `members.public_anonymous_id`이고 실제 `member_id`는 응답 화면에 노출하지 않는다.
+기본 자유게시판은 마이그레이션을 반복 실행해도 한 번만 생성된다. 일반 게시글 작성자명은 `members.nickname`을 사용한다. 익명 게시글은 `익명`, 탈퇴 회원은 `탈퇴한 사용자`로 표시하며 익명 작성자의 ID는 노출하지 않는다.
 
 주요 파일:
 

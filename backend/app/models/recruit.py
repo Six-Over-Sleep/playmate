@@ -2,7 +2,7 @@
 # 모임 모집 정보, 참여 회원 및 카테고리별 상세 정보를 관리하는 모델
 from sqlalchemy import (
     ARRAY, BigInteger, Boolean, Column, Date, DateTime,
-    ForeignKey, Integer, String, Time, JSON
+    ForeignKey, Integer, String, Text, Time, JSON
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from backend.app.core.database import Base
@@ -22,8 +22,8 @@ class Recruit(Base):
     # recruit_mode : 모임 운영 유형 (일회성, 정기, 상시 등)
     # category : 모임 카테고리 (운동, 게임, 스터디, 공동구매)
     # capacity : 모임 최대 모집 인원
-    recruit_mode = Column(String, nullable=False)
-    category = Column(String, nullable=False)
+    recruit_mode = Column(String(20), nullable=False)
+    category = Column(String(20), nullable=False)
     capacity = Column(Integer, nullable=False)
     # 042: 운동·게임·스터디·공동구매의 1:1 상세 자료를 JSONB 한 컬럼에 저장한다.
     # 내용이 없는 모임은 NULL, 상세 행이 있으면 dict(모든 필드가 NULL이어도 dict).
@@ -38,16 +38,16 @@ class Recruit(Base):
     # is_online : 온라인 모임 여부 (True : 온라인 / False : 오프라인)
     # contact_method : 모임 참여자 간 연락 방법
     meeting_datetime = Column(DateTime)
-    place = Column(String)
+    place = Column(String(255))
     is_online = Column(Boolean)
-    contact_method = Column(String)
+    contact_method = Column(String(255))
 
     # deadline_at : 모임 모집 마감 일시
     # state : 모임 모집 상태 (OPEN, CLOSE 등)
     # close_reason : 모임 모집 종료 사유
     deadline_at = Column(DateTime)
-    state = Column(String, nullable=False)
-    close_reason = Column(String)
+    state = Column(String(20), nullable=False)
+    close_reason = Column(String(30))
 
     # created_at : 모임 최초 생성 시간
     # updated_at : 모임 정보 마지막 수정 시간
@@ -57,7 +57,7 @@ class Recruit(Base):
     # regular_days : 정기 모임 진행 요일 목록 (PostgreSQL 배열)
     # regular_time : 정기 모임 진행 시간
     # regular_start_date : 정기 모임 시작 날짜
-    regular_days = Column(ARRAY(String))
+    regular_days = Column(ARRAY(Text))
     regular_time = Column(Time)
     regular_start_date = Column(Date)
 
@@ -79,8 +79,8 @@ class RecruitMember(Base):
 
     # role : 모임 내 역할 (HOST : 모임장 / MEMBER : 일반 참여자)
     # status : 모임 참여 상태 (JOINED 등)
-    role = Column(String)
-    status = Column(String)
+    role = Column(String(20))
+    status = Column(String(20))
 
     # joined_at : 모임 참여 시간
     # canceled_at : 모임 참여 취소 시간

@@ -99,7 +99,7 @@ DM DB Lambda: `DB_*`, `DM_SHARE_SEND_QUEUE_URL`(필수, **FIFO 큐 `.fifo`여야
 선택: `DM_SHARE_RELAY_LIMIT`(20) `_JOB_TTL_SECONDS`(50, `_RETRY_SECONDS`보다 짧아야 시작) `_CLAIM_STALE_MINUTES`(10) `_RETRY_SECONDS`(60) `_MAX_ATTEMPTS`(3)
 `_VERIFY_INTERVAL_MINUTES`(10) `_VERIFY_SETTLE_MINUTES`(30) `_ABSENT_REQUIRED`(2) `_MAX_VERIFIES`(6).
 DM Worker: `DISCORD_BOT_TOKEN`, `DM_SHARE_RESULT_QUEUE_URL`. 채널은 작업의 받는 사람 DM 채널이다 (채널 ID 환경변수 없음).
-Gateway: `PLAYMATE_DM_POLL_ENABLED` (기본 true, false/0/no/off면 DM 폴링만 끈다. `/알림설정`은 계속 Gateway가 처리).
+Gateway: `PLAYMATE_DM_POLL_ENABLED` (없거나 비면 true, false/0/no/off면 DM 폴링만 끈다, true/false/1/0/yes/no/on/off 외의 값이면 Gateway가 시작하지 않는다. `/알림설정`은 계속 Gateway가 처리).
 AWS 요구사항(VPC 엔드포인트, Worker 예약 동시성 1·배치 크기 1·ReportBatchItemFailures, DLQ, IAM 분리)은 #163 문서 4절과 같다.
 SQS 작업에 받는 사람의 Discord ID가 들어가므로 큐 암호화(SSE)를 켠다. DB 권한은 053 하단 주석.
 
@@ -132,7 +132,8 @@ DM DB 계층은 SAM 템플릿 밖이라 이 값을 자동으로 넣어 주는 �
 **배포 중 주의**
 - Gateway는 한 프로세스만 실행한다 (무중단 배포로 신·구 Gateway가 겹치면 구버전이 공동 선점을 모른다). 재시작형 배포를 쓴다.
 - 053 적용과 신버전 Gateway 배포 사이에는 Lambda를 켜지 않는다 (구버전 Gateway + Lambda = 중복). 053만 먼저 적용하는 것은 안전하다 (구버전은 표를 무시).
-- `PLAYMATE_DM_POLL_ENABLED` 값을 잘못 적으면(예: `fasle`) 폴링은 켜진 채로 남는다. 공동 선점 때문에 중복은 없지만 Gateway가 계속 보낸다.
+- `PLAYMATE_DM_POLL_ENABLED` 값을 잘못 적으면(예: `fasle`) Gateway가 설정 오류로 시작하지 않는다 (Issue #190. 예전에는 폴링이 켜진 채로 남았다).
+  EC2에서는 `runtime/start_gateway.py --check`로 먼저 검사한다.
 
 **PR #174 (compatibility View removal)**: Gateway, Lambda, notification, content and career notice repositories read the consolidated `career` table directly. The legacy View removal must be deployed only after the updated consumers have been verified.
 

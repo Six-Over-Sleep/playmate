@@ -103,7 +103,7 @@ Worker는 작업이 가리키는 채널이 아니라 **자기 환경변수의 �
 ## 6. 컷오버 절차 (기존 18:00 공지 → 이 기능)
 
 기존 Gateway Bot의 18:00 `CareerNoticeService`와 이 기능을 **동시에 켜지 않는다** (같은 `career_discord_announcements`를 쓰고, 이 기능의 FAILED 행을 기존 공지가 집어 갈 수 있다).
-기존 스위치: `PLAYMATE_CAREER_NOTICE_ENABLED` (기본 켜짐; `false/0/no/off`일 때만 꺼짐). **`PLAYMATE_CAREER_CHANNEL_ID`는 비우지 않는다** (공식 채널 보호 목록에 쓰인다).
+기존 스위치: `PLAYMATE_CAREER_NOTICE_ENABLED` (없거나 비면 켜짐; `false/0/no/off`면 꺼짐; 허용 값 외에는 Gateway가 시작하지 않음, Issue #190). **`PLAYMATE_CAREER_CHANNEL_ID`는 비우지 않는다** (공식 채널 보호 목록에 쓰인다).
 
 **동시 활성 금지 조건**: 기존 18:00 공지가 켜져 있는 동안에는 이 기능의 Scheduler를 켜지 않는다. 기존 공지(`claim_due`)는 상태가 `FAILED`이고 시도 횟수가 3 미만인 행이면 `share_kind`와 무관하게 선점한다 (테스트로 재현).
 이 기능은 그런 행(기존 공지가 `announce_date`를 채운 행)을 **자기 소유가 아니라고 보고 상태 변경, 복구, 재선점을 하지 않는다**(코드로 방어). 그래도 기존 공지가 먼저 보내 버린 글이 있을 수 있으므로 동시 활성은 금지다.

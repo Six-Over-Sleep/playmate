@@ -88,6 +88,28 @@ def _id_set(name: str) -> frozenset[int]:
     return ids
 
 
+# 기능 스위치 값. 대소문자·앞뒤 공백은 무시한다. runtime/start_gateway.py도 같은 목록으로 먼저 검사한다.
+SWITCH_TRUE = ("true", "1", "yes", "on")
+SWITCH_FALSE = ("false", "0", "no", "off")
+
+
+def _switch(name: str, default: bool) -> bool:
+    """켜고 끄는 환경변수. 없거나 빈 값이면 default, 허용 값이 아니면 Discord 연결 전에 설정 오류로 멈춘다.
+
+    오타(예: fasle)를 켜짐으로 보면 서버리스 전환 뒤 Gateway가 같은 공지·DM을 다시 보낼 수 있다.
+    오류 메시지에는 설정 이름과 허용 값만 넣는다 (입력값은 넣지 않는다).
+    """
+    value = (os.getenv(name) or "").strip().lower()
+    if not value:
+        return default
+    if value in SWITCH_TRUE:
+        return True
+    if value in SWITCH_FALSE:
+        return False
+    raise ValueError(f"{name} 설정값이 올바르지 않습니다. true 또는 false로 지정하세요 "
+                     f"(허용: {'/'.join(SWITCH_TRUE + SWITCH_FALSE)}).")
+
+
 # 잔여 권한 점검이 절대 회수하지 않는 대상: 운영진 역할 ID, 사용자 ID (운영 권한이 없어도 수동으로 권한을 받은 운영진 보호).
 STRAY_STAFF_ROLE_IDS = _id_set("PLAYMATE_STAFF_ROLE_IDS")
 STRAY_PROTECTED_USER_IDS = _id_set("PLAYMATE_PROTECTED_USER_IDS")
@@ -151,16 +173,18 @@ NOTIFICATION_BATCH_SIZE = 20
 NOTIFICATION_MAX_ATTEMPTS = 3
 NOTIFICATION_RETRY_DELAY_SECONDS = 60
 # DM Lambda(dm_share, Issue #171)로 넘어갈 때 Gateway의 DM 폴링만 끄는 스위치. 기본은 켜짐(기존 동작 유지):
-# 값이 비었거나 없으면 켜지고, false/0/no/off일 때만 꺼진다. /알림설정 명령은 이 값과 무관하게 계속 Gateway가 처리한다.
-DM_POLL_ENABLED = (os.getenv("PLAYMATE_DM_POLL_ENABLED") or "true").strip().lower() not in ("false", "0", "no", "off")
+# 값이 비었거나 없으면 켜지고, false/0/no/off면 꺼지며, 그 밖의 값이면 시작하지 않는다 (_switch).
+# /알림설정 명령은 이 값과 무관하게 계속 Gateway가 처리한다.
+DM_POLL_ENABLED = _switch("PLAYMATE_DM_POLL_ENABLED", True)
 # 공동 선점(053) 후 Gateway가 결과를 남기지 못하면 이 시간 뒤 재발송 없이 FAILED로 마감한다 (전송 소요보다 넉넉하게).
 DM_GATEWAY_CLAIM_SECONDS = 600
 
 # 취업게시판 신규 글 자동 공지: 매일 18:00 (KST), 취준 도감·커리어 연구소, 하루 최대 5개.
 # 채널은 PLAYMATE_CAREER_CHANNEL_ID(#취업-소식)를 쓴다. 실패한 글은 다음 실행에서 총 3회까지 다시 시도한다.
 # 서버리스 공유(career_share, Issue #163)로 넘어갈 때 18:00 공지만 끄는 스위치. 기본은 켜짐(기존 동작 유지):
-# 값이 비었거나 없으면 켜지고, false/0/no/off일 때만 꺼진다. PLAYMATE_CAREER_CHANNEL_ID(공식 채널 보호 목록)는 건드리지 않는다.
-CAREER_NOTICE_ENABLED = (os.getenv("PLAYMATE_CAREER_NOTICE_ENABLED") or "true").strip().lower() not in ("false", "0", "no", "off")
+# 값이 비었거나 없으면 켜지고, false/0/no/off면 꺼지며, 그 밖의 값이면 시작하지 않는다 (_switch).
+# PLAYMATE_CAREER_CHANNEL_ID(공식 채널 보호 목록)는 건드리지 않는다.
+CAREER_NOTICE_ENABLED = _switch("PLAYMATE_CAREER_NOTICE_ENABLED", True)
 CAREER_NOTICE_TIME = time(18, 0, tzinfo=KST)
 CAREER_NOTICE_CATEGORIES = ("reviews", "lab")
 CAREER_NOTICE_DAILY_LIMIT = 5

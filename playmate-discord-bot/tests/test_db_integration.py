@@ -122,6 +122,8 @@ def connect():
 
 # ------------------------------------------------------------------ 가짜 Discord
 class FakeMember:
+    guild_permissions = discord.Permissions.none()
+
     def __init__(self, member_id):
         self.id = member_id
 
@@ -417,11 +419,14 @@ async def main():
 
     def idle_in_tx():
         return conn.execute(
-            "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
+            "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND backend_type='client backend' "
             "AND state LIKE 'idle in transaction%' AND pid<>pg_backend_pid()").fetchone()[0]
 
     def session_count():
-        return conn.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()").fetchone()[0]
+        return conn.execute("""
+            SELECT count(*) FROM pg_stat_activity
+            WHERE datname=current_database() AND backend_type='client backend'
+        """).fetchone()[0]
 
     def mode_update_is_immediate(recruit_id):
         """다른 연결이 recruits 행을 바로 수정할 수 있다 (남은 row lock이 없다)."""
@@ -926,7 +931,9 @@ async def main():
     lost_id = new_recruit("응답 유실 모임")
     trigger = {"armed": True, "match": "SET discord_category_id"}
     lost_repo = PostgresMeetingRepository(
-        lambda: LostResponseConn(psycopg.connect(DSN, autocommit=True, options=DB_OPTIONS), trigger))
+        lambda: LostResponseConn(psycopg.connect(DSN, autocommit=True, options=DB_OPTIONS), trigger),
+        lock_connect=connect,
+    )
     before = guild.created_channels
     await DbSync(client, lost_repo).run_once()
     check(not trigger["armed"], "응답 유실이 실제로 발생")
@@ -1115,7 +1122,9 @@ async def main():
     await sync.run_once()
     elapsed = time.monotonic() - started
     check(elapsed < 3 and _joined_ok(wait_channel, 9009), "Backend가 행 락을 쥐고 있어도 권한 동기화는 기다리지 않는다")
-    check(session_count() <= sessions_before, "권한 동기화는 참여자별 새 DB 연결을 만들지 않는다")
+    sessions_after = session_count()
+    check(sessions_after <= sessions_before,
+          f"권한 동기화는 참여자별 새 DB 연결을 만들지 않는다 ({sessions_before} -> {sessions_after})")
     backend.rollback()
     backend.close()
 

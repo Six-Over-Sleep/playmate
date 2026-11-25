@@ -3,6 +3,9 @@
 DB_* 환경변수가 있으면 공용 PostgreSQL, 없으면 메모리 저장소로 모임 기능을 실행한다.
 알림 / 공식 채널 기능은 DB 연결 시에만 켜지고, 모임 작업을 먼저 시작한 뒤 따로 시작한다.
 """
+import asyncio
+import os
+
 import discord
 from discord import app_commands
 from discord.ext import tasks
@@ -155,7 +158,16 @@ async def start_feature_tasks() -> None:
 @client.event
 async def on_message(message: discord.Message):
     """모임 채널의 활동 기록을 message_handler에 넘긴다."""
-    await handle_message(message, repository)
+    if os.getenv("PLAYMATE_GATEWAY_MEETING_ACTIVITY", "true") == "true":
+        await handle_message(message, repository)
+
+
+@tasks.loop(seconds=10)
+async def refresh_meeting_channels():
+    try:
+        await asyncio.to_thread(repository.refresh_known_channels)
+    except Exception as error:
+        print(f"meeting cache refresh failed: {type(error).__name__}")
 
 
 @client.event
@@ -174,7 +186,11 @@ async def on_ready():
     if sync_db is not None and not sync_db.is_running():
         sync_db.start()
         print('PlayMate DB 동기화 시작')
-    if not check_meeting_lifecycle.is_running():
+    if (DB_CONFIGURED and os.getenv("PLAYMATE_GATEWAY_MEETING_CACHE", "true") == "true"
+            and not refresh_meeting_channels.is_running()):
+        refresh_meeting_channels.start()
+    if (os.getenv("PLAYMATE_GATEWAY_MEETING_LIFECYCLE", "true") == "true"
+            and not check_meeting_lifecycle.is_running()):
         check_meeting_lifecycle.start()
         if TEST_MODE:
             print('모임 라이프사이클 검사 시작 (테스트: 1분 주기)')

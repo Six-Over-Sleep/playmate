@@ -12,6 +12,7 @@ import asyncio
 import threading
 import time
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any, Callable, Protocol
 
 from config import (
@@ -272,6 +273,8 @@ class PostgresMeetingRepository:
         self._connect = connect
         # 락 전용 연결을 여는 함수. 따로 주지 않으면 같은 함수로 연다 (기존 생성자와 호환).
         self._lock_connect = lock_connect or connect
+        self._gateway_writer_connection = None
+        self._gateway_writer_lock = threading.Lock()
         self._conn = None
         self._last_used = 0.0
         self._lock = threading.RLock()
@@ -348,6 +351,47 @@ class PostgresMeetingRepository:
         """관리 중인 채널 ID 집합을 다시 읽는다."""
         self._known_channels = {c for c, _ in self.list_managed_meetings()}
 
+    def acquire_gateway_writer(self, feature: str):
+        """Return a lease which releases the session-level lock on close."""
+        column, lock_id = {"create": ("create_owner", 18801), "permissions": ("permission_owner", 18802)}[feature]
+        if not self._gateway_writer_lock.acquire(blocking=False):
+            return False, None
+        conn = self._gateway_writer_connection
+        try:
+            if conn is None or conn.closed:
+                conn = self._gateway_writer_connection = self._lock_connect()
+            if not conn.execute("SELECT pg_try_advisory_lock(%s)", (lock_id,)).fetchone()[0]:
+                self._gateway_writer_lock.release()
+                return False, None
+            present = conn.execute("SELECT to_regclass('public.discord_meeting_control') IS NOT NULL").fetchone()[0]
+            row = (conn.execute(f"SELECT {column} FROM public.discord_meeting_control WHERE singleton").fetchone()
+                   if present else ("gateway",))
+        except BaseException:
+            try:
+                self._discard_gateway_writer()
+            finally:
+                self._gateway_writer_lock.release()
+            raise
+        if row and row[0] == "gateway":
+            return True, SimpleNamespace(close=lambda: self._release_gateway_writer(conn, lock_id))
+        self._release_gateway_writer(conn, lock_id)
+        return False, None
+
+    def _discard_gateway_writer(self):
+        conn, self._gateway_writer_connection = self._gateway_writer_connection, None
+        if conn is not None:
+            conn.close()
+
+    def _release_gateway_writer(self, conn, lock_id):
+        try:
+            if not conn.execute("SELECT pg_advisory_unlock(%s)", (lock_id,)).fetchone()[0]:
+                raise RuntimeError("Gateway writer advisory lock lost")
+        except BaseException:
+            self._discard_gateway_writer()
+            raise
+        finally:
+            self._gateway_writer_lock.release()
+
     def _to_meeting(self, row: dict, channel_id: int) -> Meeting:
         """DB 행을 lifecycle이 쓰는 dict로 바꾼다 (ID는 int, 시각은 KST)."""
         return {
@@ -375,6 +419,9 @@ class PostgresMeetingRepository:
         """채널 ID로 관리 중인 모임을 읽는다. 알려진 채널이 아니면 DB를 조회하지 않는다."""
         if self._known_channels is not None and channel_id not in self._known_channels:
             return None
+        return self.get_managed_meeting_uncached(channel_id)
+
+    def get_managed_meeting_uncached(self, channel_id: int) -> Meeting | None:
         row = self._execute(
             self._LIFECYCLE_SELECT + " AND rc.discord_text_channel_id = %s",
             (str(channel_id),), fetch="one",

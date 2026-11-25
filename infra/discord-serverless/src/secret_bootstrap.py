@@ -16,6 +16,7 @@ import json
 import os
 
 ALLOWED_TARGETS = (
+    "meeting_share.worker_lambda.handler",
     "career_share.worker_lambda.handler",
     "hot_share.worker_lambda.handler",
     "dm_share.worker_lambda.handler",

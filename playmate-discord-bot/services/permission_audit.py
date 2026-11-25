@@ -129,6 +129,10 @@ def _is_standard_overwrite(overwrite: discord.PermissionOverwrite) -> bool:
 class StrayPermissionAudit:
     """주기적으로 모임 채널의 잔여 권한을 점검한다 (`run`). 상태는 로그 중복 방지와 backoff뿐이다."""
 
+    @property
+    def revocation_enabled(self):
+        return STRAY_REVOKE_ENABLED
+
     def __init__(self, client, repository, visibility: str = "PUBLIC"):
         self.client = client
         self.repository = repository

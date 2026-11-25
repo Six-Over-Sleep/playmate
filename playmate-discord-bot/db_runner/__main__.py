@@ -70,19 +70,29 @@ def run(mode, settings, stop):
 
 def main():
     parser = argparse.ArgumentParser(description="EC2 Discord DB runner (explicit feature opt-in required)")
-    parser.add_argument("mode", choices=("scheduler", "results"))
+    parser.add_argument("mode", choices=("scheduler", "results", "meeting-scheduler", "meeting-results"))
     parser.add_argument("--check", action="store_true", help="validate config only; no AWS/DB calls")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     try:
-        settings = load_settings()
+        meeting = args.mode.startswith("meeting-")
+        if meeting:
+            from meeting_share import runner
+            settings = runner.load()
+        else:
+            settings = load_settings()
         if args.check:
-            log.info("configuration valid enabled_features=%d", len(settings.features))
+            log.info("configuration valid mode=%s", args.mode)
+            return 0
+        if settings is None:
             return 0
         stop = threading.Event()
         install_signals(stop)
         with ProcessLock(settings.lock_dir, args.mode):
-            run(args.mode, settings, stop)
+            if meeting:
+                runner.run(args.mode, settings, stop)
+            else:
+                run(args.mode, settings, stop)
         return 0
     except SettingsError as error:
         log.error("configuration invalid: %s", error)

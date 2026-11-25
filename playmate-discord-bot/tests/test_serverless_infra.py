@@ -643,12 +643,13 @@ class HotDmTemplateTests(unittest.TestCase):
 
     HOT_DM_QUEUES = ("HotShareSendQueue", "HotShareSendDLQ", "HotShareResultQueue", "HotShareResultDLQ",
                      "DmShareSendQueue", "DmShareSendDLQ", "DmShareResultQueue", "DmShareResultDLQ")
+    MEETING_QUEUES = ("MeetingWorkQueue", "MeetingWorkDlqQueue", "MeetingResultQueue", "MeetingResultDlqQueue")
 
     def test_hot_dm_queues_are_retained_and_career_untouched(self):
         """Deploy*=false로 바꾸거나 교체가 필요한 변경이 들어와도 HOT·DM 큐와 메시지를 지우지 않는다."""
         queues = sorted(k for k, v in self.res.items() if v["Type"] == "AWS::SQS::Queue" and not k.startswith("CareerShare"))
-        self.assertEqual(queues, sorted(self.HOT_DM_QUEUES))
-        for name in self.HOT_DM_QUEUES:
+        self.assertEqual(queues, sorted(self.HOT_DM_QUEUES + self.MEETING_QUEUES))
+        for name in self.HOT_DM_QUEUES + self.MEETING_QUEUES:
             self.assertEqual((self.res[name].get("DeletionPolicy"), self.res[name].get("UpdateReplacePolicy")), ("Retain", "Retain"), name)
         for name, resource in self.feature_resources("CareerShare").items():
             self.assertNotIn("DeletionPolicy", resource, f"기존 취업 리소스는 바꾸지 않는다: {name}")
@@ -658,10 +659,27 @@ class HotDmTemplateTests(unittest.TestCase):
         deny = [s for s in policy["Statement"] if s["Effect"] == "Deny"]
         self.assertEqual(len(deny), 1)
         self.assertEqual(sorted(deny[0]["Action"]), ["Update:Delete", "Update:Replace"])
-        self.assertEqual(sorted(r.split("/", 1)[1] for r in deny[0]["Resource"]), sorted(self.HOT_DM_QUEUES))
+        self.assertEqual(sorted(r.split("/", 1)[1] for r in deny[0]["Resource"]),
+                         sorted(self.HOT_DM_QUEUES + self.MEETING_QUEUES))
         for resource in deny[0]["Resource"]:
             self.assertIn(resource.split("/", 1)[1], self.res, "정책의 논리 ID가 템플릿에 있어야 한다")
         self.assertIn({"Effect": "Allow", "Action": "Update:*", "Principal": "*", "Resource": "*"}, policy["Statement"])
+
+    def test_meeting_worker_isolated_and_disabled_by_default(self):
+        self.assertEqual(self.params["DeployMeeting"]["Default"], "false")
+        self.assertEqual(self.params["MeetingWorkerEnabled"]["Default"], "false")
+        worker = self.res["MeetingWorker"]["Properties"]
+        self.assertNotIn("VpcConfig", worker)
+        self.assertEqual(worker["Environment"]["Variables"]["MEETING_ALLOW_GRANT"], "false")
+        self.assertEqual(self.params["MeetingAdditionalCategoryIds"]["Default"], "")
+        self.assertEqual(worker["Environment"]["Variables"]["MEETING_ADDITIONAL_CATEGORY_IDS"],
+                         {"Ref": "MeetingAdditionalCategoryIds"})
+        mapping = self.res["MeetingWorkerMapping"]["Properties"]
+        self.assertEqual(mapping["EventSourceArn"], {"Fn::GetAtt": ["MeetingWorkQueue", "Arn"]})
+        self.assertTrue(self.res["MeetingWorkQueue"]["Properties"]["FifoQueue"])
+        self.assertGreater(self.res["MeetingWorkQueue"]["Properties"]["VisibilityTimeout"], 300)
+        self.assertTrue(self.res["MeetingWorkDlqQueue"]["Properties"]["FifoQueue"])
+        self.assertNotIn("FifoQueue", self.res["MeetingResultQueue"]["Properties"])
 
     def test_dm_worker_prod_activation_still_requires_approval(self):
         """FIFO 구현(1~2단계)만으로 운영 차단을 풀지 않는다: 운영에서 켜려면 7단계 승인 파라미터가 필요하다 (기본 false)."""

@@ -91,7 +91,7 @@ class ResultConsumer:
             log.error("invalid SQS envelope feature=%s", self.feature)
             return "invalid"
         try:
-            result = validate_result(self.feature, message.get("Body"))
+            result = self.validate(message.get("Body"))
         except (contract.ContractError, TypeError, ValueError):
             # No ACK: SQS's existing maxReceiveCount/redrive policy owns poison messages.
             log.error("invalid result feature=%s", self.feature)
@@ -115,6 +115,9 @@ class ResultConsumer:
             return "delete_failed"
         log.info("result acknowledged feature=%s", self.feature)
         return "acked"
+
+    def validate(self, body):
+        return validate_result(self.feature, body)
 
     def poll_once(self, stop):
         if stop.is_set():

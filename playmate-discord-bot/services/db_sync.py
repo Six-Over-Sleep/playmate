@@ -19,6 +19,7 @@
 공개 범위는 임시로 DEFAULT_VISIBILITY(PUBLIC)를 쓴다.
 """
 import asyncio
+import os
 from datetime import datetime, timedelta
 
 import discord
@@ -236,7 +237,8 @@ class DbSync:
         채널은 캐시나 카테고리가 아니라 저장된 채널 ID로 찾는다. 이미 목표 상태면 건너뛰고,
         채널 조회가 불명확하면 완료로 보지 않고 backoff 뒤에 다시 시도한다.
 
-        Discord API를 부르는 동안 DB 락이나 전용 연결을 잡지 않는다. 대상 모임과 참여 상태는
+        Discord API를 부르는 동안 소유권 세션 락은 유지하고, 참여자 행 트랜잭션 락은 잡지 않는다.
+        대상 모임과 참여 상태는
         list_participant_states가 이미 걸러 주고, 변경 직전에 공유 연결로 최신 참여 상태를 한 번 더
         읽어(participant_status) 그사이 취소/삭제된 경우는 쓰지 않는다. 그래도 남는 짧은 경쟁(읽은 직후
         취소)은 다음 poll이 같은 규칙으로 다시 맞춘다 (권한 변경은 멱등).
@@ -317,18 +319,43 @@ class DbSync:
 
     # -- 한 번의 동기화 ---------------------------------------------------------------
     async def run_once(self) -> None:
-        """채널 생성 -> 참여자 권한 -> 잔여 권한 점검 -> 활동 감지 대상 목록 갱신."""
+        """채널 생성 -> 참여자 권한 -> 잔여 권한 점검. 채널 캐시는 별도 작업이 갱신한다."""
         guild = self.client.get_guild(GUILD_ID)
         if guild is None:
             print("Discord 서버를 찾을 수 없습니다.")
             return
-        await self.provision_meetings(guild)
-        await self.sync_participants(guild)
+        for feature, operation in (("create", self.provision_meetings), ("permissions", self.sync_participants)):
+            if os.getenv(f"PLAYMATE_GATEWAY_MEETING_{feature.upper()}", "true") != "true":
+                continue
+            await self._run_owned(feature, operation, guild)
         try:
-            await self._audit.run(guild)
+            if os.getenv("PLAYMATE_GATEWAY_MEETING_AUDIT", "true") == "true":
+                if self._audit.revocation_enabled:
+                    await self._run_owned("permissions", self._audit.run, guild)
+                else:
+                    await self._audit.run(guild)
         except Exception as error:  # 점검 실패가 채널 생성/권한 동기화를 막으면 안 된다
             print(f"[권한 점검] 이번 점검 실패, 다음 주기에 재시도: {type(error).__name__}")
-        await call(self.repository.refresh_known_channels)
+
+    async def _run_owned(self, feature, operation, guild):
+        acquire = getattr(self.repository, "acquire_gateway_writer", None)
+        if acquire is None:
+            await operation(guild)
+            return
+        acquisition = asyncio.create_task(call(acquire, feature))
+        try:
+            allowed, connection = await asyncio.shield(acquisition)
+        except asyncio.CancelledError:
+            _, connection = await acquisition
+            if connection is not None:
+                await call(connection.close)
+            raise
+        try:
+            if allowed:
+                await operation(guild)
+        finally:
+            if connection is not None:
+                await call(connection.close)
 
 
 def create_sync_task(client: discord.Client, repository):

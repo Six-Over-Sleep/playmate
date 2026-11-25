@@ -18,7 +18,11 @@
         "LogicalResourceId/DmShareSendQueue",
         "LogicalResourceId/DmShareSendDLQ",
         "LogicalResourceId/DmShareResultQueue",
-        "LogicalResourceId/DmShareResultDLQ"
+        "LogicalResourceId/DmShareResultDLQ",
+        "LogicalResourceId/MeetingWorkQueue",
+        "LogicalResourceId/MeetingWorkDlqQueue",
+        "LogicalResourceId/MeetingResultQueue",
+        "LogicalResourceId/MeetingResultDlqQueue"
       ]
     }
   ]

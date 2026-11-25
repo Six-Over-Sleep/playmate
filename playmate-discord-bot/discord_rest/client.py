@@ -243,6 +243,12 @@ class DiscordRestClient:
                                        outcome_unknown=not idempotent) from None
 
     # -- 채널 조회 ------------------------------------------------------------------
+    def get_guild(self, guild_id: int) -> dict:
+        return self._request("GET", f"/guilds/{_snowflake(guild_id, 'guild_id')}", idempotent=True)
+
+    def list_guild_roles(self, guild_id: int) -> list[dict]:
+        return self._request("GET", f"/guilds/{_snowflake(guild_id, 'guild_id')}/roles", idempotent=True)
+
     def list_guild_channels(self, guild_id: int) -> list[dict]:
         """GET /guilds/{id}/channels: 서버의 모든 채널 (캐시 대신 매번 조회한다)."""
         return self._request("GET", f"/guilds/{_snowflake(guild_id, 'guild_id')}/channels", idempotent=True)

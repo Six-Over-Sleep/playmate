@@ -83,6 +83,8 @@ def discord_error(kind):
 class FakeMember:
     """overwrite 딕셔너리의 키로 쓸 수 있는 가짜 멤버."""
 
+    guild_permissions = discord.Permissions.none()
+
     def __init__(self, member_id):
         self.id = member_id
 

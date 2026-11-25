@@ -11,6 +11,39 @@ Description: >-
 # 이 템플릿은 DB 처리 계층(DB Lambda 또는 EC2 실행기)과 Scheduler를 만들지 않는다. 결과 큐는 소비자가 생길 때까지 쌓인다.
 
 Parameters:
+  DeployMeeting:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+  MeetingWorkerEnabled:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+  MeetingApprovalUrl:
+    Type: String
+    Default: ""
+  MeetingApprovalSecretArn:
+    Type: String
+    Default: ""
+  MeetingDiscordTokenSecretArn:
+    Type: String
+    Default: ""
+  MeetingGuildId:
+    Type: String
+    Default: ""
+  MeetingCategoryId:
+    Type: String
+    Default: ""
+  MeetingAdditionalCategoryIds:
+    Type: String
+    Default: ""
+    AllowedPattern: "^([0-9]{15,25}(,[0-9]{15,25})*)?$"
+  MeetingProtectedIds:
+    Type: String
+    Default: ""
+  MeetingStaffRoleIds:
+    Type: String
+    Default: ""
   EnvironmentName:
     Type: String
     AllowedValues: [test, prod]
@@ -125,6 +158,8 @@ Parameters:
       (playmate-discord-bot/dm_share/DEPLOY.md 5).
 
 Conditions:
+  CreateMeeting: !Equals [!Ref DeployMeeting, "true"]
+  EnableMeeting: !And [!Condition CreateMeeting, !Equals [!Ref MeetingWorkerEnabled, "true"]]
   HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, ""]]
   HasSecretKmsKey: !Not [!Equals [!Ref DiscordBotTokenSecretKmsKeyArn, ""]]
   EnableCareerWorker: !Equals [!Ref CareerWorkerEventSourceEnabled, "true"]
@@ -134,6 +169,19 @@ Conditions:
   EnableDmWorker: !And [!Condition CreateDmShare, !Equals [!Ref DmWorkerEventSourceEnabled, "true"]]
 
 Rules:
+  MeetingConfiguration:
+    RuleCondition: !Equals [!Ref DeployMeeting, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref MeetingApprovalUrl, ""]]
+        AssertDescription: Configure a reviewed HTTPS approval endpoint.
+      - Assert: !Not [!Equals [!Ref MeetingApprovalSecretArn, ""]]
+        AssertDescription: A dedicated approval signing secret is required.
+      - Assert: !Not [!Equals [!Ref MeetingDiscordTokenSecretArn, ""]]
+        AssertDescription: A dedicated bot token secret is required.
+      - Assert: !Not [!Equals [!Ref MeetingGuildId, ""]]
+        AssertDescription: A designated guild is required.
+      - Assert: !Not [!Equals [!Ref MeetingCategoryId, ""]]
+        AssertDescription: A designated category is required.
   HotShareNeedsChannel:
     RuleCondition: !Equals [!Ref DeployHotShare, "true"]
     Assertions:
@@ -997,7 +1045,248 @@ Resources:
       AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
       OKActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
 
+  # Meeting writes use their own FIFO and credentials; no DB access from Lambda.
+  MeetingWorkDlqQueue:
+    Type: AWS::SQS::Queue
+    Condition: CreateMeeting
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-meeting-work-dlq.fifo
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+      FifoQueue: true
+
+  MeetingWorkQueue:
+    Type: AWS::SQS::Queue
+    Condition: CreateMeeting
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-meeting-work.fifo
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 86400
+      FifoQueue: true
+      VisibilityTimeout: 360
+      ReceiveMessageWaitTimeSeconds: 20
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt MeetingWorkDlqQueue.Arn
+        maxReceiveCount: 5
+
+  MeetingResultDlqQueue:
+    Type: AWS::SQS::Queue
+    Condition: CreateMeeting
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-meeting-result-dlq
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+
+  MeetingResultQueue:
+    Type: AWS::SQS::Queue
+    Condition: CreateMeeting
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      QueueName: !Sub playmate-${EnvironmentName}-meeting-result
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+      VisibilityTimeout: 360
+      ReceiveMessageWaitTimeSeconds: 20
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt MeetingResultDlqQueue.Arn
+        maxReceiveCount: 5
+
+  MeetingWorkerLogs:
+    Type: AWS::Logs::LogGroup
+    Condition: CreateMeeting
+    Properties:
+      LogGroupName: !Sub /aws/lambda/playmate-${EnvironmentName}-meeting-worker
+      RetentionInDays: !Ref LogRetentionInDays
+
+  MeetingWorkerRole:
+    Type: AWS::IAM::Role
+    Condition: CreateMeeting
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: MeetingWorker
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt MeetingWorkerLogs.Arn
+              - Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes]
+                Resource: !GetAtt MeetingWorkQueue.Arn
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt MeetingResultQueue.Arn
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: [!Ref MeetingDiscordTokenSecretArn, !Ref MeetingApprovalSecretArn]
+
+  MeetingWorker:
+    Type: AWS::Serverless::Function
+    Condition: CreateMeeting
+    Properties:
+      FunctionName: !Sub playmate-${EnvironmentName}-meeting-worker
+      Runtime: python3.13
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 60
+      ReservedConcurrentExecutions: 2
+      CodeUri: .build/meeting_worker/
+      Handler: secret_bootstrap.handler
+      Role: !GetAtt MeetingWorkerRole.Arn
+      LoggingConfig:
+        LogGroup: !Ref MeetingWorkerLogs
+        LogFormat: Text
+      Environment:
+        Variables:
+          WORKER_TARGET_HANDLER: meeting_share.worker_lambda.handler
+          DISCORD_BOT_TOKEN_SECRET_ARN: !Ref MeetingDiscordTokenSecretArn
+          MEETING_APPROVAL_SECRET_ARN: !Ref MeetingApprovalSecretArn
+          MEETING_APPROVAL_URL: !Ref MeetingApprovalUrl
+          MEETING_GUILD_ID: !Ref MeetingGuildId
+          MEETING_CATEGORY_ID: !Ref MeetingCategoryId
+          MEETING_ADDITIONAL_CATEGORY_IDS: !Ref MeetingAdditionalCategoryIds
+          MEETING_PROTECTED_IDS: !Ref MeetingProtectedIds
+          MEETING_STAFF_ROLE_IDS: !Ref MeetingStaffRoleIds
+          MEETING_RESULT_QUEUE_URL: !Ref MeetingResultQueue
+          MEETING_ALLOW_GRANT: "false"
+
+  MeetingWorkerMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: CreateMeeting
+    Properties:
+      EventSourceArn: !GetAtt MeetingWorkQueue.Arn
+      FunctionName: !Ref MeetingWorker
+      Enabled: !If [EnableMeeting, true, false]
+      BatchSize: 1
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      ScalingConfig: {MaximumConcurrency: 2}
+
+  MeetingWorkerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateMeeting
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-meeting-worker-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref MeetingWorker}]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  MeetingWorkerLogFailures:
+    Type: AWS::Logs::MetricFilter
+    Condition: CreateMeeting
+    Properties:
+      LogGroupName: !Ref MeetingWorkerLogs
+      FilterPattern: '"MEETING_WRITE_FAILURE"'
+      MetricTransformations:
+        - MetricNamespace: PlayMate/Discord
+          MetricName: !Sub ${EnvironmentName}-meeting-worker-failure
+          MetricValue: "1"
+
+  MeetingWorkerLogFailuresAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateMeeting
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-meeting-worker-log-failures
+      Namespace: PlayMate/Discord
+      MetricName: !Sub ${EnvironmentName}-meeting-worker-failure
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  MeetingWorkAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateMeeting
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-meeting-work-age
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt MeetingWorkQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 120
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  MeetingResultAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateMeeting
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-meeting-result-age
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt MeetingResultQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 120
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  MeetingWorkDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateMeeting
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-meeting-work-dlq
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt MeetingWorkDlqQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+  MeetingResultDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateMeeting
+    Properties:
+      AlarmName: !Sub playmate-${EnvironmentName}-meeting-result-dlq
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt MeetingResultDlqQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
 Outputs:
+  MeetingWorkQueueUrl:
+    Condition: CreateMeeting
+    Value: !Ref MeetingWorkQueue
+  MeetingResultQueueUrl:
+    Condition: CreateMeeting
+    Value: !Ref MeetingResultQueue
   CareerShareSendQueueUrl:
     Description: Set as CAREER_SHARE_SEND_QUEUE_URL in the DB layer (not deployed by this stack).
     Value: !Ref CareerShareSendQueue

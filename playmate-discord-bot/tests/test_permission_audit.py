@@ -599,10 +599,14 @@ async def test_postgres():
     repo = PostgresMeetingRepository(connect)
 
     def sessions():
-        return conn.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()").fetchone()[0]
+        return conn.execute("""
+            SELECT count(*) FROM pg_stat_activity
+            WHERE datname=current_database() AND backend_type='client backend'
+        """).fetchone()[0]
 
     def idle_in_tx():
         return conn.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND "
+                            "backend_type='client backend' AND "
                             "state LIKE 'idle in transaction%' AND pid<>pg_backend_pid()").fetchone()[0]
 
     def withdraw(member_id):

@@ -23,13 +23,17 @@ async def handle_message(message: discord.Message, repository: MeetingRepository
     # 이 채널을 지우려는 중이면 await 이전에 알린다 (삭제는 channel.delete() 직전에 이를 확인한다).
     note_activity(channel_id)
     meeting = await call(repository.get_managed_meeting, channel_id)
+    lookup = repository.get_managed_meeting
+    if meeting is None and (getattr(message.channel, "topic", None) or "").startswith("PlayMate 모임 #"):
+        lookup = getattr(repository, "get_managed_meeting_uncached", lookup)
+        meeting = await call(lookup, channel_id)
     if meeting is None:
         return
     now = datetime.now(KST)
     # 채널 락 아래에서 처리한다: 삭제 작업이 진행 중이면 끝날 때까지 기다리고, 먼저 처리된 활동은 삭제가
     # 다시 확인한다. 그래서 예약이 취소된 뒤에 같은 삭제 작업이 채널을 지우는 일이 없다.
     async with channel_lock(channel_id):
-        meeting = await call(repository.get_managed_meeting, channel_id)
+        meeting = await call(lookup, channel_id)
         if meeting is None or meeting.get('discord_deleted_at') is not None:
             return
         recruit_id = meeting['recruit_id']

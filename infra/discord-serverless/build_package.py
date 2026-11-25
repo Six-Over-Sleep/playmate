@@ -26,6 +26,11 @@ _DISCORD_REST = ["__init__.py", "client.py", "errors.py", "inactivity.py", "perm
 
 # 기능별 Worker 패키지 (파일 단위 허용 목록)
 PACKAGES = {
+    "meeting_worker": {
+        "career_share": ["__init__.py", "queues.py"],
+        "discord_rest": _DISCORD_REST,
+        "meeting_share": ["__init__.py", "contract.py", "worker_lambda.py"],
+    },
     "career_worker": {
         "career_share": _CAREER_CORE,
         "discord_rest": _DISCORD_REST,
@@ -46,7 +51,7 @@ FORBIDDEN_IMPORTS = ("discord", "config", "psycopg", "psycopg2", "repositories",
                      "career_share.db_lambda", "career_share.service", "career_share.settings", "career_share.state",
                      "hot_share.repository", "hot_share.db_lambda", "hot_share.service", "hot_share.settings",
                      "dm_share.db_lambda", "dm_share.service", "dm_share.settings", "dm_share.messages",
-                     "discord_rest.reuse", "bot")
+                     "discord_rest.reuse", "meeting_share.repository", "meeting_share.runner", "bot")
 # 금지 접두어 안에서 이름 그대로 허용하는 순수 모듈 (DB·discord.py·config를 import하지 않음을 위 검사가 다시 확인한다)
 ALLOWED_EXACT = ("services.notification_policy",)
 REQUIREMENTS = ("# Worker는 표준 라이브러리 + 이 패키지의 모듈만 쓴다. boto3는 Lambda Python 런타임에 포함되어 있다.\n"

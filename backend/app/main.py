@@ -68,6 +68,7 @@ from backend.app.models.member import Member  # noqa: E402, F401
 
 # 회원 인증
 from backend.app.routers.auth import router as auth_router  # noqa: E402
+from app.routers.discord_meeting_internal import router as discord_meeting_internal_router  # noqa: E402
 
 # 일반 게시판
 from backend.app.routers.board import router as board_router  # noqa: E402
@@ -183,6 +184,8 @@ app.include_router(admin_router)
 
 # 모임 API
 app.include_router(recruit_router)
+if os.getenv("DISCORD_MEETING_APPROVAL_ENABLED") == "true":
+    app.include_router(discord_meeting_internal_router)
 app.include_router(recruit_program_features_router)
 
 # 취업 카테고리 API

@@ -1,5 +1,9 @@
 # 취업 게시글 Discord 자동 공유: 배포·운영 문서 (초안)
 
+> Issue #184: DB 실행 계층은 [기존 EC2 Runner](../../infra/discord-db-runner/DEPLOY.md)로도 운영한다.
+> 아래 DB Lambda/Scheduler 설명은 기존 인터페이스 참고이며 EC2 방식에서는 해당 리소스를 만들지 않는다.
+> 최신 Worker 동시성은 SAM template.yaml 기준 2다. 과거 예약 동시성 1 설명과 구분한다.
+
 Issue #163. **이 문서는 초안이며 AWS 리소스는 하나도 만들지 않았다.** 아래 AWS 동작 중 "문서 기준"은 AWS 공식 문서의 일반 동작을
 적은 것이고 이 프로젝트에서 실제로 확인한 것이 아니다 (실제 AWS 테스트 필요 항목은 맨 아래).
 

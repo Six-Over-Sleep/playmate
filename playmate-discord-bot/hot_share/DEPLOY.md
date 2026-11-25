@@ -1,5 +1,8 @@
 # HOT 게시글 Discord 자동 공유: 배포·운영 문서 (초안)
 
+> Issue #184: [기존 EC2 Runner](../../infra/discord-db-runner/DEPLOY.md)가 기존 서비스를 호출할 수 있다.
+> EC2 방식에서는 아래 DB Lambda/Scheduler 리소스를 추가하지 않는다. baseline은 계속 수동 절차다.
+
 Issue #165. **AWS 리소스는 하나도 만들지 않았고, 운영 배포는 이 Issue 범위가 아니다.** AWS 동작 설명은 #163 `career_share/DEPLOY.md`와
 같은 "문서 기준"이며 실제 AWS에서 확인하지 않았다. **`052_hot_discord_share.sql`은 잠정 번호다. DB 담당자가 확정하기 전에는 적용하지 않는다.**
 PR #174 now uses `068_remove_compat_views.sql` to avoid the migration number collision. The HOT migration number remains provisional; both migrations require deployment review.

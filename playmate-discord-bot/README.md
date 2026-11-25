@@ -1,5 +1,9 @@
 # PlayMate Discord Bot
 
+EC2의 Discord DB 스케줄러·SQS 결과 소비자는 [DB Runner 운영 문서](../infra/discord-db-runner/DEPLOY.md)를 참고하세요.
+`python -m db_runner scheduler|results`로 독립 실행하며 모든 기능은 기본 비활성입니다.
+Gateway 전환·baseline·DB 시간대 확인 후 명시적으로 활성화해야 합니다.
+
 PlayMate의 **모임 기능과 Discord를 연결하기 위한 Bot 모듈**입니다.
 
 모임 Discord 채널은 **모임 하나당 채널 하나**입니다 (모임별 Category / 음성 채널은 만들지 않습니다).

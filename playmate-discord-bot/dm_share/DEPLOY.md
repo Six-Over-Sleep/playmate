@@ -1,5 +1,9 @@
 # 댓글·대댓글 DM Lambda 전환: 배포·운영 문서 (초안)
 
+> Issue #184: DB 실행 계층의 [기존 EC2 Runner](../../infra/discord-db-runner/DEPLOY.md)는 sender=LAMBDA와 기존 정책을 유지한다.
+> EC2 방식에서는 DB Lambda/Scheduler를 만들지 않으며 롤백은 DM_MODE=recover로 실행한다.
+> 최신 Worker 동시성은 2이고 DM 발송 FIFO 그룹 직렬화를 사용한다. 아래 과거 동시성 1 설명은 최신 SAM/FIFO 정책으로 대체된다.
+
 Issue #171. **AWS 리소스는 하나도 만들지 않았고 운영 배포는 이 Issue 범위가 아니다.** AWS 동작 설명은 #163 `career_share/DEPLOY.md`와
 같은 "문서 기준"이며 실제로 확인하지 않았다. **`053_notification_dm_deliveries.sql`은 잠정 번호다 (052 HOT도 잠정).**
 DB 담당자가 번호를 확정하기 전에는 적용하지 않는다. #165(HOT) 브랜치를 기준으로 작업했다 (`contract._UNIT`, `CareerShareWorker.UNIT_PREFIXES` 의존).

@@ -160,5 +160,5 @@ class RecruitSkill(Base):
     """모임 기술 사전. 기존 학습 skill_code와 대응하며 ID는 DB에서 발급한다."""
     __tablename__ = "recruit_skills"
     skill_id = Column(Integer, primary_key=True)
-    skill_code = Column(String, unique=True, nullable=False)
-    name = Column(String, nullable=False)
+    skill_code = Column(String(64), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)

@@ -281,6 +281,11 @@ class PolicyAndMessages(unittest.TestCase):
             env = dict(os.environ, PLAYMATE_DM_POLL_ENABLED=value)
             out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True)
             self.assertEqual(out.stdout.strip(), expected, out.stderr[-300:])
+        # Issue #190: 오타는 켜짐으로 보지 않고 시작을 거부한다 (Lambda 전환 뒤 Gateway DM 폴링이 남지 않게)
+        out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=dict(os.environ, PLAYMATE_DM_POLL_ENABLED="fasle"),
+                             capture_output=True, text=True)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("PLAYMATE_DM_POLL_ENABLED", out.stderr)
         src = (ROOT / "bot.py").read_text(encoding="utf-8")
         gate = src.index("if DM_POLL_ENABLED:")
         self.assertLess(src.index("build_notification_command(notification_service)"), gate, "/알림설정은 플래그와 무관하게 등록")

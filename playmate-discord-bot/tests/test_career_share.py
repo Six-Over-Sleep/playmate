@@ -1257,21 +1257,31 @@ class LambdaInterfaceTests(unittest.TestCase):
 class LegacyNoticeSwitchTests(unittest.TestCase):
     """기존 18:00 공지 스위치 (config.CAREER_NOTICE_ENABLED): 기본값은 기존 동작(켜짐) 유지."""
 
-    def _enabled(self, value):
+    def _run(self, value):
         env = {k: v for k, v in os.environ.items() if not k.startswith(("DB_", "PLAYMATE_"))}
         env.update(DISCORD_BOT_TOKEN="x", DISCORD_GUILD_ID="1", PLAYMATE_CAREER_CHANNEL_ID="222222222222222222")
         if value is not None:
             env["PLAYMATE_CAREER_NOTICE_ENABLED"] = value
-        done = subprocess.run([sys.executable, "-c", "import config; print(config.CAREER_NOTICE_ENABLED, config.CAREER_CHANNEL_ID)"],
+        return subprocess.run([sys.executable, "-c", "import config; print(config.CAREER_NOTICE_ENABLED, config.CAREER_CHANNEL_ID)"],
                               cwd=ROOT, env=env, capture_output=True, text=True)
+
+    def _enabled(self, value):
+        done = self._run(value)
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout.split()
 
     def test_default_keeps_existing_behavior_and_channel_id_is_untouched(self):
-        for value in (None, "", "true", "TRUE", "1", "yes", "garbage"):
+        for value in (None, "", "true", "TRUE", "1", "yes", "on"):
             self.assertEqual(self._enabled(value), ["True", "222222222222222222"], value)
         for value in ("false", "FALSE", "0", "no", "off", " False "):
             self.assertEqual(self._enabled(value), ["False", "222222222222222222"], value)   # 채널 ID(보호 목록용)는 그대로
+
+    def test_invalid_value_stops_instead_of_enabling(self):
+        """Issue #190: 오타를 켜짐으로 보면 서버리스 전환 뒤 18:00 공지가 중복될 수 있어 시작을 거부한다."""
+        for value in ("garbage", "fasle", "2"):
+            done = self._run(value)
+            self.assertNotEqual(done.returncode, 0, value)
+            self.assertIn("PLAYMATE_CAREER_NOTICE_ENABLED", done.stderr)
 
     def test_bot_gates_only_the_career_notice_task(self):
         source = (ROOT / "bot.py").read_text(encoding="utf-8")

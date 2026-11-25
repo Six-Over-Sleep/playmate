@@ -1,7 +1,8 @@
 # Discord 서버리스 3안 — 취업·HOT·DM Worker 인프라 (AWS SAM)
 
 3안: **PostgreSQL Outbox + Amazon SQS + AWS Lambda**. 이 스택은 그중 **발송 큐·결과 큐·Discord Worker Lambda**만 만든다.
-DB 처리 계층(DB Lambda 또는 기존 EC2 실행기)과 EventBridge Scheduler는 **만들지 않는다** (운영 DB·접속 경로 미확정).
+DB 처리 계층과 EventBridge Scheduler는 **이 스택에서 만들지 않는다**. 기존 EC2 실행 계층은
+[EC2 DB Runner 운영 문서](../discord-db-runner/DEPLOY.md)를 따른다. 실제 운영 DB·접속 경로 검증은 별도다.
 취업 공유(1~13절)는 항상 만들고, HOT 공유와 댓글·대댓글 DM(15절)은 `DeployHotShare`/`DeployDmShare=true`일 때만 만든다.
 
 > **이 문서의 어떤 단계도 아직 실제 AWS에서 실행·검증하지 않았다.** 로컬에서 확인한 것: 템플릿 정적 검증, 패키징, 핸들러 흐름

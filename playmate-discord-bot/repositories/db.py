@@ -53,6 +53,11 @@ class Database:
             pass
         self._conn = None
 
+    def close(self) -> None:
+        """Release the owned connection after in-flight work drains."""
+        with self._lock:
+            self._reset()
+
     def execute(self, sql: str, params: tuple = (), *, fetch: str | None = None, write: bool = False):
         """SQL 한 개를 실행한다.
 

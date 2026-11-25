@@ -1,0 +1,3 @@
+-r requirements.txt
+# Unlike Lambda, EC2 does not provide boto3. Resolve/pin in the deployment environment.
+boto3>=1.35,<2

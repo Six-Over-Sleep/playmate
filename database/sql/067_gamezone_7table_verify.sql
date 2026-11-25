@@ -1,250 +1,155 @@
--- Issue #176 / GameZone final 7-table verification
--- Local PostgreSQL 18 test only
--- Negative tests are executed inside a transaction and rolled back.
-
-BEGIN;
-
-SET LOCAL lock_timeout = '5s';
+-- Issue #176: Final GameZone 7-table structure verification, PostgreSQL 18.
+-- READ ONLY. Does not depend on fixture rows or change any database objects.
+-- Safe ONLY for the isolated local Docker migration clone.
+-- Historical 063 verifies the intermediate 9-table stage and is not changed.
+BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '60s';
 
 DO $verify$
 DECLARE
-    v_event_id BIGINT;
-    v_match_id BIGINT;
-    v_member_id BIGINT;
-    v_table_count INTEGER;
-    v_trigger_count INTEGER;
+    v_count integer;
 BEGIN
-    -- 1. Environment guard
-    IF current_database() <> 'playmate_test_20261123210154'
-       OR current_user <> 'playmate_test' THEN
-        RAISE EXCEPTION 'Local test database only';
+    IF current_database() <> 'playmate_migration_176'
+       OR current_user <> 'playmate_restore' THEN
+        RAISE EXCEPTION 'Local Docker migration clone only';
     END IF;
 
-    -- 2. Exact GameZone table inventory
-    SELECT COUNT(*) INTO v_table_count
+    SELECT COUNT(*) INTO v_count
     FROM pg_tables
     WHERE schemaname = 'public'
       AND (tablename = 'games' OR tablename ~ '^game_');
 
-    IF v_table_count <> 7 OR EXISTS (
-        SELECT expected.name
-        FROM unnest(ARRAY[
-            'games',
-            'game_questions',
-            'game_events',
-            'game_event_entries',
-            'game_matches',
-            'game_match_players',
-            'game_attempts'
-        ]) AS expected(name)
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM pg_tables AS t
-            WHERE t.schemaname = 'public'
-              AND t.tablename = expected.name
-        )
+    IF v_count <> 7 OR EXISTS (
+        SELECT 1 FROM unnest(ARRAY[
+            'games', 'game_questions', 'game_events', 'game_event_entries',
+            'game_matches', 'game_match_players', 'game_attempts'
+        ]) AS required(name)
+        WHERE to_regclass('public.' || name) IS NULL
     ) THEN
-        RAISE EXCEPTION 'Final seven-table structure mismatch';
+        RAISE EXCEPTION 'Final seven GameZone tables mismatch';
     END IF;
-
     RAISE NOTICE 'PASS: EXACT_SEVEN_GAMEZONE_TABLES';
 
-    -- 3. Question and answer preservation
-    IF NOT EXISTS (
-        SELECT 1
-        FROM public.game_questions
-        WHERE prompt = 'Issue 176 migration question'
-          AND answer_key->>'answer' = 'A'
-          AND judge_config = '{}'::jsonb
-          AND answer_updated_at IS NOT NULL
+    IF EXISTS (
+        SELECT 1 FROM unnest(ARRAY[
+            'game_categories', 'game_supported_modes', 'game_results',
+            'game_event_questions', 'game_badges', 'game_member_badges',
+            'game_question_secrets', 'game_event_teams'
+        ]) AS removed(name)
+        WHERE to_regclass('public.' || name) IS NOT NULL
     ) THEN
-        RAISE EXCEPTION 'Question answer fixture not preserved';
+        RAISE EXCEPTION 'Legacy GameZone tables still exist';
     END IF;
+    RAISE NOTICE 'PASS: EIGHT_LEGACY_TABLES_REMOVED';
 
-    RAISE NOTICE 'PASS: QUESTION_ANSWER_PRESERVED';
-
-    -- 4. Team data and rankings
-    SELECT event_id INTO STRICT v_event_id
-    FROM public.game_events
-    WHERE title = 'Issue 176 Weekly Team Migration';
-
-    IF (
-        SELECT COUNT(*)
-        FROM public.game_events AS e
-        CROSS JOIN LATERAL jsonb_to_recordset(e.team_set)
-            AS t(
-                event_team_id BIGINT,
-                cohort_id BIGINT,
-                team_name TEXT,
-                created_at TIMESTAMPTZ
-            )
-        WHERE e.event_id = v_event_id
-          AND t.created_at IS NOT NULL
-          AND t.cohort_id IS NOT NULL
-          AND t.event_team_id IS NOT NULL
-          AND t.team_name IN ('Issue176 Team A', 'Issue176 Team B')
-    ) <> 2 THEN
-        RAISE EXCEPTION 'Migrated team metadata mismatch';
+    SELECT COUNT(*) INTO v_count
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND (
+          (table_name = 'games' AND column_name IN (
+             'category_name', 'category_sort_order', 'supported_modes'))
+       OR (table_name = 'game_questions' AND column_name IN (
+             'answer_key', 'judge_config', 'answer_updated_at'))
+       OR (table_name = 'game_events' AND column_name IN (
+             'question_set', 'team_set'))
+      );
+    IF v_count <> 8 THEN
+        RAISE EXCEPTION 'Consolidated columns mismatch: %', v_count;
     END IF;
+    RAISE NOTICE 'PASS: EIGHT_CONSOLIDATED_COLUMNS';
 
-    RAISE NOTICE 'PASS: TWO_TEAM_RECORDS_PRESERVED';
-
-    IF (
-        SELECT COUNT(*)
-        FROM public.v_game_weekly_cohort_scores
-        WHERE event_id = v_event_id
-    ) <> 2 OR (
-        SELECT COUNT(*)
-        FROM public.v_game_weekly_cohort_scores AS r
-        JOIN public.game_events AS e
-          ON e.event_id = r.event_id
-        CROSS JOIN LATERAL jsonb_to_recordset(e.team_set)
-            AS t(
-                event_team_id BIGINT,
-                cohort_id BIGINT,
-                team_name TEXT
-            )
-        WHERE r.event_id = v_event_id
-          AND r.event_team_id = t.event_team_id
-          AND r.cohort_id = t.cohort_id
-          AND (
-              (
-                  t.team_name = 'Issue176 Team A'
-                  AND r.participants = 2
-                  AND r.completed_games = 2
-                  AND r.total_score = 150
-              )
-              OR
-              (
-                  t.team_name = 'Issue176 Team B'
-                  AND r.participants = 1
-                  AND r.completed_games = 1
-                  AND r.total_score = 80
-              )
-          )
-    ) <> 2 THEN
-        RAISE EXCEPTION 'Weekly rankings changed';
+    IF EXISTS (
+        SELECT required.slug
+        FROM (VALUES
+          ('daily-quiz'), ('python-quiz'), ('sql-quiz'),
+          ('frontend-quiz'), ('cs-quiz'), ('ai-quiz'),
+          ('code-challenge'), ('bug-hunt'), ('typing-race'),
+          ('reaction-time'), ('memory-flip'), ('arcade')
+        ) AS required(slug)
+        EXCEPT SELECT slug FROM public.games
+    ) OR EXISTS (
+        SELECT 1 FROM public.games
+        WHERE supported_modes IS NULL
+           OR cardinality(supported_modes) = 0
+    ) THEN
+        RAISE EXCEPTION 'Game catalog or supported modes invalid';
     END IF;
+    RAISE NOTICE 'PASS: GAME_CATALOG_AND_MODES';
 
-    RAISE NOTICE 'PASS: WEEKLY_RANKING_150_AND_80';
+    SELECT COUNT(*) INTO v_count
+    FROM pg_views
+    WHERE schemaname = 'public'
+      AND viewname IN (
+         'v_game_member_rankings', 'v_game_weekly_cohort_scores',
+         'v_game_daily_quiz_scores', 'v_member_all_achievements'
+      );
+    IF v_count <> 4 THEN
+        RAISE EXCEPTION 'Four required views not found';
+    END IF;
+    RAISE NOTICE 'PASS: FOUR_VIEWS_PRESENT';
 
-    -- 5. Validate all existing player-to-team relationships
+    IF EXISTS (
+        SELECT 1 FROM pg_views
+        WHERE schemaname = 'public'
+          AND definition ~* '\m(game_categories|game_supported_modes|game_results|game_event_questions|game_badges|game_member_badges|game_question_secrets|game_event_teams)\M'
+    ) THEN
+        RAISE EXCEPTION 'View uses removed GameZone table';
+    END IF;
+    RAISE NOTICE 'PASS: NO_LEGACY_VIEW_REFERENCES';
+
+    SELECT COUNT(*) INTO v_count
+    FROM pg_trigger AS t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND NOT t.tgisinternal AND t.tgenabled = 'O'
+      AND t.tgname IN (
+        'trg_validate_game_mode_176',
+        'trg_protect_game_modes_176',
+        'trg_validate_event_questions_176',
+        'trg_protect_event_question_176',
+        'trg_sync_game_category_176',
+        'trg_validate_game_event_team_set_176',
+        'trg_validate_game_player_team_176',
+        'trg_protect_game_match_event_team_176'
+      );
+    IF v_count <> 8 THEN
+        RAISE EXCEPTION 'Eight enabled integrity triggers missing';
+    END IF;
+    RAISE NOTICE 'PASS: EIGHT_INTEGRITY_TRIGGERS';
+
     IF EXISTS (
         SELECT 1
-        FROM public.game_match_players AS mp
-        JOIN public.game_matches AS m
-          ON m.match_id = mp.match_id
-        LEFT JOIN public.game_events AS e
-          ON e.event_id = m.event_id
+        FROM public.game_match_players mp
+        LEFT JOIN public.game_matches m ON m.match_id = mp.match_id
+        LEFT JOIN public.game_events e ON e.event_id = m.event_id
         WHERE mp.event_team_id IS NOT NULL
           AND NOT EXISTS (
-              SELECT 1
-              FROM jsonb_to_recordset(
-                  COALESCE(e.team_set, '[]'::jsonb)
-              ) AS t(event_team_id BIGINT, cohort_id BIGINT)
-              WHERE t.event_team_id = mp.event_team_id
-                AND t.cohort_id = mp.cohort_id
+            SELECT 1
+            FROM jsonb_to_recordset(COALESCE(e.team_set, '[]'::jsonb))
+              AS t(event_team_id bigint, cohort_id bigint)
+            WHERE t.event_team_id = mp.event_team_id
+              AND t.cohort_id = mp.cohort_id
           )
     ) THEN
-        RAISE EXCEPTION 'Orphaned team assignment found';
+        RAISE EXCEPTION 'Orphan team assignment detected';
     END IF;
-
     RAISE NOTICE 'PASS: TEAM_ASSIGNMENTS_VALID';
-
-    -- 6. Verify three integrity triggers are enabled
-    SELECT COUNT(*) INTO v_trigger_count
-    FROM pg_trigger AS t
-    JOIN pg_class AS c ON c.oid = t.tgrelid
-    JOIN pg_namespace AS n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public'
-      AND t.tgenabled IN ('O', 'A')
-      AND NOT t.tgisinternal
-      AND (
-          (
-              c.relname = 'game_events'
-              AND t.tgname = 'trg_validate_game_event_team_set_176'
-          )
-          OR
-          (
-              c.relname = 'game_match_players'
-              AND t.tgname = 'trg_validate_game_player_team_176'
-          )
-          OR
-          (
-              c.relname = 'game_matches'
-              AND t.tgname = 'trg_protect_game_match_event_team_176'
-          )
-      );
-
-    IF v_trigger_count <> 3 THEN
-        RAISE EXCEPTION 'GameZone integrity trigger missing';
-    END IF;
-
-    RAISE NOTICE 'PASS: THREE_INTEGRITY_TRIGGERS_ENABLED';
-
-    SELECT match_id INTO STRICT v_match_id
-    FROM public.game_matches
-    WHERE event_id = v_event_id
-      AND status = 'FINISHED';
-
-    SELECT member_id INTO STRICT v_member_id
-    FROM public.game_match_players
-    WHERE match_id = v_match_id
-      AND score = 100;
-
-    -- 7. Negative test: nonexistent team ID must be rejected
-    BEGIN
-        UPDATE public.game_match_players
-        SET event_team_id = -999
-        WHERE match_id = v_match_id
-          AND member_id = v_member_id;
-
-        RAISE EXCEPTION 'INVALID_TEAM_WAS_ACCEPTED';
-    EXCEPTION
-        WHEN foreign_key_violation THEN
-            RAISE NOTICE 'PASS: INVALID_TEAM_REJECTED';
-    END;
-
-    -- 8. Negative test: duplicate team must be rejected
-    BEGIN
-        UPDATE public.game_events
-        SET team_set = team_set || jsonb_build_array(team_set->0)
-        WHERE event_id = v_event_id;
-
-        RAISE EXCEPTION 'DUPLICATE_TEAM_WAS_ACCEPTED';
-    EXCEPTION
-        WHEN check_violation THEN
-            RAISE NOTICE 'PASS: DUPLICATE_TEAM_REJECTED';
-    END;
-
-    -- 9. Negative test: assigned teams cannot be removed
-    BEGIN
-        UPDATE public.game_events
-        SET team_set = '[]'::jsonb
-        WHERE event_id = v_event_id;
-
-        RAISE EXCEPTION 'ASSIGNED_TEAM_REMOVAL_WAS_ACCEPTED';
-    EXCEPTION
-        WHEN foreign_key_violation THEN
-            RAISE NOTICE 'PASS: ASSIGNED_TEAM_REMOVAL_REJECTED';
-    END;
-
-    -- 10. Negative test: event reassignment cannot orphan players
-    BEGIN
-        UPDATE public.game_matches
-        SET event_id = NULL
-        WHERE match_id = v_match_id;
-
-        RAISE EXCEPTION 'INVALID_MATCH_EVENT_WAS_ACCEPTED';
-    EXCEPTION
-        WHEN foreign_key_violation THEN
-            RAISE NOTICE 'PASS: INVALID_MATCH_EVENT_REJECTED';
-    END;
-
-    RAISE NOTICE 'PASS: GAMEZONE_7TABLE_FINAL_VERIFICATION';
+    RAISE NOTICE 'PASS: GAMEZONE_7TABLE_STRUCTURE';
 END;
 $verify$;
 
--- Verification should never persist test mutations.
-ROLLBACK;
+-- Running SELECT statements also verifies that each view is queryable.
+SELECT 'member_rankings' AS view_name, COUNT(*) AS records
+FROM public.v_game_member_rankings
+UNION ALL
+SELECT 'weekly_scores', COUNT(*)
+FROM public.v_game_weekly_cohort_scores
+UNION ALL
+SELECT 'daily_scores', COUNT(*)
+FROM public.v_game_daily_quiz_scores
+UNION ALL
+SELECT 'all_achievements', COUNT(*)
+FROM public.v_member_all_achievements;
+
+COMMIT;

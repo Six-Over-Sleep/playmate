@@ -47,22 +47,42 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      # 4. React 프로덕션 빌드
-      - name: Build frontend
-        working-directory: frontend
-        run: npm run build
-
-      # 5. 빌드 결과 확인
-      - name: Verify build output
-        run: test -f frontend/dist/index.html
-
-      # 6. GitHub OIDC를 통한 AWS 인증
+      # 4. Configure AWS OIDC credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_FRONTEND_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: PlayMateFrontendDeploy
+
+      # 5. Load Kakao API key and build frontend
+      - name: Build frontend
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          KAKAO_KEY=$(aws ssm get-parameter \
+            --name "/playmate/frontend/prod/VITE_KAKAO_MAP_KEY" \
+            --with-decryption \
+            --query "Parameter.Value" \
+            --output text)
+
+          if [[ -z "$KAKAO_KEY" || "$KAKAO_KEY" == "None" ]]; then
+            echo "ERROR: Kakao API key is missing."
+            exit 1
+          fi
+
+          echo "::add-mask::$KAKAO_KEY"
+          export VITE_KAKAO_MAP_KEY="$KAKAO_KEY"
+
+          echo "KAKAO_PARAMETER_LOAD_SUCCESS"
+
+          npm run build
+
+      # 6. Verify build output
+      - name: Verify build output
+        run: test -f frontend/dist/index.html
 
       # 7. 해시 기반 정적 파일 먼저 업로드
       - name: Upload versioned assets to S3

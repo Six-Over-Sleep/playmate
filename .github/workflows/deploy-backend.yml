@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - develop
+      - main
     paths:
       - "backend/**"
       - "pyproject.toml"
@@ -20,11 +20,15 @@ concurrency:
   group: playmate-backend-deploy
   cancel-in-progress: false
 
+env:
+  BACKEND_EC2_INSTANCE_ID: ${{ vars.BACKEND_EC2_INSTANCE_ID }}
+
 jobs:
   deploy-backend:
+    if: github.ref == 'refs/heads/main'
     name: Validate, Sync and Restart PlayMate Backend
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
 
     steps:
       # 1. GitHub 소스 체크아웃
@@ -50,8 +54,8 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
-          role-to-assume: arn:aws:iam::576436419281:role/playmate-github-deploy-role
-          aws-region: ap-northeast-2
+          role-to-assume: ${{ vars.AWS_BACKEND_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
           role-session-name: PlayMateGitHubDeploy
 
       # 5. AWS 인증 확인
@@ -67,41 +71,119 @@ jobs:
         run: |
           set -euo pipefail
 
-          INSTANCE_ID="i-0a0868498c1263895"
+          INSTANCE_ID="${BACKEND_EC2_INSTANCE_ID:?Missing BACKEND_EC2_INSTANCE_ID}"
+
+          DEPLOY_SHA="${GITHUB_SHA:?Missing GITHUB_SHA}"
+
+          if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ERROR: Invalid deployment commit SHA"
+            exit 1
+          fi
 
           echo "Starting PlayMate backend deployment..."
+          echo "Deployment commit: $DEPLOY_SHA"
+
+          PARAMETERS=$(jq -cn --arg sha "$DEPLOY_SHA" '{
+            executionTimeout: ["900"],
+            commands: [
+              "set -eu",
+              "echo playmate-ssm-ok",
+              "systemctl is-active nginx",
+              "curl -fsS --max-time 5 http://127.0.0.1/_nginx_health",
+              ("sudo /usr/local/bin/playmate-deploy-prod " + $sha)
+            ]
+          }')
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
+            --timeout-seconds 60 \
             --comment "PlayMate backend deployment" \
-            --parameters '{"commands":["set -eu","echo playmate-ssm-ok","systemctl is-active nginx","curl -fsS --max-time 5 http://127.0.0.1/_nginx_health","sudo -iu ubuntu /usr/local/bin/playmate-sync","sudo /usr/local/bin/playmate-restart"]}' \
+            --parameters "$PARAMETERS" \
             --query "Command.CommandId" \
             --output text)
 
           echo "SSM Command ID: $COMMAND_ID"
 
-          # 7. SSM 배포 완료 및 성공 여부 확인
-          if ! aws ssm wait command-executed \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"; then
+          # Poll SSM until a terminal status is returned
+          DEADLINE=$((SECONDS + 1080))
 
-            echo "ERROR: PlayMate backend deployment failed."
+          export AWS_MAX_ATTEMPTS=2
 
-            aws ssm get-command-invocation \
+          while (( SECONDS < DEADLINE )); do
+
+            if RESULT=$(aws ssm get-command-invocation \
               --command-id "$COMMAND_ID" \
               --instance-id "$INSTANCE_ID" \
-              --query '{Status:Status,ResponseCode:ResponseCode,Output:StandardOutputContent,Error:StandardErrorContent}' \
-              --output json || true
+              --cli-connect-timeout 5 \
+              --cli-read-timeout 15 \
+              --query '{Status:Status,ResponseCode:ResponseCode,StatusDetails:StatusDetails,Output:StandardOutputContent}' \
+              --output json 2>&1); then
 
-            exit 1
-          fi
+              STATUS=$(jq -er '.Status' <<< "$RESULT")
+              RESPONSE_CODE=$(jq -er '.ResponseCode' <<< "$RESULT")
 
-          # 8. 배포 성공 결과 확인
-          aws ssm get-command-invocation \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID" \
-            --query '{Status:Status,ResponseCode:ResponseCode,Output:StandardOutputContent,Error:StandardErrorContent}' \
-            --output json
+              echo "SSM deployment status: $STATUS"
 
-          echo "PLAYMATE_BACKEND_DEPLOY_SUCCESS"
+              case "$STATUS" in
+                Success)
+                  if [[ "$RESPONSE_CODE" != "0" ]]; then
+                    echo "ERROR: Unexpected response code"
+                    exit 1
+                  fi
+
+                  ACTUAL_SHA=$(jq -r '.Output // ""' <<< "$RESULT" |
+                    sed -n 's/^DEPLOYED_SHA=//p' | tail -n 1)
+
+                  if [[ "$ACTUAL_SHA" != "$DEPLOY_SHA" ]]; then
+                    echo "ERROR: Deployment SHA verification failed"
+                    exit 1
+                  fi
+
+                  if ! jq -r '.Output // ""' <<< "$RESULT" |
+                    grep -Fxq "PLAYMATE_PRODUCTION_DEPLOY_SUCCESS"; then
+                    echo "ERROR: Deployment success marker missing"
+                    exit 1
+                  fi
+
+                  echo "DEPLOYED_SHA=$ACTUAL_SHA"
+                  echo "PLAYMATE_BACKEND_DEPLOY_SUCCESS"
+                  exit 0
+                  ;;
+
+                Pending|InProgress|Delayed|Cancelling)
+                  sleep 5
+                  ;;
+
+                Failed|Cancelled|TimedOut)
+                  echo "$RESULT"
+                  echo "ERROR: Deployment failed"
+                  exit 1
+                  ;;
+
+                *)
+                  echo "$RESULT"
+                  echo "ERROR: Unexpected SSM status"
+                  exit 1
+                  ;;
+              esac
+
+            else
+
+              # SSM invocation may not be immediately available
+              if [[ "$RESULT" == *InvocationDoesNotExist* ]]; then
+                sleep 5
+              else
+                echo "$RESULT"
+                echo "ERROR: Unable to verify deployment status"
+                echo "Check SSM Command ID: $COMMAND_ID"
+                exit 1
+              fi
+
+            fi
+
+          done
+
+          echo "ERROR: Deployment monitoring timed out"
+          echo "Check SSM Command ID: $COMMAND_ID"
+          exit 1

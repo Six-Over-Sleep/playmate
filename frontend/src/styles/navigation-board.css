@@ -1,0 +1,481 @@
+/* ============================================================
+   PlayMate 모바일 공통 좌우 여백
+   태블릿(581~880px): 24px / 휴대폰(580px 이하): 20px.
+   각 페이지와 홈 섹션은 --pm-page-gutter를 공유합니다.
+   ============================================================ */
+@media (max-width: 880px) {
+  /* 화면 전체 폭을 쓰는 배경은 유지하고, 내용 카드의 시작선만 통일 */
+  .home-night-surface,
+  .home-quick-wrap {
+    padding-left: var(--pm-page-gutter);
+    padding-right: var(--pm-page-gutter);
+  }
+
+  .home-community-layout,
+  .board-shell,
+  .detail-layout,
+  .detail-shell,
+  .meetup-page,
+  .meetup-detail-page,
+  .meetup-editor-page,
+  .career-page .career-container,
+  .mypage,
+  .admin-shell {
+    box-sizing: border-box;
+    width: calc(100% - 2 * var(--pm-page-gutter));
+    max-width: var(--pm-content-max);
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* 홈 커뮤니티 콘텐츠에 기존 좌우 padding이 중복되지 않도록 조정 */
+  .home-community-layout {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+
+/* ============================================================
+   2026-11-17 헤더 메뉴 최종 조정
+   - PC: 중앙 정렬을 유지하되 버튼 너비는 텍스트 기준으로 축소
+   - 모바일: 두 줄을 없애고 로고 · 메뉴 · 프로필을 한 줄로 유지
+   - 프로필 드롭다운/관리자 메뉴/홈 헤더는 기존 기능 유지
+   ============================================================ */
+@media (min-width: 761px) {
+  .app-header--with-nav .app-header-inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+    align-items: center;
+    column-gap: 12px;
+  }
+
+  .app-header--with-nav .brand {
+    grid-column: 1;
+    justify-self: start;
+    margin-right: 0;
+  }
+
+  .app-header--with-nav .app-nav {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: max-content;
+    min-width: 0;
+    margin: 0;
+    gap: clamp(10px, 1.8vw, 24px);
+    overflow: visible;
+    transform: translateX(-190px); /* PC: 중앙에서 살짝 왼쪽으로 */
+  }
+
+  .app-header--with-nav .app-nav button {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    padding: 11px 17px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .app-header--with-nav .profile-container {
+    grid-column: 3;
+    justify-self: end;
+    margin-left: 0;
+  }
+}
+
+@media (min-width: 841px) and (max-width: 1050px) {
+  .app-header--with-nav .app-nav { transform: translateX(-24px); }
+}
+
+@media (min-width: 761px) and (max-width: 840px) {
+  /* 관리자 메뉴까지 표시되는 중간 폭에서 로고와의 겹침 방지 */
+  .app-header--with-nav .app-nav { transform: none; }
+}
+
+@media (max-width: 760px) {
+  .app-header--with-nav { height: 64px; }
+
+  .app-header--with-nav .app-header-inner {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .app-header--with-nav .brand {
+    flex: 0 0 auto;
+    margin-right: 0;
+  }
+
+  .app-header--with-nav .brand-logo {
+    width: clamp(82px, 16vw, 112px);
+  }
+
+  .app-header--with-nav .app-nav {
+    display: flex;
+    flex: 1 1 auto;
+    justify-content: flex-start; /* 모바일에서도 버튼들을 조금 왼쪽으로 */
+    align-items: center;
+    width: auto;
+    min-width: 0;
+    margin-left: 18px;
+    padding: 0;
+    gap: clamp(5px, 1.25vw, 9px);
+    overflow-x: auto; /* 아주 좁은 화면에서 관리자 메뉴까지 접근 가능 */
+    scrollbar-width: none;
+  }
+
+  .app-header--with-nav .app-nav::-webkit-scrollbar { display: none; }
+
+  .app-header--with-nav .app-nav button {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    padding: 9px clamp(6px, 1.5vw, 11px);
+    font-size: clamp(11px, 1.8vw, 13px);
+    line-height: 1.25;
+    min-height: 40px;
+    text-align: center;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+
+  .app-header--with-nav .profile-container {
+    flex: 0 0 auto;
+    justify-self: auto;
+    margin-left: 0;
+    gap: 10px;
+  }
+}
+
+@media (max-width: 580px) {
+  .app-header--with-nav .app-header-inner { gap: 5px; }
+  .app-header--with-nav .brand-logo { width: clamp(78px, 22vw, 98px); }
+  .app-header--with-nav .app-nav { gap: 12px; }
+  .app-header--with-nav .app-nav button { padding: 10px 7px; font-size: 12px; }
+  .app-header--with-nav .profile-container { gap: 0; }
+  .app-header--with-nav .profile-avatar { width: 36px; height: 36px; }
+}
+
+@media (max-width: 360px) {
+  /* 최소 폭에서는 로고와 버튼을 소폭 축소해 한 줄 유지 */
+  .app-header--with-nav .brand-logo { width: 72px; }
+  .app-header--with-nav .app-nav { gap: 3px; }
+  .app-header--with-nav .app-nav button { font-size: 11px; padding: 8px 4px; }
+}
+
+/* ============================================================
+   2026-11-17 | 게시판 UI 마무리: PlayMate 블루 일관성
+   - 사용자가 보내준 CSS를 기준으로 덮어쓰는 선택적 스타일
+   - 게시판 사이드바/상세/작성 및 공통 작성 버튼만 수정
+   - 다른 화면의 동작, 데이터/API, 헤더 레이아웃 유지
+   ============================================================ */
+:root {
+  --pm-action-blue: #4e84c7;
+  --pm-action-blue-hover: #3975b7;
+  --pm-action-blue-soft: #eaf3ff;
+  --pm-action-blue-border: #d4e5f8;
+}
+
+/* 01. 사이드바의 주요 게시판 / 내 과정 / 일반 게시판 분류 제목 강조 */
+.board-shell .board-sidebar.board-directory .board-directory-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding-left: 10px;
+  border-left: 3px solid #86b5e9;
+  color: #294965;
+  font-size: 15px;
+  font-weight: 850;
+  line-height: 1.45;
+  letter-spacing: -.25px;
+}
+.board-shell .board-sidebar.board-directory .board-directory-label small {
+  margin-left: 5px;
+  color: #8a9eb8;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+/* 02. 사이드바의 접기 / 펼치기 / 전체 보기 / 간략히 보기 블루톤 통일 */
+.board-shell .board-sidebar.board-directory .board-directory-collapse,
+.board-shell .board-sidebar.board-directory .board-directory-more {
+  border: 0;
+  background: transparent;
+  color: #4b80bd;
+  font-size: 12px;
+  font-weight: 780;
+  box-shadow: none;
+}
+.board-shell .board-sidebar.board-directory .board-directory-collapse:hover:not(:disabled),
+.board-shell .board-sidebar.board-directory .board-directory-more:hover:not(:disabled) {
+  background: #edf5ff;
+  color: #2d6eae;
+}
+.board-shell .board-sidebar.board-directory .board-directory-search {
+  border-color: #d9e7f7;
+  background: #fbfdff;
+}
+.board-shell .board-sidebar.board-directory .board-directory-search > span {
+  color: #759dc8;
+}
+.board-shell .board-sidebar.board-directory .board-directory-search input {
+  color: #29415d;
+}
+.board-shell .board-sidebar.board-directory .board-directory-search input::placeholder {
+  color: #98aabe;
+}
+.board-shell .board-sidebar.board-directory .board-directory-search:focus-within {
+  border-color: #8fb9e9;
+  box-shadow: 0 0 0 3px rgba(115, 172, 232, .12);
+}
+.board-shell .board-sidebar.board-directory .board-directory-more {
+  margin-top: 4px;
+  border-radius: 10px;
+}
+
+/* 03. 게시판 상세: 좋아요/스크랩의 활성 상태를 포함한 남은 라벤더 색상 */
+.board-shell.pm-board-detail-page .pm-board-detail-card .post-reactions .button {
+  border: 1px solid #e1eaf6;
+  border-radius: 999px;
+  background: #f4f7fc;
+  background-image: none;
+  color: #486783;
+  box-shadow: none;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .post-reactions .button:hover:not(:disabled) {
+  background: #e9f3ff;
+  border-color: #c8def6;
+  color: #3477b8;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .post-reactions .button[aria-pressed="true"] {
+  background: #e4f0ff;
+  border-color: #c4dff9;
+  color: #3175bc;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .comment-avatar:not(.has-photo) {
+  background: #548dc9;
+  color: #fff;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .comment-actions > button {
+  color: #6585a8;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .comment-actions > button:hover:not(:disabled) {
+  color: #3477b8;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .owner-actions button:not(.delete) {
+  background: #eff6ff;
+  color: #4b79ad;
+  border-color: #e0ebfa;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .owner-actions button:hover:not(:disabled) {
+  filter: brightness(.97);
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .inline-edit > button {
+  border: 1px solid #dce8f7;
+  border-radius: 10px;
+  background: #edf5ff;
+  color: #4778aa;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .inline-edit textarea {
+  border-color: #dce8f7;
+}
+
+/* 신고 버튼/폼: 이전 라벤더 스타일보다 높은 선택자로 확실히 덮어쓰기 */
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-area {
+  border-bottom-color: #e9f0f9;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-area > button {
+  border: 1px solid #dce9f9;
+  background: #f0f6ff;
+  color: #4d7baa;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-area > button:hover:not(:disabled) {
+  border-color: #bcd7f4;
+  background: #e7f1ff;
+  color: #2f70b3;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-area .board-report-form {
+  border-color: #dce9f9;
+  background: #fcfdff;
+  box-shadow: 0 6px 18px rgba(37, 92, 154, .05);
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-form label {
+  color: #344e68;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-form select,
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-form textarea {
+  border-color: #dce9f9;
+  background-color: #fff;
+  color: #344e68;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-form select:focus,
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-form textarea:focus {
+  border-color: #8ab6e9;
+  box-shadow: 0 0 0 3px rgba(106, 168, 232, .13);
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-form > button[type="submit"] {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--pm-action-blue);
+  background-image: none;
+  color: #fff;
+  box-shadow: none;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-report-form > button[type="submit"]:hover:not(:disabled) {
+  background: var(--pm-action-blue-hover);
+}
+
+/* 댓글 입력창과 익명 선택: 블루 톤, 댓글 작성 버튼은 살짝 아래로 */
+.board-shell.pm-board-detail-page .pm-board-detail-card .comment-form .board-comment-input {
+  border-color: #dfe9f7;
+  box-shadow: none;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .comment-form .board-comment-input:focus-within {
+  border-color: #8dbbe9;
+  box-shadow: 0 0 0 3px rgba(93, 153, 218, .12);
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .comment-form .board-comment-input textarea {
+  border-bottom-color: #e7eef9;
+  color: #2f445e;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-anonymous-option {
+  color: #637f9d;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .board-anonymous-option input[type="checkbox"],
+.board-shell.pm-board-detail-page .pm-board-editor-card .board-anonymous-option input[type="checkbox"] {
+  accent-color: var(--pm-action-blue);
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card > .comments > .comment-form {
+  margin-top: 18px;
+  gap: 10px;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .comments .comment-form > button.button.mint {
+  align-self: flex-end;
+  margin-top: 8px;
+  min-width: 112px;
+  padding: 10px 20px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--pm-action-blue);
+  background-image: none;
+  color: #fff;
+  box-shadow: none;
+}
+.board-shell.pm-board-detail-page .pm-board-detail-card .comments .comment-form > button.button.mint:hover:not(:disabled) {
+  background: var(--pm-action-blue-hover);
+}
+/* 댓글 버튼 아래쪽만 큰 공백을 없애며 폼/댓글의 기능은 유지 */
+.board-shell.pm-board-detail-page .pm-board-detail-card:not(.pm-board-editor-card) {
+  padding-bottom: 18px;
+}
+
+/* 04~05. 글쓰기/수정 화면의 예전 입력창·배지·익명 안내 색상 통일 */
+.board-shell.pm-board-editor-page .pm-board-editor-card .editor-heading {
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.board-shell.pm-board-editor-page .pm-board-editor-card .editor-heading p {
+  margin-top: 8px;
+  color: #8296ad;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.board-shell.pm-board-editor-page .pm-board-editor-card .anonymous-chip {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid #d8e7f9;
+  border-radius: 999px;
+  background: #f3f8ff;
+  color: #4a80bb;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.board-shell.pm-board-editor-page .pm-board-editor-card .editor-card label {
+  color: #2b435b;
+}
+.board-shell.pm-board-editor-page .pm-board-editor-card .editor-card input:not([type="file"]):not([type="checkbox"]),
+.board-shell.pm-board-editor-page .pm-board-editor-card .editor-card textarea {
+  box-sizing: border-box;
+  border: 1px solid #dce8f7;
+  border-radius: 12px;
+  background: #fbfdff;
+  color: #2c425a;
+  box-shadow: none;
+}
+.board-shell.pm-board-editor-page .pm-board-editor-card .editor-card input:not([type="file"]):not([type="checkbox"]):focus,
+.board-shell.pm-board-editor-page .pm-board-editor-card .editor-card textarea:focus {
+  outline: none;
+  border-color: #8fb8e6;
+  box-shadow: 0 0 0 3px rgba(108, 163, 227, .13);
+}
+.board-shell.pm-board-editor-page .pm-board-editor-card .upload-box {
+  border-color: #c9dff7;
+  background: #fcfdff;
+  color: #6889ac;
+}
+.board-shell.pm-board-editor-page .pm-board-editor-card .upload-box:hover {
+  border-color: #99c0ec;
+  background: #f7fbff;
+}
+.board-shell.pm-board-editor-page .pm-board-editor-card .privacy-note {
+  color: #788da4;
+  background: #f2f7ff;
+  border-radius: 11px;
+}
+.board-shell.pm-board-editor-page .pm-board-editor-card .form-actions .button.ghost {
+  background: #f0f3f8;
+  color: #596d82;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.board-shell.pm-board-editor-page .pm-board-editor-card .form-actions .button.ghost:hover:not(:disabled) {
+  background: #e7edf6;
+}
+
+/* 06. 모든 페이지의 동일 유형 글쓰기/등록 CTA는 동일한 단색 브랜드 블루 */
+.board-shell .pm-board-feed .button.mint.write,
+.board-shell.pm-board-editor-page .pm-board-editor-card .form-actions .button.purple,
+.meetup-page .meetup-write-button,
+.meetup-editor-page .meetup-form-actions .primary,
+.career-page .career-write-btn {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--pm-action-blue);
+  background-image: none;
+  color: #fff;
+  box-shadow: none;
+  font-weight: 800;
+}
+.board-shell .pm-board-feed .button.mint.write:hover:not(:disabled),
+.board-shell.pm-board-editor-page .pm-board-editor-card .form-actions .button.purple:hover:not(:disabled),
+.meetup-page .meetup-write-button:hover:not(:disabled),
+.meetup-editor-page .meetup-form-actions .primary:hover:not(:disabled),
+.career-page .career-write-btn:hover:not(:disabled) {
+  background: var(--pm-action-blue-hover);
+  background-image: none;
+  color: #fff;
+  box-shadow: none;
+}
+
+@media (max-width: 580px) {
+  .board-shell .board-sidebar.board-directory .board-directory-label {
+    font-size: 14px;
+  }
+  .board-shell.pm-board-editor-page .pm-board-editor-card .editor-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .board-shell.pm-board-editor-page .pm-board-editor-card .anonymous-chip {
+    font-size: 11px;
+  }
+  .board-shell.pm-board-detail-page .pm-board-detail-card:not(.pm-board-editor-card) {
+    padding-bottom: 18px;
+  }
+}
+
+

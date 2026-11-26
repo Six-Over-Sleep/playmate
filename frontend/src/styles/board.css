@@ -1,0 +1,626 @@
+/* 게시판 상단 "지금 가장 인기 있는 이야기!" 배너만 숨김. */
+.board-shell.pm-board-dashboard .pm-board-banner {
+  display: none;
+}
+
+
+/* 게시판 상세/작성/수정: 목록과 동일한 1200px 그리드·사이드바 유지 */
+.board-shell.pm-board-detail-page .board-grid {
+  grid-template-columns: 225px minmax(0, 1fr);
+  gap: 19px;
+  align-items: start;
+}
+
+.board-shell.pm-board-detail-page .pm-board-content {
+  min-width: 0;
+  display: block;
+}
+
+.board-shell.pm-board-detail-page .pm-board-detail-card {
+  min-width: 0;
+  width: 100%;
+  padding: 28px 30px 32px;
+  background: #fff;
+  border: 1px solid #dbe8f8;
+  border-radius: 20px;
+  box-shadow: var(--pm-shadow);
+}
+
+.pm-board-detail-card .back-link {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 0;
+  color: #6687aa;
+  font-size: 13px;
+  font-weight: 700;
+}
+.pm-board-detail-card .back-link:hover { color: #3478c7; }
+.pm-board-detail-card .detail-head {
+  padding-bottom: 21px;
+  border-bottom: 1px solid #e6eef8;
+}
+.pm-board-detail-card .detail-head h1 {
+  margin: 0 0 13px;
+  color: var(--pm-ink);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.pm-board-detail-card .detail-head p { flex-wrap: wrap; color: #7e93aa; }
+.pm-board-detail-card .post-body {
+  min-height: 150px;
+  padding: 28px 0;
+  color: #25364a;
+  font-size: 15px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+  border-bottom: 0;
+}
+.pm-board-detail-card .post-images { padding: 0 0 22px; }
+.pm-board-detail-card .post-images img { max-width: 100%; }
+.pm-board-detail-card .post-reactions { border-color: #e6eef8; }
+.pm-board-detail-card .comments h2 { color: var(--pm-ink); }
+.pm-board-detail-card .owner-actions { flex-wrap: wrap; }
+
+.pm-board-editor-card .editor-heading {
+  margin-bottom: 22px;
+  gap: 12px;
+}
+.pm-board-editor-card .editor-heading h1 {
+  margin: 0 0 8px;
+  color: var(--pm-ink);
+  font-size: 25px;
+}
+.pm-board-editor-card .editor-card { padding: 0; border: 0; box-shadow: none; }
+
+@media (max-width: 880px) {
+  .board-shell.pm-board-detail-page .board-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 580px) {
+  .board-shell.pm-board-detail-page .pm-board-detail-card { padding: 20px 16px 24px; }
+  .pm-board-detail-card .detail-title-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .pm-board-detail-card .detail-head h1 { font-size: 21px; }
+  .pm-board-detail-card .post-images { grid-template-columns: 1fr; }
+  .pm-board-editor-card .editor-heading { flex-wrap: wrap; }
+}
+
+/* 게시판 홈: 공지사항을 최상단에, HOT/명예의 전당을 나란히 배치합니다. */
+.board-shell.pm-board-dashboard .pm-board-content {
+  gap: 16px;
+}
+.board-shell.pm-board-dashboard .pm-board-notice {
+  padding: 17px 23px;
+}
+.pm-board-notice .pm-board-highlight-heading { margin-bottom: 6px; }
+.pm-board-notice-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.pm-board-notice-list li + li { border-top: 1px solid #edf2fa; }
+.pm-board-notice-list li button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 2px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: #31445e;
+}
+.pm-board-notice-list li button:hover strong { color: var(--pm-blue-strong); }
+.pm-board-notice-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: #80aee3;
+}
+.pm-board-notice-list strong {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  font-weight: 650;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pm-board-notice-date {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #90a0b5;
+  font-variant-numeric: tabular-nums;
+}
+.board-shell.pm-board-dashboard .pm-board-highlights {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.board-shell.pm-board-dashboard .pm-board-highlights > .pm-board-highlight-card {
+  min-height: 190px;
+}
+.pm-board-preview-list--hall .pm-board-preview-rank {
+  background: #fff4e0;
+  color: #a77a32;
+}
+
+/* 게시글 검색창: 겉 박스와 입력칸을 한 톤의 하늘색으로 통일. */
+.board-shell.pm-board-dashboard .pm-board-feed .search-box {
+  background: #edf6ff;
+  border-color: #d8e8fa;
+}
+.board-shell.pm-board-dashboard .pm-board-feed .search-box input,
+.board-shell.pm-board-dashboard .pm-board-feed .search-box button {
+  background: transparent;
+  box-shadow: none;
+}
+.board-shell.pm-board-dashboard .pm-board-feed .search-box input {
+  color: #263f5a;
+}
+.board-shell.pm-board-dashboard .pm-board-feed .search-box:focus-within {
+  border-color: #8eb9e8;
+}
+
+@media (max-width: 880px) {
+  .board-shell.pm-board-dashboard .pm-board-highlights {
+    grid-template-columns: 1fr;
+  }
+  .board-shell.pm-board-dashboard .pm-board-highlights > .pm-board-highlight-card {
+    min-height: 0;
+  }
+}
+@media (max-width: 580px) {
+  .board-shell.pm-board-dashboard .pm-board-notice { padding: 16px; }
+  .pm-board-notice-list li button { padding: 10px 0; }
+  .pm-board-notice-list strong { font-size: 12px; }
+}
+
+
+/* ============================================================
+   2026-11-17 게시판 사이드바 정리 + 전체 페이지 드롭다운 통일
+   기존 로직, API, 페이지 레이아웃은 유지한다.
+   ============================================================ */
+
+/* 주요 게시판 / 내 과정 / 일반 게시판 제목을 같은 기준선으로 정렬 */
+.board-sidebar.board-directory .board-directory-label {
+  padding-left: 8px;
+  line-height: 1.45;
+}
+.board-sidebar.board-directory .board-directory-group {
+  gap: 10px;
+}
+.board-sidebar.board-directory .board-directory-own-course {
+  border-top: 1px solid #ecf2fa;
+  padding-top: 16px;
+}
+.board-sidebar.board-directory .board-directory-general {
+  border-top: 1px solid #ecf2fa;
+  padding-top: 16px;
+}
+.board-sidebar.board-directory .board-directory-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 11px 12px;
+}
+.board-sidebar.board-directory .board-directory-item-icon {
+  flex: 0 0 20px;
+  width: 20px;
+  text-align: center;
+  font-size: 17px;
+  line-height: 1.15;
+}
+.board-sidebar.board-directory .board-directory-item-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 닫힌 선택창: 모든 페이지에서 일정한 곡률, 여백, 화살표 간격을 사용 */
+select:not([multiple]):not([size]) {
+  box-sizing: border-box;
+  min-height: 42px;
+  padding: 9px 38px 9px 14px;
+  border: 1px solid #dbe8f8;
+  border-radius: 12px;
+  background-color: #f8fbff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235c7796' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+  background-position: right 16px center;
+  color: #37536f;
+  font-size: 13px;
+  font-weight: 650;
+  font-family: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', sans-serif;
+  line-height: 1.35;
+  text-align: left;
+  text-align-last: left;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+select:not([multiple]):not([size]):hover:not(:disabled) {
+  border-color: #b6cfed;
+  background-color: #f1f7ff;
+}
+select:not([multiple]):not([size]):focus-visible {
+  outline: none;
+  border-color: #8eafe0;
+  box-shadow: 0 0 0 3px rgba(110, 157, 222, .18);
+}
+select:not([multiple]):not([size]):disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+/* 게시판 최신순/오래된순: 글자를 왼쪽에, 화살표는 오른쪽에서 16px 안쪽 */
+.board-shell.pm-board-dashboard .pm-board-feed select.sort-pill,
+.board-shell.pm-board-detail-page select.sort-pill {
+  flex: 0 0 140px;
+  width: 140px;
+  min-width: 140px;
+  height: 46px;
+  min-height: 46px;
+  padding: 0 38px 0 16px;
+  border-radius: 12px;
+  background-color: #f8fbff;
+  background-position: right 16px center;
+  font-size: 13px;
+  text-align: left;
+  text-align-last: left;
+}
+
+/* Chrome/Edge 등 지원 브라우저에선 펼쳐진 목록도 카드형으로 표시.
+   미지원 브라우저에서는 기존 네이티브 드롭다운 기능을 그대로 사용. */
+/* 안정성: Chrome base-select/::picker 기능을 사용하지 않고 모든 페이지의
+   드롭다운을 일관된 일반 select로 유지합니다. 닫힌 상태의 커스텀 화살표는 유지. */
+
+
+@media (max-width: 580px) {
+  .board-shell.pm-board-dashboard .pm-board-feed select.sort-pill {
+    flex-basis: 112px;
+    min-width: 112px;
+    width: 112px;
+    padding-left: 11px;
+    background-position: right 10px center;
+  }
+}
+
+
+/* 게시글 상세 조회 중에도 게시판 레이아웃을 유지하고 오른쪽 카드 내부에만 로딩 표시 */
+.board-shell.pm-board-loading-page .pm-board-loading-card {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: #7f94ac;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pm-board-loading-spinner {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border: 3px solid #e4eefb;
+  border-top-color: #639bd8;
+  border-radius: 50%;
+  animation: pm-board-loading-spin .8s linear infinite;
+}
+
+@keyframes pm-board-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-board-loading-spinner { animation: none; }
+}
+
+@media (max-width: 580px) {
+  .board-shell.pm-board-loading-page .pm-board-loading-card { min-height: 230px; }
+}
+
+
+/* 모임 페이지: 카드 테두리보다 살짝 왼쪽으로 튀어나와 보이는 제목 정렬 보정 */
+.pm-meetup-title,
+.pm-meetup-section-head {
+  padding-left: 8px;
+}
+
+@media (max-width: 580px) {
+  .pm-meetup-title,
+  .pm-meetup-section-head { padding-left: 6px; }
+}
+
+/* 공지사항 전용 Markdown 스타일 */
+.post-body.notice-markdown {
+  white-space: normal;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+
+.notice-markdown h1 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  margin: 1.5rem 0 0.9rem;
+}
+
+.notice-markdown h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.75rem;
+}
+
+.notice-markdown p {
+  margin: 0.8rem 0;
+}
+
+.notice-markdown ul,
+.notice-markdown ol {
+  padding-left: 1.8rem;
+  margin: 1rem 0;
+}
+
+.notice-markdown li {
+  margin-bottom: 0.4rem;
+}
+
+.notice-markdown blockquote {
+  padding: 0.8rem 1rem;
+  margin: 1rem 0;
+  border-left: 4px solid #7251bd;
+  background: #f4f0fc;
+  border-radius: 0 8px 8px 0;
+}
+
+.notice-markdown a {
+  color: #6545b5;
+  text-decoration: underline;
+}
+
+.notice-markdown pre {
+  padding: 1rem;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: #22202d;
+  color: #f7f6fb;
+}
+
+.notice-markdown :not(pre) > code {
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  background: #f0edf7;
+}
+
+.notice-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.notice-markdown th,
+.notice-markdown td {
+  padding: 0.7rem;
+  border: 1px solid #ddd7ec;
+}
+
+.notice-markdown th {
+  background: #f4f0fc;
+}
+
+/* ============================================================
+   게시판 생성 모달 — 2026 PlayMate 블루/쿨그레이 리디자인
+   기존 공용 .modal 규칙은 유지하고 생성 모달에만 적용합니다.
+   ============================================================ */
+.board-create-backdrop {
+  z-index: 1000;
+  padding: 22px;
+  background: rgba(19, 32, 51, .48);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  overflow-y: auto;
+}
+
+.modal.board-create-modal {
+  position: relative;
+  box-sizing: border-box;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 44px);
+  max-height: calc(100dvh - 44px);
+  overflow-y: auto;
+  margin: auto;
+  padding: 34px 36px 30px;
+  border: 1px solid #e2eaf5;
+  border-radius: 24px;
+  background: #fff;
+  color: var(--pm-ink, #172231);
+  box-shadow: 0 26px 76px rgba(17, 36, 61, .22);
+  scrollbar-width: thin;
+}
+
+.board-create-modal h2 {
+  max-width: calc(100% - 54px);
+  margin: 0;
+  color: var(--pm-ink, #172231);
+  font-size: 25px;
+  font-weight: 800;
+  line-height: 1.4;
+  letter-spacing: -.7px;
+}
+
+.modal.board-create-modal > p {
+  margin: 8px 0 26px;
+  color: #75879e;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.board-create-modal .modal-close {
+  position: absolute;
+  top: 28px;
+  right: 30px;
+  display: grid;
+  place-items: center;
+  float: none;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid #e8eef6;
+  border-radius: 12px;
+  background: #f5f8fc;
+  color: #7b8da4;
+  font-size: 26px;
+  line-height: 1;
+  transition: background-color .16s ease, color .16s ease;
+}
+.board-create-modal .modal-close:hover:not(:disabled) {
+  background: #e9f2fc;
+  color: #345d8c;
+}
+
+.modal.board-create-modal form {
+  display: grid;
+  gap: 18px;
+}
+
+.modal.board-create-modal form > label {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #2b415a;
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.5;
+}
+
+.modal.board-create-modal form > label > input,
+.modal.board-create-modal form > label > textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 15px;
+  border: 1px solid #dce6f2;
+  border-radius: 12px;
+  outline: none;
+  background: #f9fbff;
+  color: #253a52;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.55;
+  box-shadow: none;
+  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+.modal.board-create-modal form > label > input { min-height: 46px; }
+.modal.board-create-modal form > label > textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.modal.board-create-modal form > label > input::placeholder,
+.modal.board-create-modal form > label > textarea::placeholder {
+  color: #9aa9ba;
+  font-weight: 400;
+}
+.modal.board-create-modal form > label > input:focus,
+.modal.board-create-modal form > label > textarea:focus {
+  border-color: #76a8de;
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(93, 154, 222, .15);
+}
+.modal.board-create-modal form > label > input:disabled,
+.modal.board-create-modal form > label > textarea:disabled {
+  background: #f2f5f9;
+  cursor: not-allowed;
+}
+.modal.board-create-modal form > label > small {
+  margin-top: -2px;
+  color: #8798ac;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+.board-create-modal .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 20px;
+  border-top: 1px solid #edf2f8;
+}
+.board-create-modal .modal-actions .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 92px;
+  min-height: 44px;
+  padding: 10px 20px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 750;
+  transition: background-color .16s ease, box-shadow .16s ease;
+}
+.board-create-modal .modal-actions .button.ghost {
+  border-color: #e4eaf3;
+  background: #f4f7fb;
+  color: #536a83;
+}
+.board-create-modal .modal-actions .button.ghost:hover:not(:disabled) {
+  background: #e9eff7;
+}
+.board-create-modal .modal-actions .button.mint {
+  background: linear-gradient(115deg, #5b99df, #397bc8);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(63, 126, 198, .15);
+}
+.board-create-modal .modal-actions .button.mint:hover:not(:disabled) {
+  background: linear-gradient(115deg, #4b8ad2, #2c6cb9);
+  box-shadow: 0 6px 15px rgba(63, 126, 198, .22);
+}
+.board-create-modal .modal-actions .button:disabled {
+  opacity: .52;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+@media (max-width: 580px) {
+  .board-create-backdrop { padding: 12px; }
+  .modal.board-create-modal {
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 25px 20px 22px;
+    border-radius: 19px;
+  }
+  .board-create-modal h2 { font-size: 22px; }
+  .modal.board-create-modal > p {
+    margin: 7px 0 22px;
+    font-size: 13px;
+  }
+  .board-create-modal .modal-close { top: 20px; right: 18px; }
+  .modal.board-create-modal form { gap: 16px; }
+  .board-create-modal .modal-actions { margin-top: 2px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-create-modal .modal-close,
+  .board-create-modal .modal-actions .button,
+  .modal.board-create-modal form > label > input,
+  .modal.board-create-modal form > label > textarea { transition: none; }
+}

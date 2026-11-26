@@ -1,0 +1,1131 @@
+# PLAYMATE_ACTIVITY_V2
+
+# 마이페이지 API
+from app.core.db_connect import db_cursor, CommitOutcomeUnknownError
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
+
+from backend.app.core.auth import get_current_member_id
+from backend.app.schemas.mypage import MyProfileResponse, MyProfileUpdate
+from psycopg2.errors import UniqueViolation
+from fastapi import File, UploadFile
+from backend.app.core.uploads import save_profile_image
+
+from backend.app.schemas.mypage import MyLevelResponse
+from backend.app.services.xp_service import (
+    calculate_level,
+    level_progress,
+    read_level_thresholds,
+    read_xp_amount,
+)
+from backend.app.schemas.mypage import MyXPHistoryResponse
+from backend.app.services.xp_service import grant_xp
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from backend.app.schemas.mypage import MyAttendanceResponse
+from backend.app.schemas.mypage import MySkillResponse
+from backend.app.schemas.mypage import MySkillTopicResponse
+from backend.app.schemas.mypage import MySkillAccuracyResponse
+from backend.app.schemas.mypage import MyScrapPageResponse
+from backend.app.schemas.mypage import MyMeetupPageResponse
+from fastapi import Query
+from backend.app.schemas.mypage import MyPostPageResponse
+from backend.app.schemas.mypage import MyCommentPageResponse
+from backend.app.schemas.mypage import MyActivitySummaryResponse
+from backend.app.schemas.mypage import (
+    MyCareerSpecUpdate,
+    MyCareerSpecResponse,
+)
+from backend.app.schemas.mypage import MyCareerSpecVisibilityUpdate
+
+router = APIRouter(prefix="/mypage", tags=["마이페이지"])
+
+
+# =========================================================
+# 내 활동 대시보드 (로그인한 본인만 조회 가능)
+# =========================================================
+@router.get("/summary", response_model=MyActivitySummaryResponse)
+def get_my_activity_summary(
+    member_id: int = Depends(get_current_member_id),
+):
+    # 모든 집계는 세션의 member_id만 사용합니다.
+    # 게시글/댓글은 삭제된 항목을 제외하고, 모임장은 참여 모임에 포함합니다.
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT
+                (
+                    SELECT COUNT(*)::int
+                    FROM posts p
+                    WHERE p.author_member_id = m.member_id
+                      AND p.deleted_at IS NULL
+                ) AS posts_count,
+                (
+                    SELECT COUNT(*)::int
+                    FROM comments c
+                    JOIN posts p ON p.post_id = c.post_id
+                    WHERE c.author_member_id = m.member_id
+                      AND c.deleted_at IS NULL
+                      AND p.deleted_at IS NULL
+                ) AS comments_count,
+                (
+                    SELECT COUNT(*)::int
+                    FROM post_reactions AS l
+                    JOIN posts p ON p.post_id = l.post_id
+                    WHERE l.reaction_type = 'LIKE' AND p.author_member_id = m.member_id
+                      AND p.deleted_at IS NULL
+                ) AS received_likes_count,
+                (
+                    SELECT COUNT(*)::int
+                    FROM post_reactions AS s
+                    JOIN posts p ON p.post_id = s.post_id
+                    WHERE s.reaction_type = 'SCRAP' AND s.member_id = m.member_id
+                      AND p.deleted_at IS NULL
+                ) AS scraps_count,
+                (
+                    SELECT COUNT(*)::int
+                    FROM recruit_members rm
+                    JOIN recruits r ON r.recruit_id = rm.recruit_id
+                    JOIN posts p ON p.post_id = r.post_id
+                    WHERE rm.member_id = m.member_id
+                      AND rm.status = 'JOINED'
+                      AND p.deleted_at IS NULL
+                ) AS meetups_count,
+                COALESCE(lv.total_xp, 0)::int AS total_xp
+            FROM members m
+            LEFT JOIN member_levels lv ON lv.member_id = m.member_id
+            WHERE m.member_id = %s
+            """,
+            (member_id,),
+        )
+        summary = cursor.fetchone()
+        news_scraps_count = (
+            _count_news_scraps(cursor, member_id) if summary is not None else 0
+        )
+
+    if summary is None:
+        raise HTTPException(status_code=404, detail="회원 정보를 찾을 수 없습니다.")
+    # 스크랩 수 = 게시글 스크랩(위 집계) + 커리어 브리핑 뉴스 스크랩 (Issue #74, #58 협의)
+    return {**summary, "scraps_count": summary["scraps_count"] + news_scraps_count}
+
+
+def _count_news_scraps(cursor, member_id: int) -> int:
+    """회원의 커리어 브리핑 뉴스 스크랩 전체 수 (Issue #74).
+
+    뉴스 테이블(database/sql/017_career_news.sql)이 아직 없는 DB에서는 0으로 본다.
+    테이블 존재만 확인하며, 그 밖의 DB 오류는 숨기지 않고 그대로 올린다.
+    """
+    cursor.execute("SELECT to_regclass('career_news_scraps') IS NOT NULL AS has_table")
+    if not cursor.fetchone()["has_table"]:
+        return 0
+    cursor.execute(
+        "SELECT COUNT(*)::int AS news_scraps FROM career_news_scraps WHERE member_id = %s",
+        (member_id,),
+    )
+    return cursor.fetchone()["news_scraps"]
+
+
+# 내 프로필 조회
+@router.get("/profile", response_model=MyProfileResponse)
+def get_my_profile(
+    member_id: int = Depends(get_current_member_id)
+):
+    # 읽기 전용 DB 연결 풀을 재사용한다.
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT
+                member_id,
+                COALESCE(NULLIF(nickname, ''), '익명') AS nickname,
+                profile_image_url,
+                course,
+                cohort
+            FROM members
+            WHERE member_id = %s
+            """,
+            (member_id,),
+        )
+        profile = cursor.fetchone()
+
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail="회원 정보를 찾을 수 없습니다."
+        )
+
+    return profile
+
+
+# 내 프로필 닉네임 수정
+@router.patch("/profile", response_model=MyProfileResponse)
+def update_my_profile(
+    data: MyProfileUpdate,
+    member_id: int = Depends(get_current_member_id)
+):
+    try:
+        with db_cursor(commit=True) as cursor:
+            cursor.execute(
+                """
+                UPDATE members
+                SET nickname = %s
+                WHERE member_id = %s
+                RETURNING member_id, nickname, profile_image_url
+                """,
+                (data.nickname, member_id)
+            )
+
+            profile = cursor.fetchone()
+
+    except UniqueViolation as e:
+        if e.diag.constraint_name == "uq_members_nickname_normalized":
+            raise HTTPException(
+                status_code=409,
+                detail="이미 사용 중인 닉네임입니다."
+            ) from e
+        raise
+
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail="회원 정보를 찾을 수 없습니다."
+        )
+
+    return profile
+
+
+
+# 프로필 이미지 DB 갱신은 스레드풀에서 실행한다.
+def _update_profile_image_in_db(member_id: int, image_url: str):
+    with db_cursor(commit=True) as cursor:
+        cursor.execute(
+            """
+            UPDATE members
+            SET profile_image_url = %s
+            WHERE member_id = %s
+            RETURNING member_id, nickname, profile_image_url
+            """,
+            (image_url, member_id),
+        )
+        profile = cursor.fetchone()
+        if profile is None:
+            raise HTTPException(status_code=404, detail="회원 정보를 찾을 수 없습니다.")
+        return profile
+
+
+# 내 프로필 이미지 변경
+@router.post("/profile/image", response_model=MyProfileResponse)
+async def update_profile_image(
+    file: UploadFile = File(...),
+    member_id: int = Depends(get_current_member_id),
+):
+    # Discord avatar is authoritative; profile image uploads are disabled.
+    raise HTTPException(
+        status_code=403,
+        detail="프로필 사진은 Discord에서 변경해주세요.",
+    )
+
+
+# 내 종합 레벨 조회
+@router.get("/level", response_model=MyLevelResponse)
+def get_my_level(
+    member_id: int = Depends(get_current_member_id)
+):
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT COALESCE(l.total_xp, 0) AS total_xp
+            FROM members m
+            LEFT JOIN member_levels l
+                ON m.member_id = l.member_id
+            WHERE m.member_id = %s
+            """,
+            (member_id,)
+        )
+
+        result = cursor.fetchone()
+
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail="회원 정보를 찾을 수 없습니다."
+            )
+
+        # 레벨 기준은 level_policies(OVERALL)에서 읽음
+        thresholds = read_level_thresholds(cursor, "OVERALL")
+
+    total_xp = result["total_xp"]
+    return {"total_xp": total_xp, **level_progress(thresholds, total_xp)}
+
+
+# 내 경험치 획득 및 회수 내역 조회
+@router.get("/xp-history", response_model=list[MyXPHistoryResponse])
+def get_my_xp_history(
+    member_id: int = Depends(get_current_member_id)
+):
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT
+                history_id,
+                activity_type,
+                xp_change,
+                activity_date,
+                created_at
+            FROM member_xp_history
+            WHERE member_id = %s
+            ORDER BY created_at DESC, history_id DESC
+            LIMIT 30
+            """,
+            (member_id,)
+        )
+
+        history = cursor.fetchall()
+
+    return history
+
+
+# 일일 출석 체크
+@router.post("/attendance")
+def check_attendance(
+    member_id: int = Depends(get_current_member_id)
+):
+    return grant_xp(member_id, "ATTEND")
+
+
+# 내 출석 현황 조회
+@router.get("/attendance", response_model=MyAttendanceResponse)
+def get_my_attendance(
+    member_id: int = Depends(get_current_member_id)
+):
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            WITH RECURSIVE streak(day) AS (
+                SELECT max(activity_date)
+                FROM member_xp_history
+                WHERE member_id = %(member_id)s
+                  AND activity_type = 'ATTEND'
+                  AND xp_change > 0
+                  AND activity_date BETWEEN %(today)s - 1 AND %(today)s
+                UNION ALL
+                SELECT streak.day - 1 FROM streak
+                WHERE EXISTS (
+                    SELECT 1 FROM member_xp_history
+                    WHERE member_id = %(member_id)s
+                      AND activity_type = 'ATTEND'
+                      AND xp_change > 0
+                      AND activity_date = streak.day - 1
+                )
+            )
+            SELECT count(day) AS streak_days,
+                   COALESCE(bool_or(day = %(today)s), false) AS attended_today
+            FROM streak
+            """,
+            {"member_id": member_id, "today": today},
+        )
+        summary = cursor.fetchone()
+
+    attended_today = summary["attended_today"]
+    streak_days = summary["streak_days"]
+
+    return {
+        "attended_today": attended_today,
+        "streak_days": streak_days,
+        "achieved_7_days": streak_days >= 7,
+        "achieved_30_days": streak_days >= 30
+    }
+
+
+# 내 스킬 레벨 조회
+@router.get("/skills", response_model=list[MySkillResponse])
+def get_my_skills(
+    member_id: int = Depends(get_current_member_id)
+):
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            WITH skills(skill_code, skill_name) AS (
+                VALUES
+                    ('PYTHON', 'Python'),
+                    ('SQL', 'SQL'),
+                    ('GIT', 'Git/GitHub'),
+                    ('REACT', 'React'),
+                    ('LANGCHAIN', 'LangChain')
+            )
+            SELECT
+                s.skill_code,
+                s.skill_name,
+                COALESCE(l.level, 1) AS level,
+                COALESCE(l.total_xp, 0) AS total_xp
+            FROM members m
+            CROSS JOIN skills s
+            LEFT JOIN member_skill_levels l
+                ON l.member_id = m.member_id
+                AND l.skill_code = s.skill_code
+            WHERE m.member_id = %s
+            ORDER BY
+                CASE s.skill_code
+                    WHEN 'PYTHON' THEN 1
+                    WHEN 'SQL' THEN 2
+                    WHEN 'GIT' THEN 3
+                    WHEN 'REACT' THEN 4
+                    WHEN 'LANGCHAIN' THEN 5
+                END
+            """,
+            (member_id,)
+        )
+
+        skills = cursor.fetchall()
+
+        # 레벨 기준은 level_policies(SKILL)에서 읽음
+        thresholds = read_level_thresholds(cursor, "SKILL")
+
+    # 저장된 레벨 대신 누적 XP와 현재 기준으로 계산해 기준 변경 후에도 일치시킴
+    for skill in skills:
+        skill.update(level_progress(thresholds, skill["total_xp"]))
+
+    return skills
+
+
+# 내 스킬별 세부 학습 영역 조회
+@router.get("/skills/topics", response_model=list[MySkillTopicResponse])
+def get_my_skill_topics(
+    member_id: int = Depends(get_current_member_id)
+):
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT
+                skill_code,
+                topic_code,
+                COUNT(*)::INT AS solved_count,
+                SUM(xp_change)::INT AS earned_xp
+            FROM member_skill_xp_history
+            WHERE member_id = %s
+                AND xp_change > 0
+                AND topic_code IS NOT NULL
+                AND activity_type IN (
+                    'QUIZ', 'PRACTICE', 'ADVANCED'
+                )
+            GROUP BY skill_code, topic_code
+            ORDER BY skill_code, topic_code
+            """,
+            (member_id,)
+        )
+
+        topics = cursor.fetchall()
+
+    return topics
+
+
+
+# 내 스킬별 세부 학습 영역 정답률 조회
+@router.get(
+    "/skills/accuracy",
+    response_model=list[MySkillAccuracyResponse]
+)
+def get_my_skill_accuracy(
+    member_id: int = Depends(get_current_member_id)
+):
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT
+                skill_code,
+                topic_code,
+                COUNT(*)::INT AS total_attempts,
+                COUNT(*) FILTER (
+                    WHERE is_correct = TRUE
+                )::INT AS correct_count,
+                COUNT(*) FILTER (
+                    WHERE is_correct = FALSE
+                )::INT AS incorrect_count,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (
+                        WHERE is_correct = TRUE
+                    ) / COUNT(*),
+                    1
+                )::FLOAT AS accuracy_percent
+            FROM member_skill_attempts
+            WHERE member_id = %s
+            GROUP BY skill_code, topic_code
+            ORDER BY skill_code, topic_code
+            """,
+            (member_id,)
+        )
+
+        return cursor.fetchall()
+
+
+
+# 내가 작성한 게시글 조회 (페이지네이션)
+@router.get("/posts", response_model=MyPostPageResponse)
+def get_my_posts(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    member_id: int = Depends(get_current_member_id)
+):
+    offset = (page - 1) * page_size
+
+    with db_cursor(read_only=True) as cursor:
+
+        # 전체 게시글 수
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM posts
+            WHERE author_member_id = %s
+              AND deleted_at IS NULL
+            """,
+            (member_id,)
+        )
+
+        total = cursor.fetchone()["total"]
+
+        # 현재 페이지의 게시글 조회
+        cursor.execute(
+            """
+            SELECT
+                p.post_id,
+                p.board_id,
+                p.post_type,
+                (SELECT r.recruit_id FROM recruits r
+                 WHERE r.post_id = p.post_id LIMIT 1) AS recruit_id,
+                cp.category_code AS career_category,
+                CASE
+                    WHEN p.post_type = 'CAREER' THEN
+                        CASE cp.category_code
+                            WHEN 'reviews' THEN '취준도감'
+                            WHEN 'talk' THEN '커리어 톡톡'
+                            WHEN 'lounge' THEN '현직자 라운지'
+                            WHEN 'lab' THEN '커리어 연구소'
+                            ELSE '취업 게시글'
+                        END
+                    WHEN b.board_name IS NOT NULL THEN b.board_name
+                    WHEN p.post_type = 'RECRUIT' THEN '모임'
+                    ELSE '기타 게시글'
+                END AS board_name,
+                COALESCE(p.title, '제목 없음') AS title,
+                p.created_at::timestamptz AS created_at
+            FROM posts p
+            LEFT JOIN boards b
+                ON p.board_id = b.board_id
+            LEFT JOIN career cp
+                ON cp.post_id = p.post_id
+            WHERE p.author_member_id = %s
+              AND p.deleted_at IS NULL
+            ORDER BY
+                p.created_at DESC NULLS LAST,
+                p.post_id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (member_id, page_size, offset)
+        )
+
+        items = cursor.fetchall()
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size
+        }
+
+
+
+# 내가 작성한 댓글 및 대댓글 조회
+@router.get("/comments", response_model=MyCommentPageResponse)
+def get_my_comments(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    member_id: int = Depends(get_current_member_id)
+):
+    offset = (page - 1) * page_size
+
+    with db_cursor(read_only=True) as cursor:
+
+        # 전체 댓글 수
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM comments c
+            JOIN posts p ON c.post_id = p.post_id
+            WHERE c.author_member_id = %s
+              AND c.deleted_at IS NULL
+              AND p.deleted_at IS NULL
+            """,
+            (member_id,)
+        )
+        total = cursor.fetchone()["total"]
+
+        # 현재 페이지 댓글 조회
+        cursor.execute(
+            """
+            SELECT
+                c.comment_id,
+                c.post_id,
+                p.board_id,
+                (
+                    SELECT r.recruit_id
+                    FROM recruits r
+                    WHERE r.post_id = p.post_id
+                    LIMIT 1
+                ) AS recruit_id,
+                p.post_type,
+                cp.category_code AS career_category,
+                CASE
+                    WHEN p.post_type = 'CAREER' THEN
+                        CASE cp.category_code
+                            WHEN 'reviews' THEN '취준도감'
+                            WHEN 'talk' THEN '커리어 톡톡'
+                            WHEN 'lounge' THEN '현직자 라운지'
+                            WHEN 'lab' THEN '커리어 연구소'
+                            ELSE '취업 게시글'
+                        END
+                    WHEN p.post_type = 'RECRUIT' THEN '모임'
+                    ELSE COALESCE(b.board_name, '기타 게시글')
+                END AS board_name,
+                COALESCE(p.title, '제목 없음') AS post_title,
+                c.body,
+                c.parent_comment_id,
+                c.created_at::timestamptz AS created_at
+            FROM comments c
+            JOIN posts p ON c.post_id = p.post_id
+            LEFT JOIN boards b ON b.board_id = p.board_id
+            LEFT JOIN career cp
+                ON cp.post_id = p.post_id
+            WHERE c.author_member_id = %s
+              AND c.deleted_at IS NULL
+              AND p.deleted_at IS NULL
+            ORDER BY
+                c.created_at DESC NULLS LAST,
+                c.comment_id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (member_id, page_size, offset)
+        )
+
+        return {
+            "items": cursor.fetchall(),
+            "total": total,
+            "page": page,
+            "page_size": page_size
+        }
+
+
+# 내가 스크랩한 게시글 조회 (10개씩 서버 페이지네이션)
+@router.get("/scraps", response_model=MyScrapPageResponse)
+def get_my_scraps(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    member_id: int = Depends(get_current_member_id),
+):
+    offset = (page - 1) * page_size
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*)::int AS total
+            FROM post_reactions AS s
+            JOIN posts p ON s.post_id = p.post_id
+            WHERE s.reaction_type = 'SCRAP' AND s.member_id = %s
+              AND p.deleted_at IS NULL
+            """,
+            (member_id,),
+        )
+        total = cursor.fetchone()["total"]
+
+        cursor.execute(
+            """
+            SELECT
+                p.post_id,
+                p.board_id,
+                (SELECT r.recruit_id FROM recruits r
+                 WHERE r.post_id = p.post_id LIMIT 1) AS recruit_id,
+                p.post_type,
+                cp.category_code AS career_category,
+                CASE
+                    WHEN p.post_type = 'CAREER' THEN
+                        CASE cp.category_code
+                            WHEN 'reviews' THEN '취준도감'
+                            WHEN 'talk' THEN '커리어 톡톡'
+                            WHEN 'lounge' THEN '현직자 라운지'
+                            WHEN 'lab' THEN '커리어 연구소'
+                            ELSE '취업 게시글'
+                        END
+                    WHEN p.post_type = 'RECRUIT' THEN '모임'
+                    ELSE COALESCE(b.board_name, '기타 게시글')
+                END AS board_name,
+                COALESCE(p.title, '제목 없음') AS title,
+                s.created_at::timestamptz AS scrapped_at
+            FROM post_reactions AS s
+            JOIN posts p ON s.post_id = p.post_id
+            LEFT JOIN boards b ON b.board_id = p.board_id
+            LEFT JOIN career cp ON cp.post_id = p.post_id
+            WHERE s.reaction_type = 'SCRAP' AND s.member_id = %s
+              AND p.deleted_at IS NULL
+            ORDER BY s.created_at DESC, s.post_id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (member_id, page_size, offset),
+        )
+        return {
+            "items": cursor.fetchall(),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+
+# 내가 생성하거나 참여한 모임 조회 (10개씩 서버 페이지네이션)
+@router.get("/meetups", response_model=MyMeetupPageResponse)
+def get_my_meetups(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    member_id: int = Depends(get_current_member_id),
+):
+    offset = (page - 1) * page_size
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*)::int AS total
+            FROM recruit_members rm
+            JOIN recruits r ON rm.recruit_id = r.recruit_id
+            JOIN posts p ON r.post_id = p.post_id
+            WHERE rm.member_id = %s
+              AND rm.status = 'JOINED'
+              AND p.deleted_at IS NULL
+            """,
+            (member_id,),
+        )
+        total = cursor.fetchone()["total"]
+
+        cursor.execute(
+            """
+            SELECT
+                r.recruit_id,
+                r.post_id,
+                COALESCE(p.title, '제목 없음') AS title,
+                rm.role,
+                rm.status,
+                r.category,
+                r.recruit_mode,
+                r.state,
+                r.created_at::timestamptz AS created_at
+            FROM recruit_members rm
+            JOIN recruits r ON rm.recruit_id = r.recruit_id
+            JOIN posts p ON r.post_id = p.post_id
+            WHERE rm.member_id = %s
+              AND rm.status = 'JOINED'
+              AND p.deleted_at IS NULL
+            ORDER BY r.created_at DESC NULLS LAST, r.recruit_id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (member_id, page_size, offset),
+        )
+        return {
+            "items": cursor.fetchall(),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+
+# =========================================================
+# 취업 스펙 조회
+# GET /api/mypage/career-specs
+# =========================================================
+
+@router.get(
+    "/career-specs",
+    response_model=MyCareerSpecResponse | None,
+)
+def get_my_career_specs(
+    member_id: int = Depends(get_current_member_id),
+):
+    """로그인한 회원의 취업 스펙 조회"""
+
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT *
+            FROM member_career_specs
+            WHERE member_id = %s
+            """,
+            (member_id,),
+        )
+
+        return cursor.fetchone()
+
+
+# =========================================================
+# 취업 스펙 등록 및 수정
+# PUT /api/mypage/career-specs
+# =========================================================
+
+@router.put(
+    "/career-specs",
+    response_model=MyCareerSpecResponse,
+)
+def save_my_career_specs(
+    data: MyCareerSpecUpdate,
+    member_id: int = Depends(get_current_member_id),
+):
+    """취업 스펙 등록 또는 전체 수정"""
+
+    with db_cursor(commit=True) as cursor:
+        cursor.execute(
+            """
+            INSERT INTO member_career_specs (
+                member_id,
+                desired_job,
+                education,
+                certifications,
+                language_scores,
+                tech_stack,
+                projects,
+                introduction
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+
+            ON CONFLICT (member_id)
+            DO UPDATE SET
+                desired_job = EXCLUDED.desired_job,
+                education = EXCLUDED.education,
+                certifications = EXCLUDED.certifications,
+                language_scores = EXCLUDED.language_scores,
+                tech_stack = EXCLUDED.tech_stack,
+                projects = EXCLUDED.projects,
+                introduction = EXCLUDED.introduction,
+                updated_at = CURRENT_TIMESTAMP
+
+            RETURNING *
+            """,
+            (
+                member_id,
+                data.desired_job,
+                data.education,
+                data.certifications,
+                data.language_scores,
+                data.tech_stack,
+                data.projects,
+                data.introduction,
+            ),
+        )
+
+        return cursor.fetchone()
+
+
+# =========================================================
+# 취업 스펙 공개·비공개 설정
+# PATCH /api/mypage/career-specs/visibility
+# =========================================================
+
+@router.patch("/career-specs/visibility")
+def update_career_spec_visibility(
+    data: MyCareerSpecVisibilityUpdate,
+    member_id: int = Depends(get_current_member_id),
+):
+    """스펙 최초 공개 시 50XP 지급 (회원당 1회)"""
+
+    xp_awarded = 0
+
+    with db_cursor(commit=True) as cursor:
+
+        # 1. 내 스펙 조회 및 행 잠금
+        cursor.execute(
+            """
+            SELECT *
+            FROM member_career_specs
+            WHERE member_id = %s
+            FOR UPDATE
+            """,
+            (member_id,),
+        )
+
+        spec = cursor.fetchone()
+
+        if spec is None:
+            raise HTTPException(
+                status_code=404,
+                detail="먼저 취업 스펙을 등록해 주세요.",
+            )
+
+        # 2. 공개 시 기본 작성 조건 검사
+        if data.is_public:
+
+            has_details = any(
+                spec[field]
+                for field in (
+                    "education",
+                    "certifications",
+                    "language_scores",
+                    "tech_stack",
+                    "projects",
+                    "introduction",
+                )
+            )
+
+            if not spec["desired_job"] or not has_details:
+                raise HTTPException(
+                    status_code=400,
+                    detail="희망 직무와 추가 스펙 항목을 하나 이상 입력해 주세요.",
+                )
+
+        # 3. 최초 공개인지 확인
+        first_publish = (
+            data.is_public
+            and not spec["is_public"]
+            and spec["first_published_at"] is None
+        )
+
+        # 4. 공개 여부 변경
+        cursor.execute(
+            """
+            UPDATE member_career_specs
+            SET
+                is_public = %s,
+                first_published_at = CASE
+                    WHEN %s AND first_published_at IS NULL
+                    THEN CURRENT_TIMESTAMP
+                    ELSE first_published_at
+                END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE member_id = %s
+            RETURNING is_public, first_published_at
+            """,
+            (
+                data.is_public,
+                data.is_public,
+                member_id,
+            ),
+        )
+
+        updated = cursor.fetchone()
+
+        # 5. 최초 공개 시 XP 지급
+        if first_publish:
+
+            # 회원 레벨 행 생성
+            cursor.execute(
+                """
+                INSERT INTO member_levels (member_id)
+                VALUES (%s)
+                ON CONFLICT (member_id) DO NOTHING
+                """,
+                (member_id,),
+            )
+
+            # 현재 XP 조회 및 잠금
+            cursor.execute(
+                """
+                SELECT total_xp
+                FROM member_levels
+                WHERE member_id = %s
+                FOR UPDATE
+                """,
+                (member_id,),
+            )
+
+            total_xp = cursor.fetchone()["total_xp"]
+
+            # 최초 공개 보상 이력 저장 (지급량은 xp_award_policies 기준)
+            event_key = f"CAREER_SPEC_PUBLIC:{member_id}"
+            reward_xp = read_xp_amount(cursor, "CAREER_SPEC_PUBLIC")
+
+            today = datetime.now(
+                ZoneInfo("Asia/Seoul")
+            ).date()
+
+            cursor.execute(
+                """
+                INSERT INTO member_xp_history (
+                    member_id,
+                    activity_type,
+                    event_key,
+                    xp_change,
+                    activity_date
+                )
+                VALUES (
+                    %s,
+                    'CAREER_SPEC_PUBLIC',
+                    %s,
+                    %s,
+                    %s
+                )
+                ON CONFLICT (member_id, event_key)
+                DO NOTHING
+                RETURNING history_id
+                """,
+                (
+                    member_id,
+                    event_key,
+                    reward_xp,
+                    today,
+                ),
+            )
+
+            # 중복 지급이 아닌 경우에만 XP 반영
+            if cursor.fetchone() is not None:
+
+                new_total = total_xp + reward_xp
+
+                cursor.execute(
+                    """
+                    UPDATE member_levels
+                    SET
+                        total_xp = %s,
+                        level = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE member_id = %s
+                    """,
+                    (
+                        new_total,
+                        calculate_level(cursor, new_total),
+                        member_id,
+                    ),
+                )
+
+                xp_awarded = reward_xp
+
+    return {
+        "is_public": updated["is_public"],
+        "first_published_at": updated["first_published_at"],
+        "xp_awarded": xp_awarded,
+    }
+
+# =========================================================
+# 다른 회원의 공개 취업 스펙 조회
+# GET /api/mypage/career-specs/public/{target_member_id}
+# =========================================================
+
+@router.get("/career-specs/public/{target_member_id}")
+def get_public_career_specs(
+    target_member_id: int,
+    member_id: int = Depends(get_current_member_id),
+):
+    """로그인한 회원에게 공개된 취업 스펙만 보여준다.
+
+    비공개 스펙과 존재하지 않는 회원은 모두 404로 응답한다.
+    디스코드 식별자, 이메일, XP 및 내부 공개 이력은 반환하지 않는다.
+    """
+
+    if target_member_id < 1:
+        raise HTTPException(status_code=404, detail="공개된 취업 스펙이 없습니다.")
+
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT
+                m.member_id,
+                COALESCE(NULLIF(m.nickname, ''), '익명') AS nickname,
+                m.profile_image_url,
+                s.desired_job,
+                s.education,
+                s.certifications,
+                s.language_scores,
+                s.tech_stack,
+                s.projects,
+                s.introduction,
+                s.updated_at
+            FROM member_career_specs s
+            JOIN members m ON m.member_id = s.member_id
+            WHERE s.member_id = %s
+              AND s.is_public = TRUE
+            """,
+            (target_member_id,),
+        )
+        spec = cursor.fetchone()
+
+    if spec is None:
+        raise HTTPException(status_code=404, detail="공개된 취업 스펙이 없습니다.")
+
+    return spec
+
+
+# PLAYMATE_MYPAGE_DASHBOARD_LIKES_V1
+# 로그인한 회원이 좋아요를 누른 게시글 목록 (서버 페이지네이션)
+@router.get("/likes")
+def get_my_liked_posts_dashboard_v1(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    member_id: int = Depends(get_current_member_id),
+):
+    offset = (page - 1) * page_size
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*)::int AS total
+            FROM post_reactions AS l
+            JOIN posts p ON p.post_id = l.post_id
+            WHERE l.reaction_type = 'LIKE' AND l.member_id = %s AND p.deleted_at IS NULL
+            """,
+            (member_id,),
+        )
+        total = cursor.fetchone()["total"]
+        cursor.execute(
+            """
+            SELECT
+                p.post_id,
+                p.board_id,
+                p.post_type,
+                cp.category_code AS career_category,
+                r.recruit_id,
+                COALESCE(p.title, '제목 없음') AS title,
+                CASE
+                    WHEN p.post_type = 'CAREER' THEN
+                        CASE cp.category_code
+                            WHEN 'reviews' THEN '취준도감'
+                            WHEN 'talk' THEN '커리어 톡톡'
+                            WHEN 'lounge' THEN '현직자 라운지'
+                            WHEN 'lab' THEN '커리어 연구소'
+                            ELSE '취업 게시판'
+                        END
+                    WHEN p.post_type = 'RECRUIT' THEN '모임'
+                    ELSE COALESCE(b.board_name, '기타 게시판')
+                END AS board_name,
+                l.created_at::timestamptz AS liked_at
+            FROM post_reactions AS l
+            JOIN posts p ON p.post_id = l.post_id
+            LEFT JOIN career cp ON cp.post_id = p.post_id
+            LEFT JOIN recruits r ON r.post_id = p.post_id
+            LEFT JOIN boards b ON b.board_id = p.board_id
+            WHERE l.reaction_type = 'LIKE' AND l.member_id = %s AND p.deleted_at IS NULL
+            ORDER BY l.created_at DESC, p.post_id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (member_id, page_size, offset),
+        )
+        items = cursor.fetchall()
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+# PLAYMATE_MYPAGE_XP_PAGINATION_V3
+@router.get("/xp-history/paged")
+def get_my_xp_history_paged_v3(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=50),
+    member_id: int = Depends(get_current_member_id),
+):
+    offset = (page - 1) * page_size
+    with db_cursor(read_only=True) as cursor:
+        cursor.execute(
+            "SELECT COUNT(*)::int AS total FROM member_xp_history WHERE member_id = %s",
+            (member_id,),
+        )
+        total = cursor.fetchone()["total"]
+        cursor.execute(
+            """
+            SELECT history_id, activity_type, xp_change, activity_date, created_at
+            FROM member_xp_history
+            WHERE member_id = %s
+            ORDER BY created_at DESC, history_id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (member_id, page_size, offset),
+        )
+        items = cursor.fetchall()
+    return {"items": items, "total": total, "page": page, "page_size": page_size}

@@ -1,0 +1,155 @@
+// PLAYMATE_COMMENT_AVATAR_V1
+// PLAYMATE_COURSE_BOARD_PERMISSIONS_V1
+// PLAYMATE_COMMENT_ANON_EDIT_V2
+// PLAYMATE_BOARD_ANONYMOUS_V1
+import { useState } from 'react'
+import { useCommentEditor } from '../../hooks/board/useBoardForms'
+import { formatBoardDate } from '../../utils/board'
+import { canManageComment, canReplyTo } from '../../utils/commentReply'
+import CommentBodyText from '../comment/CommentBodyText'
+import CommentForm from './CommentForm'
+
+import { mediaUrl } from '../../services/boardApi'
+/**
+ * 댓글 한 개의 표시와 편집 UI. 서버가 내려준 is_owner로 기존 버튼 표시를 유지한다.
+ * 서버가 부모 → 대댓글 순서로 내려주므로 parent_comment_id가 있으면 들여쓰기만 한다.
+ * 원댓글·대댓글 모두에 답글을 달 수 있지만 서버가 원댓글 아래 2단계로 저장하므로 들여쓰기는 한 단계뿐이다.
+ * 답글 입력창은 목록 전체에서 하나만 열린다(대상을 바꾸면 새 대상으로 옮겨진다).
+ */
+/** 익명 댓글은 사진을 공개하지 않습니다. 이미지 실패 시 글자로 대체합니다. */
+function CommentAvatar({ comment }) {
+  const url = !comment.is_anonymous && !comment.is_deleted
+    ? comment.author_avatar_url
+    : null
+  const [failedUrl, setFailedUrl] = useState(null)
+  const showImage = Boolean(url) && failedUrl !== url
+
+  return (
+    <div className={`comment-avatar${showImage ? ' has-photo' : ''}`}>
+      {showImage ? (
+        <img
+          src={mediaUrl(url)}
+          alt=""
+          referrerPolicy="no-referrer"
+          onError={() => setFailedUrl(url)}
+        />
+      ) : (
+        comment.is_anonymous ? '익' : (comment.author_name?.charAt(0) || 'U')
+      )}
+    </div>
+  )
+}
+
+function Comment({ comment, busy, onEdit, onDelete, onReply, canReply, replying, onToggleReply }) {
+  const editor = useCommentEditor(comment, busy, onEdit)
+  const isReply = Boolean(comment.parent_comment_id)
+
+  /**
+   * 이 댓글을 직접 대상으로 답글을 보낸다(reply_to_comment_id). 원댓글은 서버가 계산한다.
+   * 성공 응답을 받았을 때만 입력창을 닫는다. 실패하면 초안이 남는다.
+   */
+  async function submitReply(body, _parentCommentId, isAnonymous = false) {
+    const result = await onReply(body, null, isAnonymous, comment.id)
+    if (result) onToggleReply(null)
+    return result
+  }
+
+  // 삭제된 부모 댓글은 살아 있는 대댓글이 있을 때만 서버가 자리표시로 내려준다.
+  if (comment.is_deleted) {
+    return (
+      <article className="comment deleted">
+        <div className="comment-avatar">-</div>
+        <div className="comment-content">
+          <p>삭제된 댓글입니다.</p>
+        </div>
+      </article>
+    )
+  }
+
+  return (
+    <article className={isReply ? 'comment reply' : 'comment'}>
+      <CommentAvatar comment={comment} />
+      <div className="comment-content">
+        <div>
+          <strong>{comment.author_name}</strong>
+          <time>{formatBoardDate(comment.created_at)}</time>
+        </div>
+        {editor.editing ? (
+          <div className="inline-edit">
+            <div className="board-comment-edit-fields">
+              <textarea
+                aria-label="댓글 수정 내용"
+                value={editor.body}
+                maxLength={2000}
+                disabled={busy}
+                onChange={(event) => editor.setBody(event.target.value)}
+              />
+              <label className="board-anonymous-option">
+                <input
+                  type="checkbox"
+                  checked={editor.isAnonymous}
+                  disabled={busy}
+                  onChange={(event) => editor.setIsAnonymous(event.target.checked)}
+                />
+                익명으로 표시
+              </label>
+            </div>
+            <button type="button" disabled={busy || !editor.body.trim()} onClick={editor.save}>저장</button>
+            <button type="button" disabled={busy} onClick={editor.cancelEditing}>취소</button>
+          </div>
+        ) : (
+          <p><CommentBodyText comment={comment} /></p>
+        )}
+        {!editor.editing && (
+          <div className="comment-actions">
+            {canReply && canReplyTo(comment) && (
+              <button disabled={busy} onClick={() => onToggleReply(replying ? null : comment.id)}>
+                {replying ? '답글 취소' : '답글'}
+              </button>
+            )}
+            {canReply && canManageComment(comment) && (
+              <div className="owner-actions">
+                <button disabled={busy} onClick={editor.startEditing}>수정</button>
+                <button disabled={busy} onClick={() => onDelete(comment.id)}>삭제</button>
+              </div>
+            )}
+          </div>
+        )}
+        {replying && (
+          <CommentForm
+            busy={busy}
+            onSubmit={submitReply}
+            placeholder={`${comment.author_name || '익명'}님에게 답글을 입력해주세요.`}
+            submitLabel="답글 작성"
+          />
+        )}
+      </div>
+    </article>
+  )
+}
+
+/** 서버의 댓글 순서와 id를 유지해 편집 중인 댓글의 상태가 다른 댓글로 이동하지 않게 한다. */
+export default function CommentList({ comments, busy, onEdit, onDelete, onReply, canReply = true }) {
+  // 답글 대상 댓글 id. 다른 댓글의 답글을 누르면 대상이 바뀌고, 취소·작성 성공 시 null로 초기화한다.
+  const [replyTargetId, setReplyTargetId] = useState(null)
+
+  if (!comments.length) return <p className="empty-state compact">첫 댓글을 남겨보세요.</p>
+
+  return (
+    <div>
+      {comments.map((comment) => (
+        <Comment
+          key={comment.id}
+          comment={comment}
+          busy={busy}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onReply={onReply}
+          canReply={canReply}
+          replying={replyTargetId === comment.id}
+          onToggleReply={setReplyTargetId}
+        />
+      ))}
+    </div>
+  )
+}

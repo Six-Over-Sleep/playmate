@@ -1,0 +1,1289 @@
+/* ============================================================
+   2026-11-17 | 취업 페이지 디자인 정리
+   - 중복되는 채용 인사이트 배너를 간결한 정보 행으로 축소
+   - 안내/빈 결과/뉴스 로딩을 흰색·아이스블루·중립 회색으로
+   - 취업 카테고리 목록, 상세 및 작성 컴포넌트의 이전 보라색 잔재 보정
+   - 네이티브 select 드롭다운을 사용하며 모든 페이지에 동일하게 적용
+   ============================================================ */
+:root {
+  --pm-career-ink: #253a54;
+  --pm-career-muted: #8195ac;
+  --pm-career-border: #dce8f8;
+  --pm-career-pale: #f2f7ff;
+  --pm-career-blue: #5781c4;
+}
+
+/* 1. 상단 '채용 인사이트' 중복 타이틀/큰 네이비 카드 정리.
+   카테고리 제목은 상위 .career-section-head에 이미 있으므로 중복해서 표시하지 않습니다.
+   '실제 수집 데이터 · JSON 미리보기' 인터랙션은 유지합니다. */
+.career-page .career-insights-v2 .career-ci-intro {
+  box-sizing: border-box;
+  min-height: 0;
+  padding: 17px 21px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  border: 1px solid var(--pm-career-border);
+  border-radius: 16px;
+  background: #f4f8ff;
+  background-image: none;
+  box-shadow: none;
+  color: var(--pm-career-ink);
+}
+.career-page .career-insights-v2 .career-ci-intro-kicker,
+.career-page .career-insights-v2 .career-ci-intro h3 {
+  display: none;
+}
+.career-page .career-insights-v2 .career-ci-intro p {
+  margin: 0;
+  color: #6e859d;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.career-page .career-insights-v2 .career-ci-demo-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid #cbdff7;
+  border-radius: 999px;
+  background: #fff;
+  color: #477bb9;
+  font-size: 12px;
+  font-weight: 730;
+  box-shadow: none;
+}
+.career-page .career-insights-v2 .career-ci-demo-label:hover {
+  background: #e7f2ff;
+  border-color: #adcdec;
+  color: #306cae;
+}
+
+/* 2. 조건 조회 결과가 없거나 데이터 로딩 중일 때의 보라색 안내 제거.
+   특정 컴포넌트에서 사용되는 상태 클래스만 한정합니다. */
+.career-page .career-insights-v2 :is(
+  .career-ci-availability, .career-ci-empty, .career-ci-no-results,
+  .career-ci-notice, .career-ci-message, .career-ci-error,
+  .career-ci-status, .career-ci-empty-state,
+  [class*="no-results"], [class*="no-data"]
+) {
+  border: 1px solid #e0e8f2;
+  border-radius: 13px;
+  background: #f4f6f9;
+  background-image: none;
+  color: #63778c;
+  box-shadow: none;
+}
+.career-page .career-insights-v2 :is(
+  .career-ci-availability, .career-ci-empty, .career-ci-no-results,
+  .career-ci-notice, .career-ci-message, .career-ci-error,
+  .career-ci-status, .career-ci-empty-state
+) :is(strong, span, p) {
+  color: inherit;
+}
+.career-page .career-insights-v2 .career-ci-source {
+  border-color: var(--pm-career-border);
+  background: #f7faff;
+  color: #627c97;
+}
+.career-page .career-insights-v2 .career-ci-filters {
+  border: 1px solid var(--pm-career-border);
+  background: #fff;
+  box-shadow: none;
+}
+.career-page .career-insights-v2 .career-ci-search-button {
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: var(--pm-action-blue, #5781c4);
+  background-image: none;
+  color: #fff;
+  box-shadow: none;
+}
+.career-page .career-insights-v2 .career-ci-search-button:hover:not(:disabled) {
+  background: var(--pm-action-blue-hover, #416fae);
+}
+.career-page .career-insights-v2 :is(.career-ci-reset-button, .career-ci-reset, .career-ci-clear) {
+  border: 1px solid #d6e5f7;
+  border-radius: 11px;
+  background: #fff;
+  color: #4e83bd;
+}
+
+/* 3. 취업 카테고리/상세/작성/뉴스에서 보라 계열의 안내와 선택색을 회색·블루로. */
+.career-page :is(
+  .career-review-notice, .career-talk-notice, .career-lounge-notice,
+  .career-lab-notice, .career-empty, .career-news-empty,
+  .career-news-loading, .career-briefing-loading,
+  .career-briefing-notice, .career-review-help,
+  .career-talk-help, .career-lounge-help, .career-lab-help
+) {
+  border-color: #e3eaf3;
+  background: #f5f7fa;
+  background-image: none;
+  color: #657b92;
+  box-shadow: none;
+}
+.career-page .career-empty {
+  border-radius: 15px;
+}
+.career-page .career-subnav button {
+  border-color: #dfe9f7;
+  background: #f5f9ff;
+  color: #607c9a;
+  box-shadow: none;
+}
+.career-page .career-subnav button.active {
+  background: #e5f1ff;
+  border-color: #c9def5;
+  color: #3978b8;
+  box-shadow: none;
+}
+.career-page .career-subnav button:hover:not(:disabled) {
+  border-color: #b9d5f2;
+  background: #eaf4ff;
+  color: #3577bc;
+}
+.career-page .career-board-toolbar :is(button, select) {
+  border-color: #dce7f7;
+  background-color: #f8fbff;
+  color: #3d5876;
+  box-shadow: none;
+}
+.career-page .career-board-toolbar :is(button, select):hover:not(:disabled) {
+  border-color: #bcd4f1;
+}
+.career-page .career-search {
+  border-color: #dce7f7;
+  background: #fff;
+  box-shadow: none;
+}
+.career-page .career-search input { color: #283e56; }
+.career-page .career-search input::placeholder { color: #9bacc1; }
+.career-page .career-search button {
+  background: transparent;
+  color: #4a80bc;
+  box-shadow: none;
+}
+.career-page .career-post-tag,
+.career-page .career-lab-state {
+  background: #eaf4ff;
+  border-color: #dbe9f9;
+  color: #427db7;
+}
+
+/* 각 카테고리별 게시글 상세에서 공통으로 사용할 컬러와 입력 필드.
+   상세 화면 레이아웃 및 글/댓글/좋아요 API 로직은 건드리지 않습니다. */
+.career-page :is(
+  .career-review-detail, .career-talk-detail, .career-lounge-detail,
+  .career-lab-detail, .career-news-detail,
+  .career-review-editor, .career-talk-editor,
+  .career-lounge-editor, .career-lab-editor
+) {
+  --career-primary: #5781c4;
+  --career-primary-light: #eaf4ff;
+  --career-border: #dce8f8;
+  --career-muted: #8195ac;
+  --career-accent: #427fc2;
+  color: var(--pm-career-ink);
+}
+.career-page :is(
+  .career-review-detail, .career-talk-detail, .career-lounge-detail,
+  .career-lab-detail, .career-news-detail,
+  .career-review-editor, .career-talk-editor,
+  .career-lounge-editor, .career-lab-editor
+) :is(input[type="text"],input[type="search"],input[type="number"],input[type="url"],textarea,select) {
+  box-sizing: border-box;
+  border-color: #dce8f7;
+  background-color: #fbfdff;
+  color: #283d56;
+  box-shadow: none;
+}
+.career-page :is(
+  .career-review-detail, .career-talk-detail, .career-lounge-detail,
+  .career-lab-detail, .career-news-detail,
+  .career-review-editor, .career-talk-editor,
+  .career-lounge-editor, .career-lab-editor
+) :is(input[type="text"],input[type="search"],textarea,select):focus {
+  border-color: #93bce8;
+  outline: 2px solid rgba(92, 157, 220, .15);
+  outline-offset: 0;
+  box-shadow: none;
+}
+.career-page :is(
+  .career-review-detail, .career-talk-detail, .career-lounge-detail,
+  .career-lab-detail, .career-review-editor, .career-talk-editor,
+  .career-lounge-editor, .career-lab-editor
+) :is(button[type="submit"],button[class*="submit"],button[class*="primary"],.button.primary) {
+  border-color: transparent;
+  border-radius: 11px;
+  background: var(--pm-action-blue, #5781c4);
+  background-image: none;
+  color: #fff;
+  box-shadow: none;
+}
+.career-page :is(
+  .career-review-detail, .career-talk-detail, .career-lounge-detail,
+  .career-lab-detail, .career-review-editor, .career-talk-editor,
+  .career-lounge-editor, .career-lab-editor
+) :is(button[type="submit"],button[class*="submit"],button[class*="primary"],.button.primary):hover:not(:disabled) {
+  background: var(--pm-action-blue-hover, #416fae);
+  color: #fff;
+}
+.career-page :is(
+  .career-review-detail, .career-talk-detail, .career-lounge-detail,
+  .career-lab-detail, .career-review-editor, .career-talk-editor,
+  .career-lounge-editor, .career-lab-editor
+) :is(button[class*="cancel"],button[class*="back"],button[class*="ghost"],button[class*="secondary"]) {
+  border-color: #dce8f7;
+  border-radius: 11px;
+  background: #f2f6fc;
+  background-image: none;
+  color: #58789a;
+  box-shadow: none;
+}
+
+/* 커리어 브리핑은 기존 '뉴스 불러오는 중' 회보라색 배경도 중립화 */
+.career-page :is(
+  .career-briefing, .career-news, .career-news-list,
+  .career-news-panel, .career-briefing-page
+) :is([class*="loading"], [class*="empty"], [class*="notice"]) {
+  border-color: #e3eaf3;
+  background: #f5f7fa;
+  color: #61758c;
+  box-shadow: none;
+}
+.career-page :is(.career-review-editor,.career-talk-editor,.career-lounge-editor,.career-lab-editor) :is(label,h3) {
+  color: #273c54;
+}
+
+@media (max-width: 880px) {
+  .career-page .career-insights-v2 .career-ci-intro {
+    padding: 15px 17px;
+    align-items: flex-start;
+  }
+}
+@media (max-width: 580px) {
+  .career-page .career-insights-v2 .career-ci-intro {
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 15px;
+  }
+  .career-page .career-insights-v2 .career-ci-demo-label {
+    min-height: 36px;
+  }
+}
+
+/* ============================================================
+   취업 상세 컴포넌트 실제 className 기준 추가 정리
+   CareerInsights, CareerBriefing, Career*DetailPage, Career*Form,
+   CareerReactions에 사용된 선택자에 한정해 기존 보라색을 제거합니다.
+   ============================================================ */
+/* 'JSON 미리보기'는 원본 JSX에서 클릭 기능이 없는 em 문구이므로
+   기능이 있는 버튼으로 오인되지 않게 숨기고 정보 배지만 남깁니다. */
+.career-page .career-ci-demo-label em { display: none; }
+.career-page .career-insights-v2 .career-ci-filters-heading button {
+  border: 1px solid #d8e6f7;
+  border-radius: 10px;
+  background: #fff;
+  color: #4b7fb7;
+  box-shadow: none;
+}
+.career-page .career-insights-v2 .career-ci-filters-heading button:hover:not(:disabled) {
+  border-color: #adccef;
+  background: #edf5ff;
+}
+.career-page .career-insights-v2 .career-ci-warning {
+  margin: 0;
+  padding: 14px 17px;
+  border: 1px solid #e0e8f2;
+  border-radius: 12px;
+  background: #f4f6f9;
+  background-image: none;
+  color: #657a90;
+  box-shadow: none;
+}
+.career-page .career-insights-v2 .career-ci-warning button {
+  background: transparent;
+  color: #447fbd;
+}
+.career-page .career-insights-v2 .career-ci-filter-grid select {
+  padding-right: 38px;
+  background-color: #f8fbff;
+  border-color: #dce8f8;
+  color: #344b63;
+}
+.career-page .career-insights-v2 .career-ci-availability {
+  border-style: solid;
+}
+.career-page .career-insights-v2 .career-ci-availability strong {
+  color: #397bbb;
+}
+.career-page .career-insights-v2 .career-ci-bar-track > span {
+  background: #649ad2;
+  background-image: none;
+}
+.career-page .career-insights-v2 .career-ci-kpi > span { color: #7890a8; }
+
+/* 취업 4개 게시글 카테고리 상세: 제목/작성자/태그/안내 박스 */
+.career-page :is(
+  .career-review-detail-card, .career-talk-detail-card,
+  .career-lounge-detail-card, .career-lab-detail-card,
+  .career-news-detail-card,
+  .career-review-form, .career-talk-form,
+  .career-lounge-form, .career-lab-form
+) {
+  border-color: #dce8f8;
+  background: #fff;
+  box-shadow: none;
+}
+.career-page :is(
+  .career-review-back, .career-talk-back, .career-lounge-back,
+  .career-lab-back, .career-news-back,
+  .career-review-post-open:hover h3
+) {
+  color: #417fbf;
+}
+.career-page :is(
+  .career-review-detail-card h3, .career-talk-detail-card h3,
+  .career-lounge-detail-card h3, .career-lab-detail-card h3,
+  .career-news-detail-card h3,
+  .career-review-form label, .career-talk-form label,
+  .career-lounge-form label, .career-lab-form label
+) { color: #263b53; }
+.career-page :is(
+  .career-review-detail-body, .career-talk-detail-body,
+  .career-lounge-detail-body, .career-lab-detail-body,
+  .career-news-detail-section p
+) { color: #3c536c; }
+.career-page :is(
+  .career-review-detail-meta, .career-talk-detail-meta,
+  .career-lounge-detail-meta, .career-lab-detail-meta,
+  .career-news-detail-meta, .career-news-source,
+  .career-review-detail-top small, .career-talk-detail-top small,
+  .career-lounge-detail-top small, .career-lab-detail-top small
+) { color: #8399b1; }
+.career-page :is(
+  .career-review-facts, .career-talk-detail-tags span,
+  .career-lounge-detail-tags span, .career-lab-detail-extra,
+  .career-lab-detail-poll, .career-lab-input-note,
+  .career-lab-poll-editor, .career-lounge-detail-extra,
+  .career-review-detail-hint, .career-talk-detail-hint,
+  .career-lounge-detail-hint, .career-lab-detail-hint,
+  .career-news-no-link
+) {
+  border-color: #e0ebf8;
+  background: #f3f8ff;
+  background-image: none;
+  color: #637f9b;
+  box-shadow: none;
+}
+.career-page :is(
+  .career-review-facts dt, .career-review-facts dd,
+  .career-lounge-detail-extra h4, .career-lab-detail-extra h4,
+  .career-lab-detail-field, .career-lab-input-note strong,
+  .career-lab-poll-editor > strong, .career-lab-detail-poll > p
+) { color: #4d6782; }
+.career-page :is(
+  .career-review-edit-btn, .career-talk-edit,
+  .career-lounge-edit, .career-lab-edit,
+  .career-review-submit, .career-talk-submit,
+  .career-lounge-submit, .career-lab-submit,
+  .career-news-source-link
+) {
+  border-color: transparent;
+  background: var(--pm-action-blue, #5781c4);
+  background-image: none;
+  color: #fff;
+  box-shadow: none;
+}
+.career-page :is(
+  .career-review-edit-btn, .career-talk-edit,
+  .career-lounge-edit, .career-lab-edit,
+  .career-review-submit, .career-talk-submit,
+  .career-lounge-submit, .career-lab-submit,
+  .career-news-source-link
+):hover:not(:disabled) {
+  background: var(--pm-action-blue-hover, #426fae);
+  color: #fff;
+}
+.career-page :is(
+  .career-review-cancel, .career-talk-cancel,
+  .career-lounge-cancel, .career-lab-cancel
+) {
+  background: #eff4fa;
+  color: #58758f;
+  box-shadow: none;
+}
+.career-page :is(
+  .career-review-cancel, .career-talk-cancel,
+  .career-lounge-cancel, .career-lab-cancel
+):hover:not(:disabled) { background: #e4edf8; }
+/* 삭제/신고 및 오류 등 위험 상태의 붉은 의미색은 유지합니다. */
+
+/* 연구소 질문·투표·댓글의 예전 라벤더 강조 */
+.career-page .career-lab-detail-poll button {
+  border-color: #d9e6f6;
+  background: #fff;
+  color: #36536f;
+}
+.career-page .career-lab-detail-poll button.selected {
+  border-color: #a7cbed;
+  background: #e9f3ff;
+  color: #3377b8;
+}
+.career-page .career-lab-add-option {
+  border-color: #cfe1f5;
+  background: #fff;
+  color: #4382be;
+}
+.career-page .career-lab-checkbox input,
+.career-page .career-talk-anonymous input,
+.career-page .career-comment-anonymous input {
+  accent-color: #5781c4;
+}
+.career-page .career-reactions { border-color: #e4edf7; }
+.career-page .career-reactions h4 { color: #263e57; }
+.career-page .career-reaction-buttons button {
+  border: 1px solid #dce8f7;
+  background: #f1f6fd;
+  color: #536f8b;
+  box-shadow: none;
+}
+.career-page .career-reaction-buttons button.active {
+  border-color: #5781c4;
+  background: #5781c4;
+  color: #fff;
+}
+.career-page .career-comment {
+  border: 1px solid #e4edf8;
+  background: #f7faff;
+}
+.career-page .career-comment-head,
+.career-page .career-comment-empty,
+.career-page .career-comment-actions button {
+  color: #7e94ab;
+}
+.career-page .career-comment-head strong,
+.career-page .career-comment p {
+  color: #334b64;
+}
+.career-page .career-comment-form :is(textarea,input),
+.career-page .career-comment-edit textarea {
+  border-color: #dce8f8;
+  background: #fcfdff;
+  color: #334b64;
+  box-shadow: none;
+}
+.career-page .career-comment-form button[type="submit"],
+.career-page .career-comment-edit button[type="submit"] {
+  background: #5781c4;
+  background-image: none;
+  color: #fff;
+  box-shadow: none;
+}
+.career-page .career-comment-form button[type="submit"]:hover:not(:disabled) {
+  background: #416fae;
+}
+.career-page .career-comment-anonymous { color: #637f9b; }
+/* 답글 대상 @표시: 취업 화면은 보라색 대신 기존 파란 계열(익명 선택 강조색)을 쓴다. */
+.career-page .career-comment .comment-mention { color: #3474b4; }
+.career-page .career-comment .comment-mention.deleted { color: #7e94ab; }
+
+/* 커리어 브리핑: 기사 목록 / 스크랩 / 뉴스 상세 */
+.career-page .career-briefing-intro,
+.career-page .career-briefing-count,
+.career-page .career-news-summary,
+.career-page .career-news-bottom,
+.career-page .career-news-disclaimer {
+  color: #7b90a7;
+}
+.career-page .career-briefing-count strong { color: #447fbe; }
+.career-page .career-briefing-toolbar select {
+  border-color: #dce8f8;
+  color: #35516c;
+  background-color: #f8fbff;
+}
+.career-page .career-news-item {
+  border-color: #dfe9f8;
+  box-shadow: none;
+}
+.career-page .career-news-item:hover { border-color: #accbef; }
+.career-page .career-news-category-pill,
+.career-page .career-news-tags span {
+  background: #ecf5ff;
+  color: #5284b7;
+}
+.career-page .career-news-title { color: #273d56; }
+.career-page .career-news-title:hover { color: #3478b9; }
+.career-page .career-news-save {
+  border-color: #dce8f8;
+  background: #fff;
+  color: #5683af;
+}
+.career-page .career-news-save.saved {
+  border-color: #adcff0;
+  background: #e9f3ff;
+  color: #397abd;
+}
+.career-page .career-news-empty {
+  padding: 42px 20px;
+  border: 1px solid #e4eaf2;
+  border-radius: 17px;
+  background: #f5f7fa;
+  color: #63788e;
+}
+.career-page .career-news-empty p { color: #8195a9; }
+.career-page .career-news-empty button {
+  border: 1px solid transparent;
+  background: #5781c4;
+  color: #fff;
+}
+.career-page .career-news-empty button:hover:not(:disabled) { background: #416fae; }
+.career-page .career-news-detail-section { border-color: #e5edf7; }
+.career-page .career-news-detail-section h4 { color: #386eaa; }
+.career-page .career-news-source-link { text-decoration: none; }
+.career-page .career-news-title:focus-visible,
+.career-page .career-news-back:focus-visible,
+.career-page .career-news-save:focus-visible,
+.career-page .career-news-source-link:focus-visible {
+  outline: 2px solid #8cb7e9;
+}
+
+@media (max-width: 580px) {
+  .career-page .career-news-empty { padding: 28px 15px; }
+  .career-page .career-reaction-buttons button { min-width: 0; }
+}
+
+/* ============================================================
+   2026-11-17 | 취업 화면 2차 보정 / 공통 드롭다운 아래 방향 고정
+   - Chrome의 선택 목록 팝업은 아래쪽에만 위치하도록 지정
+   - 선택창·옵션의 PlayMate 스타일을 유지, 긴 목록은 내부 스크롤
+   - 취업 4개 상세·작성 화면의 '목록으로' 링크 배경 제거
+   - 커리어 연구소 상태 배지 및 기존 보라색 UI 교정
+   ============================================================ */
+
+/* 기본 select의 테두리·아이콘 디자인은 위쪽 공통 규칙을 그대로 활용합니다.
+   지원 브라우저에서는 ::picker에 앵커 위치를 주어 OS 팝업 반전 대신
+   항상 선택창 아래쪽에 펼쳐지도록 합니다. */
+@supports (appearance: base-select) {
+  select:not([multiple]):not([size]),
+  select:not([multiple]):not([size])::picker(select) {
+    appearance: base-select;
+  }
+
+  select:not([multiple]):not([size])::picker-icon {
+    display: none; /* 공통 SVG 화살표 한 개만 사용 */
+  }
+
+  select:not([multiple]):not([size])::picker(select) {
+    box-sizing: border-box;
+    inset: auto;
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: none; /* 공간 부족 시 위로 뒤집지 않음 */
+    position-try-order: normal;
+    min-inline-size: anchor-size(width);
+    max-block-size: min(340px, 100%); /* 아래쪽 가용 공간과 340px 중 작은 높이에서 내부 스크롤 */
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin: 5px 0 0;
+    padding: 6px;
+    border: 1px solid #d5e3f4;
+    border-radius: 13px;
+    background: #fff;
+    color: #35516c;
+    box-shadow: 0 12px 28px rgba(32, 69, 114, .16);
+  }
+
+  select:not([multiple]):not([size]) option {
+    display: block;
+    margin: 2px 0;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #395572;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  select:not([multiple]):not([size]) option:hover,
+  select:not([multiple]):not([size]) option:focus-visible {
+    background: #edf5ff;
+    color: #326faa;
+  }
+  select:not([multiple]):not([size]) option:checked {
+    background: #e6f1ff;
+    color: #3979bd;
+    font-weight: 750;
+  }
+  select:not([multiple]):not([size]) option::checkmark {
+    display: none;
+  }
+}
+
+/* 현재 선택된 값의 포커스 표시도 이전 커다란 검정 테두리 대신 블루톤으로. */
+.career-page .career-insights-v2 .career-ci-filter-grid select:focus-visible {
+  outline: none;
+  border-color: #90b8e5;
+  box-shadow: 0 0 0 3px rgba(92, 145, 205, .16);
+}
+
+/* 상세의 '← 목록으로 돌아가기': 배경 없는 텍스트 링크.
+   앞선 button[class*="back"] 규칙보다 우선하도록 구체적인 선택자로 제한. */
+.career-page .career-board :is(
+  .career-review-back, .career-talk-back, .career-lounge-back,
+  .career-lab-back, .career-news-back
+),
+.career-page :is(
+  .career-review-detail, .career-talk-detail, .career-lounge-detail,
+  .career-lab-detail, .career-news-detail
+) :is(
+  .career-review-back, .career-talk-back, .career-lounge-back,
+  .career-lab-back, .career-news-back
+) {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  min-width: 0;
+  padding: 5px 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  color: #487fbe;
+  box-shadow: none !important;
+  text-decoration: none;
+  font-weight: 700;
+}
+.career-page .career-board :is(
+  .career-review-back, .career-talk-back, .career-lounge-back,
+  .career-lab-back, .career-news-back
+):hover:not(:disabled),
+.career-page :is(
+  .career-review-detail, .career-talk-detail, .career-lounge-detail,
+  .career-lab-detail, .career-news-detail
+) :is(
+  .career-review-back, .career-talk-back, .career-lounge-back,
+  .career-lab-back, .career-news-back
+):hover:not(:disabled) {
+  border: 0 !important;
+  background: transparent !important;
+  color: #285f9d;
+  text-decoration: underline;
+}
+
+/* 커리어 연구소 '토론'은 전용 CareerPage.css에서 3단계 클래스 선택자로
+   보라색을 설정하므로 같은 우선순위 이상으로 덮어씁니다. */
+.career-page .career-post-labels .career-post-tag {
+  border: 1px solid #dbe7f6;
+  background: #eaf2fc;
+  color: #4a78b8;
+}
+.career-page .career-post-labels .career-lab-state.is-discussion {
+  border-color: #cfe0f7;
+  background: #eaf3ff;
+  color: #477abb;
+}
+.career-page .career-post-labels .career-lab-state.is-guide {
+  border-color: #d4e4f8;
+  background: #eef6ff;
+  color: #4e82bd;
+}
+.career-page .career-post-labels .career-lab-state.is-open {
+  border-color: #dfe7f1;
+  background: #f3f6fa;
+  color: #627d99;
+}
+/* 해결 완료의 녹색은 상태 구분을 위해 유지합니다. */
+.career-page .career-review-post-open:hover h3 { color: #3878ba; }
+.career-page .career-review-post-open:focus-visible {
+  outline: 2px solid #8cb7e8;
+  outline-offset: 3px;
+}
+
+/* 커리어 연구소 상세의 원본 라벤더 컬러: 투표, 링크, 안내 상태까지. */
+.career-page .career-lab-detail .career-lab-detail-extra,
+.career-page .career-lab-detail .career-lab-detail-poll {
+  border: 1px solid #e0ebf8;
+  background: #f4f8ff;
+  color: #536f8d;
+}
+.career-page .career-lab-detail :is(
+  .career-lab-detail-extra h4,
+  .career-lab-detail-poll h4,
+  .career-lab-detail-field,
+  .career-lab-detail-poll > p
+) { color: #4c6887; }
+.career-page .career-lab-detail .career-lab-detail-field a {
+  color: #387abb;
+}
+.career-page .career-lab-detail .career-lab-detail-poll button {
+  border-color: #d9e7f8;
+  background: #fff;
+  color: #38526f;
+}
+.career-page .career-lab-detail .career-lab-detail-poll button.selected {
+  border-color: #a8cbed;
+  background: #e8f3ff;
+  color: #3175b5;
+}
+.career-page .career-lab-detail .career-lab-detail-hint {
+  background: #f2f6fb;
+  color: #657e97;
+}
+
+/* 취업 상세/작성 4종의 남은 기본 컬러와 '취업 전략/토론' 표시를 일관화. */
+.career-page :is(
+  .career-review-detail-card, .career-talk-detail-card,
+  .career-lounge-detail-card, .career-lab-detail-card
+) :is(a:not([class]), .career-review-demo-label) {
+  color: #4680bd;
+}
+.career-page :is(
+  .career-review-detail, .career-talk-detail,
+  .career-lounge-detail, .career-lab-detail
+) :is(.career-reaction-buttons button, .career-comment-form button) {
+  background-image: none;
+}
+
+
+/* ============================================================
+   2026-11-17 | 취업 목록/상세 마무리
+   - 목록으로 이동은 상단 우측 버튼 하나만 사용 (하위 JSX 중복 제거)
+   - 최신순의 현재 선택값을 박스 중앙에 정렬
+   - 연구소 유형/상태 배지는 텍스트만 표시
+   - 좋아요·댓글·스크랩 아이콘 크기와 간격 통일
+   ============================================================ */
+
+/* 취업 목록: 정렬 선택값의 수직 중앙 정렬과 우측 화살표 위치 */
+.career-page .career-board .career-board-toolbar select {
+  box-sizing: border-box;
+  flex: 0 0 132px;
+  width: 132px;
+  height: 48px;
+  min-height: 48px;
+  padding: 0 39px 0 16px;
+  line-height: normal;
+  /* base-select is flex: align-content는 실제 선택 텍스트를 중앙에 놓지 못함. */
+  align-items: center;
+  vertical-align: middle;
+  text-align: left;
+  text-align-last: left;
+  background-position: right 14px center;
+  border: 1px solid #dbe7f7;
+  border-radius: 12px;
+  background-color: #f8fbff;
+  color: #35516c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* 연구소 배지: 불필요한 장식 기호 대신 짧은 텍스트만 */
+.career-page .career-post-labels .career-lab-state {
+  gap: 0;
+  font-weight: 740;
+  letter-spacing: -.02em;
+}
+.career-page .career-post-labels .career-post-tag {
+  font-weight: 740;
+}
+
+/* 목록 카드: 날짜 옆에 좋아요·댓글·스크랩 3종 반응을 같은 크기로 표시 */
+.career-page .career-post-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+}
+.career-page .career-post-metrics {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  color: #8194af;
+}
+.career-page .career-post-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  line-height: 1.3;
+  white-space: nowrap;
+  color: #7d91aa;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px; /* 작성자/날짜와 동일한 글씨 크기 */
+  font-weight: 640;
+}
+.career-page .career-post-metric-icon {
+  flex: 0 0 13px;
+  display: block;
+  width: 13px;
+  height: 13px;
+  stroke: #8ca6c5;
+}
+@media (max-width: 580px) {
+  .career-page .career-board .career-board-toolbar select {
+    flex-basis: 112px;
+    width: 112px;
+    padding-left: 11px;
+    padding-right: 30px;
+    background-position: right 10px center;
+  }
+  .career-page .career-post-metrics { gap: 7px; }
+}
+
+/* ============================================================
+   PlayMate | 2026-11-17 취업 작성 화면 + 익명 선택 공통 UI
+   - 네 카테고리의 작성/수정 헤더를 한 번만 표시
+   - 기존 화면 기능, 폼 필드 및 검증 로직은 유지
+   - 게시판·취업 글과 댓글의 익명 체크박스에 동일한 UI 적용
+   ============================================================ */
+
+/* 취업 작성/수정: 상단 공통 제목을 폼의 왼쪽 기준선에 맞춤 */
+.career-page .career-board--editor {
+  padding-bottom: 44px;
+}
+.career-page .career-board--editor .career-section-head {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 24px;
+  align-items: flex-start;
+  gap: 18px;
+}
+.career-page .career-board--editor .career-section-head > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.career-page .career-board--editor .career-eyebrow {
+  margin-bottom: 8px;
+  color: #598ac1;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .01em;
+}
+.career-page .career-board--editor .career-section-head h2 {
+  margin: 0;
+  color: #21344b;
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: -.55px;
+  line-height: 1.3;
+}
+.career-page .career-board--editor .career-editor-intro {
+  margin: 10px 0 0;
+  padding: 0;
+  max-width: 700px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  background-image: none;
+  color: #7c90a7;
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 1.65;
+  box-shadow: none;
+}
+.career-page .career-board--editor .career-write-btn {
+  flex: 0 0 auto;
+  margin-top: 7px;
+}
+
+/* 작성 폼: 카테고리별 전용 CSS에 남은 보라색·높이·안쪽 여백 통일 */
+.career-page .career-board--editor :is(
+  .career-review-editor, .career-talk-editor,
+  .career-lounge-editor, .career-lab-editor
+) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+.career-page .career-board--editor :is(
+  .career-review-form, .career-talk-form,
+  .career-lounge-form, .career-lab-form
+) {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 32px 32px 50px;
+  border: 1px solid #dce8f8;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: none;
+}
+.career-page .career-board--editor :is(
+  .career-review-form, .career-talk-form,
+  .career-lounge-form, .career-lab-form
+) > label:not([class$="anonymous"]):not(.career-lab-checkbox) {
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 730;
+  color: #284058;
+}
+.career-page .career-board--editor :is(
+  .career-review-form, .career-talk-form,
+  .career-lounge-form, .career-lab-form
+) :is(input:not([type="checkbox"]):not([type="file"]), select, textarea) {
+  box-sizing: border-box;
+  max-width: 100%;
+  border: 1px solid #dae6f6;
+  border-radius: 12px;
+  background: #fbfdff;
+  color: #293f58;
+  font-size: 13px;
+  box-shadow: none;
+}
+.career-page .career-board--editor :is(
+  .career-review-form, .career-talk-form,
+  .career-lounge-form, .career-lab-form
+) :is(input:not([type="checkbox"]):not([type="file"]), select, textarea):focus-visible {
+  outline: 0;
+  border-color: #8cb7e5;
+  box-shadow: 0 0 0 3px rgba(111, 167, 225, .13);
+}
+.career-page .career-board--editor :is(
+  .career-review-privacy, .career-talk-privacy,
+  .career-lounge-privacy, .career-lab-privacy
+) {
+  margin: 2px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #7e91a8;
+  font-size: 12px;
+  line-height: 1.75;
+}
+.career-page .career-board--editor :is(
+  .career-review-count, .career-talk-count,
+  .career-lounge-count, .career-lab-count
+) {
+  color: #8396ad;
+  font-size: 12px;
+}
+.career-page .career-board--editor .career-review-count:not(.valid) { color: #b66d75; }
+.career-page .career-board--editor .career-review-count.valid { color: #398c7b; }
+
+/* 커리어 톡톡: 준비 중인 첨부창도 레거시 라벤더가 남지 않도록 */
+.career-page .career-board--editor .career-talk-file-label input[type="file"] {
+  padding: 13px;
+  border: 1px dashed #cbdcf0;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #6c84a0;
+  font-size: 12px;
+}
+.career-page .career-board--editor .career-talk-file-label input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 8px 12px;
+  border: 1px solid #d9e6f5;
+  border-radius: 9px;
+  background: #edf4fd;
+  color: #587ea7;
+  font: inherit;
+}
+.career-page .career-board--editor .career-talk-files li {
+  border-bottom-color: #e8f0fa;
+  color: #526d87;
+}
+.career-page .career-board--editor :is(.career-lab-input-note, .career-lab-poll-editor) {
+  border: 1px solid #dfebf8;
+  background: #f5f9ff;
+  color: #5e7995;
+}
+.career-page .career-board--editor :is(
+  .career-review-actions, .career-talk-actions,
+  .career-lounge-actions, .career-lab-actions
+) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 11px;
+  margin-top: 14px;
+}
+.career-page .career-board--editor :is(
+  .career-review-actions, .career-talk-actions,
+  .career-lounge-actions, .career-lab-actions
+) button {
+  min-height: 44px;
+  padding: 11px 21px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 760;
+  box-shadow: none;
+}
+
+/* 게시판 작성/댓글/수정 + 취업 3개 폼/댓글: 익명 선택을 작은 선택 카드로 통일.
+   체크박스는 실제 input을 그대로 유지해 키보드 및 스크린리더 이용 가능. */
+.board-shell label.board-anonymous-option,
+.career-page label.career-talk-anonymous,
+.career-page label.career-lounge-anonymous,
+.career-page label.career-lab-checkbox,
+.career-page label.career-comment-anonymous {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  align-self: flex-start;
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 42px;
+  gap: 9px;
+  margin: 3px 0 0;
+  padding: 10px 14px;
+  border: 1px solid #dce8f7;
+  border-radius: 12px;
+  background: #f7faff;
+  color: #405d7b;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+  transition: border-color .16s, background-color .16s;
+}
+.board-shell label.board-anonymous-option:hover,
+.career-page label.career-talk-anonymous:hover,
+.career-page label.career-lounge-anonymous:hover,
+.career-page label.career-lab-checkbox:hover,
+.career-page label.career-comment-anonymous:hover {
+  border-color: #b5d1ef;
+  background: #eff6ff;
+}
+.board-shell label.board-anonymous-option:has(input:checked),
+.career-page label.career-talk-anonymous:has(input:checked),
+.career-page label.career-lounge-anonymous:has(input:checked),
+.career-page label.career-lab-checkbox:has(input:checked),
+.career-page label.career-comment-anonymous:has(input:checked) {
+  border-color: #bdd7f3;
+  background: #eaf4ff;
+  color: #3474b4;
+}
+.board-shell label.board-anonymous-option input[type="checkbox"],
+.career-page label.career-talk-anonymous input[type="checkbox"],
+.career-page label.career-lounge-anonymous input[type="checkbox"],
+.career-page label.career-lab-checkbox input[type="checkbox"],
+.career-page label.career-comment-anonymous input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  display: block;
+  position: relative;
+  flex: 0 0 18px;
+  width: 18px;
+  min-width: 18px;
+  max-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid #aac0dc;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: none;
+  cursor: pointer;
+}
+.board-shell label.board-anonymous-option input[type="checkbox"]:checked,
+.career-page label.career-talk-anonymous input[type="checkbox"]:checked,
+.career-page label.career-lounge-anonymous input[type="checkbox"]:checked,
+.career-page label.career-lab-checkbox input[type="checkbox"]:checked,
+.career-page label.career-comment-anonymous input[type="checkbox"]:checked {
+  border-color: #548bc9;
+  background: #548bc9;
+}
+.board-shell label.board-anonymous-option input[type="checkbox"]:checked::after,
+.career-page label.career-talk-anonymous input[type="checkbox"]:checked::after,
+.career-page label.career-lounge-anonymous input[type="checkbox"]:checked::after,
+.career-page label.career-lab-checkbox input[type="checkbox"]:checked::after,
+.career-page label.career-comment-anonymous input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 5px;
+  width: 5px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.board-shell label.board-anonymous-option input[type="checkbox"]:focus-visible,
+.career-page label.career-talk-anonymous input[type="checkbox"]:focus-visible,
+.career-page label.career-lounge-anonymous input[type="checkbox"]:focus-visible,
+.career-page label.career-lab-checkbox input[type="checkbox"]:focus-visible,
+.career-page label.career-comment-anonymous input[type="checkbox"]:focus-visible {
+  outline: 3px solid rgba(91, 159, 225, .3);
+  outline-offset: 3px;
+}
+.board-shell label.board-anonymous-option input[type="checkbox"]:disabled,
+.career-page label.career-talk-anonymous input[type="checkbox"]:disabled,
+.career-page label.career-lounge-anonymous input[type="checkbox"]:disabled,
+.career-page label.career-lab-checkbox input[type="checkbox"]:disabled,
+.career-page label.career-comment-anonymous input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .career-page .career-board--editor .career-section-head {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .career-page .career-board--editor .career-write-btn {
+    margin-top: 0;
+  }
+  .career-page .career-board--editor :is(
+    .career-review-form, .career-talk-form,
+    .career-lounge-form, .career-lab-form
+  ) {
+    gap: 18px;
+    padding: 22px 19px 34px;
+  }
+  .career-page .career-board--editor { padding-bottom: 25px; }
+}
+@media (max-width: 580px) {
+  .career-page .career-board--editor .career-section-head h2 { font-size: 22px; }
+  .career-page .career-board--editor .career-editor-intro { font-size: 12px; }
+  .career-page .career-board--editor :is(
+    .career-review-form, .career-talk-form,
+    .career-lounge-form, .career-lab-form
+  ) { padding: 19px 15px 29px; }
+  .career-page .career-board--editor :is(
+    .career-review-actions, .career-talk-actions,
+    .career-lounge-actions, .career-lab-actions
+  ) { flex-wrap: wrap; }
+}
+
+/* ============================================================
+   모임 상세 · 만들기 · 수정 화면 공통 레이아웃 (2026-11-17)
+   - 모임 목록의 카테고리 사이드바 및 카드 그리드는 변경하지 않음
+   - 상세/작성/수정 화면의 바깥 기준선과 상단 목록 링크 통일
+   ============================================================ */
+.meetup-detail-page,
+.meetup-editor-page {
+  box-sizing: border-box;
+  width: calc(100% - 2 * var(--pm-page-gutter));
+  max-width: var(--pm-content-max);
+  margin: 28px auto 90px;
+  padding: 0;
+}
+
+.meetup-detail-page > .meetup-back-button,
+.meetup-editor-page > .meetup-back-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin: 0 0 17px 7px;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #6686aa;
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.45;
+  box-shadow: none;
+}
+.meetup-detail-page > .meetup-back-button:hover:not(:disabled),
+.meetup-editor-page > .meetup-back-button:hover:not(:disabled) {
+  background: transparent;
+  color: #3075bf;
+}
+
+/* 카드의 안쪽 좌우 여백도 양쪽 화면에서 같은 기준 사용 */
+@media (min-width: 1001px) {
+  .meetup-editor-page .meetup-form-card { padding-inline: 36px; }
+}
+@media (min-width: 881px) and (max-width: 1000px) {
+  .meetup-editor-page .meetup-form-card,
+  .meetup-detail-page .meetup-detail-card { padding-inline: 28px; }
+}
+@media (min-width: 701px) and (max-width: 880px) {
+  .meetup-editor-page .meetup-form-card,
+  .meetup-detail-page .meetup-detail-card { padding-inline: 26px; }
+}
+@media (min-width: 581px) and (max-width: 700px) {
+  .meetup-editor-page .meetup-form-card,
+  .meetup-detail-page .meetup-detail-card { padding-inline: 22px; }
+}
+@media (max-width: 880px) {
+  .meetup-detail-page,
+  .meetup-editor-page { margin-top: 24px; }
+}
+@media (max-width: 700px) {
+  .meetup-detail-page,
+  .meetup-editor-page { margin-top: 22px; }
+}
+@media (max-width: 580px) {
+  .meetup-detail-page,
+  .meetup-editor-page {
+    width: calc(100% - 2 * var(--pm-page-gutter));
+    margin: 16px auto 58px;
+  }
+  .meetup-editor-page .meetup-form-card,
+  .meetup-detail-page .meetup-detail-card { padding-inline: 16px; }
+}
+
+/* ============================================================
+   2026-11-17 | 게시판 사이드바 간격을 모임 사이드바 기준으로 통일
+   - 모임/헤더/기능은 변경하지 않음
+   - 게시판 목록과 게시글 상세·작성에서 같은 간격 사용
+   ============================================================ */
+.board-shell .board-sidebar.board-directory {
+  padding: 20px 14px;
+  gap: 16px;
+}
+
+/* 모임의 카테고리 제목(왼쪽 파란 선)과 동일한 시작선 */
+.board-shell .board-sidebar.board-directory .board-directory-label {
+  margin: 2px 7px 0;
+}
+
+/* 제목과 첫 메뉴 사이의 간격을 모임 카테고리와 동일하게 */
+.board-shell .board-sidebar.board-directory .board-directory-pinned {
+  gap: 16px;
+}
+
+/* 개별 게시판 버튼도 모임 카테고리 버튼과 같은 가로 안쪽 여백 */
+.board-shell .board-sidebar.board-directory .board-directory-item {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+/* PLAYMATE_UI_20261118_CAREER_EDITOR */
+/* Keep guidance below the title and the back button at the far right. */
+.career-page .career-board--editor .career-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.career-page .career-board--editor .career-section-head > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.career-page .career-board--editor .career-section-head .career-editor-intro {
+  margin: 12px 0 0;
+  max-width: 70ch;
+}
+
+.career-page .career-board--editor .career-section-head .career-write-btn {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin: 8px 0 0 auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .career-page .career-board--editor .career-section-head .career-write-btn {
+    margin-left: auto;
+  }
+}
+

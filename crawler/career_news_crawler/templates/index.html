@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>취업 인사이트 | 분야별 뉴스</title>
+  <style>
+    :root { color-scheme: light; --bg:#f6f8fb; --ink:#182335; --muted:#627086; --accent:#2563eb; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:system-ui,-apple-system,'Malgun Gothic',sans-serif; color:var(--ink); background:var(--bg); }
+    main { max-width:960px; margin:40px auto; padding:0 20px 60px; }
+    h1 { font-size:28px; margin:0 0 8px; }
+    .desc { color:var(--muted); font-size:14px; margin:0 0 28px; }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:24px; }
+    .tab { display:inline-block; padding:9px 15px; background:#fff; color:var(--ink); border:1px solid #e3e9f2; border-radius:22px; text-decoration:none; font-size:13px; }
+    .tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    section { margin:30px 0; }
+    h2 { font-size:18px; margin:0 0 12px; }
+    .list { background:#fff; border:1px solid #e3e9f2; border-radius:14px; overflow:hidden; }
+    .item { display:block; padding:16px 20px; color:inherit; text-decoration:none; border-bottom:1px solid #edf1f7; }
+    .item:last-child { border-bottom:0; }
+    .item:hover { background:#f8fbff; }
+    .title { font-size:15px; font-weight:700; line-height:1.5; }
+    .meta { font-size:12px; color:var(--muted); margin-top:8px; }
+    .empty { font-size:14px; padding:16px 20px; color:var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>취업 분야별 뉴스</h1>
+  <p class="desc">Google News RSS에서 수집한 최근 업계 동향입니다. 기사 제목을 클릭하면 원문으로 이동합니다.</p>
+  <nav class="tabs" aria-label="분야별 뉴스 선택">
+    <a class="tab {% if not selected_category %}active{% endif %}" href="/">전체</a>
+    {% for category in categories %}
+    <a class="tab {% if selected_category == category %}active{% endif %}" href="/?category={{ category|urlencode }}">{{ category }}</a>
+    {% endfor %}
+  </nav>
+  {% for category in categories if not selected_category or category == selected_category %}
+  <section>
+    <h2>{{ category }}</h2>
+    <div class="list">
+      {% set articles = news|selectattr('category','equalto',category)|list %}
+      {% if articles %}
+        {% for a in articles %}
+        <a class="item" href="{{ a.link }}" target="_blank" rel="noopener noreferrer">
+          <div class="title">{{ a.title }}</div>
+          <div class="meta">{{ a.source or '출처 미상' }} · {{ (a.published or '')[:10] }}</div>
+        </a>
+        {% endfor %}
+      {% else %}
+        <div class="empty">표시할 기사가 없습니다. 먼저 <code>python main.py</code>를 실행해 주세요.</div>
+      {% endif %}
+    </div>
+  </section>
+  {% endfor %}
+</main>
+</body>
+</html>

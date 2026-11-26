@@ -1,0 +1,387 @@
+/* --- header.css (preserved original rules) --- */
+
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap');
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  height: 74px;
+  padding: 0 30px;
+  background: #fff;
+  border-bottom: 1px solid #ececf0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-right: 38px;
+  color: #302456;
+  text-decoration: none;
+}
+
+.brand-logo {
+  width: 140px;
+  height: auto;
+  border-radius: 0;
+  object-fit: contain;
+  flex: 0 0 auto;
+  display: block;
+  transform: translateY(-4px);
+}
+
+.app-nav {
+  margin-left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.app-nav span,
+.app-nav button {
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #9a91a9;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.app-nav span:hover,
+.app-nav button:hover {
+  color: #47347a;
+}
+
+.app-nav span.active,
+.app-nav button.active {
+  background: #47347a;
+  color: #fff;
+}
+
+@media (max-width: 700px) {
+  .app-header {
+    height: 68px;
+    padding: 0 16px;
+  }
+
+  .brand {
+    margin-right: 16px;
+    gap: 0;
+  }
+
+  .brand-logo {
+    width: 130px;
+    height: auto;
+    flex: 0 0 auto;
+    border-radius: 0;
+  }
+
+  .app-nav {
+    gap: 4px;
+  }
+
+  .app-nav span,
+  .app-nav button {
+    padding: 8px 9px;
+    font-size: 13px;
+  }
+}
+
+.profile-container {
+  margin-left: auto;
+  position: relative;
+}
+
+.profile-avatar {
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: #47347a;
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.profile-dropdown {
+  position: absolute;
+  top: 55px;
+  right: 0;
+  width: 210px;
+  padding: 16px;
+  border: 1px solid #ececf0;
+  border-radius: 14px;
+  background: white;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 200;
+}
+
+.profile-nickname {
+  padding: 8px;
+  font-weight: 700;
+  color: #302456;
+}
+
+.profile-dropdown hr {
+  border: 0;
+  border-top: 1px solid #ececf0;
+  margin: 10px 0;
+}
+
+.profile-dropdown button {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  text-align: left;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.profile-dropdown button:hover {
+  background: #f5f2fa;
+}
+
+.profile-user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.profile-user-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ede5fa;
+  color: #47347a;
+  font-weight: 700;
+}
+
+.profile-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0;
+}
+
+.profile-avatar-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.profile-dropdown button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.profile-dropdown button:disabled:hover {
+  background: transparent;
+}
+
+/* 좁은 휴대폰(360~480px): 로고·메뉴·아바타 합이 화면보다 넓어 페이지 전체가 가로로 밀렸다.
+   로고·아바타를 줄이고, 메뉴는 남는 폭 안에서만 가로 스크롤한다(관리자 메뉴가 더해져도 페이지는 고정). */
+@media (max-width: 480px) {
+  .app-header {
+    padding: 0 12px;
+    min-width: 0;
+  }
+
+  .brand {
+    margin-right: 8px;
+    flex: 0 0 auto;
+  }
+
+  .brand-logo {
+    width: 96px;
+  }
+
+  .app-nav {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-left: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .app-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-nav span,
+  .app-nav button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .profile-container {
+    flex: 0 0 auto;
+    margin-left: 8px;
+  }
+
+  .profile-avatar {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+/* 360~400px: 일반 회원 메뉴 4개가 스크롤 없이 모두 보이도록 로고와 메뉴 여백을 더 줄인다. */
+@media (max-width: 400px) {
+  .brand-logo {
+    width: 72px;
+  }
+
+  .app-nav span,
+  .app-nav button {
+    padding: 8px 7px;
+  }
+}
+
+/* 알림 종 아이콘: 공통 디자인 CSS의 회전 효과와 상관없이 수직으로 표시 */
+.app-header .header-notification-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  line-height: 0;
+  transform: none !important;
+  rotate: 0deg !important;
+}
+
+.app-header .header-notification-icon .header-bell-svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  transform: none !important;
+  rotate: 0deg !important;
+}
+
+
+/* 프로필 드롭다운: 기존 레벨·XP 출석 기능을 공통 메뉴에서도 바로 사용 */
+.profile-dropdown.profile-dropdown--attendance {
+  width: 272px;
+  max-width: calc(100vw - 24px);
+  padding: 14px;
+}
+
+.profile-dropdown--attendance .profile-nickname {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.profile-dropdown--attendance .profile-attendance {
+  padding: 13px;
+  border: 1px solid #dbe7fa;
+  border-radius: 12px;
+  background: linear-gradient(125deg, #f4f8ff 0%, #edf5ff 100%);
+}
+
+.profile-attendance-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.profile-attendance-heading strong {
+  color: #273f65;
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.profile-attendance-badge {
+  flex: 0 0 auto;
+  border-radius: 99px;
+  padding: 4px 8px;
+  background: #e3e9f4;
+  color: #5b6c82;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.profile-attendance-badge.is-complete {
+  background: #dceee9;
+  color: #23715b;
+}
+
+.profile-attendance-description {
+  margin: 11px 0 10px;
+  color: #5a6e88;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.profile-dropdown--attendance .profile-attendance-action {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: #417acb;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 750;
+  text-align: center;
+  cursor: pointer;
+}
+
+.profile-dropdown--attendance .profile-attendance-action:hover:not(:disabled) {
+  background: #3065b0;
+}
+
+.profile-dropdown--attendance .profile-attendance-action:disabled {
+  background: #dde7f4;
+  color: #627991;
+  opacity: 1;
+  cursor: default;
+}
+
+.profile-attendance-feedback {
+  margin: 9px 0 0;
+  color: #246f57;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.profile-attendance-error {
+  margin-top: 8px;
+  color: #b34b4b;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.profile-dropdown--attendance .profile-attendance-retry {
+  width: auto;
+  margin-top: 6px;
+  padding: 4px 0;
+  color: #3c69aa;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: underline;
+  background: transparent;
+}
+
+.profile-dropdown--attendance .profile-attendance-retry:hover {
+  background: transparent;
+}

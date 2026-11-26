@@ -1,0 +1,446 @@
+/* --- boardBetaPolish.css (preserved original rules) --- */
+/* PLAYMATE_FRONTEND_POLISH_V1
+   기존 라벤더/민트 톤 유지: 댓글 작성과 신고 폼, 내 과정 게시판 강조 */
+
+/* 본인 과정은 자유게시판 다음에 고정되고 점 표시로 구별합니다. */
+.board-directory .board-directory-item.board-my-course {
+  background: #f5f2fb;
+  color: #4e377f;
+  font-weight: 800;
+}
+
+.board-directory .board-directory-item.board-my-course:active:not(:disabled) {
+  background: #eae4f7;
+  color: #35236f;
+}
+
+/* 부모 댓글, 대댓글 모두 입력창 폭 100%. 기존 200px 폭으로 찌그러지는 문제 해결 */
+.detail-content .comments,
+.detail-content .comment-content,
+.detail-content .comment-form,
+.detail-content .comment-form .board-comment-input {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+.detail-content .comment-form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 16px;
+}
+.detail-content .comment-form .board-comment-input {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #e5dff0;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(58, 43, 92, 0.04);
+}
+.detail-content .comment-form .board-comment-input:focus-within {
+  border-color: #aa98d3;
+  box-shadow: 0 0 0 3px rgba(170, 152, 211, 0.13);
+}
+.detail-content .comment-form .board-comment-input textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 100px;
+  flex: none;
+  padding: 3px 2px 8px;
+  border: 0;
+  border-bottom: 1px solid #f1eef7;
+  border-radius: 0;
+  background: transparent;
+  color: #332b48;
+  font-size: 14px;
+  line-height: 1.7;
+  resize: vertical;
+}
+.detail-content .comment-form .board-comment-input textarea:focus {
+  outline: none;
+}
+.detail-content .comment-form .board-comment-input textarea::placeholder {
+  color: #a29ab1;
+}
+.detail-content .board-anonymous-option {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #67597e;
+  cursor: pointer;
+}
+.detail-content .board-anonymous-option input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #6b52a0;
+  flex: 0 0 auto;
+}
+.detail-content .comment-form > button.button {
+  align-self: flex-end;
+  min-width: 110px;
+  padding: 11px 20px;
+  border-radius: 999px;
+  background: #83cbc0;
+  color: #25433e;
+  font-size: 13px;
+  font-weight: 800;
+}
+.detail-content .comment-form > button.button:hover:not(:disabled) {
+  background: #70beb2;
+}
+.detail-content .comment-form > button.button:disabled {
+  opacity: 0.58;
+}
+
+/* 댓글 수정 입력창도 본문과 체크박스를 줄바꿈해 표시합니다. */
+.detail-content .inline-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.detail-content .inline-edit .board-comment-edit-fields {
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.detail-content .inline-edit textarea {
+  display: block;
+  width: 100%;
+  min-height: 90px;
+  padding: 12px;
+  border: 1px solid #e3dcec;
+  border-radius: 12px;
+  background: #fff;
+}
+.detail-content .inline-edit > button {
+  padding: 8px 14px;
+  border: 1px solid #e7e0f0;
+  border-radius: 10px;
+  color: #5b467d;
+  background: #f5f1fa;
+  font-weight: 700;
+}
+
+/* 신고: 기본 네모 버튼 대신 PlayMate의 라벤더 톤과 둥근 캡슐 버튼 사용 */
+.detail-content .board-report-area {
+  margin: 18px 0 18px;
+  padding: 4px 0 18px;
+  border: 0;
+  border-bottom: 1px solid #e9e6f0;
+  border-radius: 0;
+  background: transparent;
+}
+.detail-content .board-report-area > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 16px;
+  border: 1px solid #e1daee;
+  border-radius: 999px;
+  background: #f5f2fa;
+  color: #655280;
+  font-size: 12px;
+  font-weight: 800;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.detail-content .board-report-area > button::before {
+  content: '⚑';
+  margin-right: 7px;
+  font-size: 15px;
+  line-height: 1;
+}
+.detail-content .board-report-area > button:hover:not(:disabled) {
+  background: #ebe4f6;
+  border-color: #cfc1e6;
+}
+.detail-content .board-report-area .board-report-form {
+  display: grid;
+  gap: 11px;
+  width: min(100%, 520px);
+  max-width: 100%;
+  margin-top: 12px;
+  padding: 20px;
+  border: 1px solid #e8e1f2;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(55, 39, 91, 0.06);
+}
+.detail-content .board-report-form label {
+  font-size: 13px;
+  font-weight: 800;
+  color: #44365e;
+}
+.detail-content .board-report-form select,
+.detail-content .board-report-form textarea {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #e1daee;
+  border-radius: 12px;
+  background: #fdfcff;
+  color: #44365e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.detail-content .board-report-form textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.detail-content .board-report-form select:focus,
+.detail-content .board-report-form textarea:focus {
+  outline: none;
+  border-color: #ad9ad3;
+  box-shadow: 0 0 0 3px #ad9ad324;
+}
+.detail-content .board-report-form > button[type='submit'] {
+  justify-self: end;
+  align-self: end;
+  padding: 10px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: #493278;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+}
+.detail-content .board-report-form > button[type='submit']:hover:not(:disabled) {
+  background: #39245f;
+}
+.detail-content .board-report-form > button:disabled { opacity: 0.5; }
+
+@media (max-width: 768px) {
+  .detail-content .comment-form .board-comment-input { padding: 12px; }
+  .detail-content .board-report-area .board-report-form { padding: 14px; }
+  .detail-content .comment-form > button.button { width: auto; }
+}
+
+
+/* --- boardSidebar.css (preserved original rules) --- */
+/* =========================================================
+   1. 게시판 사이드바 기본 레이아웃
+   ========================================================= */
+
+/* 게시판 목록을 세로로 배치하고 모바일 가로 스크롤을 방지한다. */
+.board-sidebar.board-directory {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  overflow: visible;
+}
+
+.board-directory-group {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.board-directory-label {
+  margin: 0;
+  color: #857c99;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.board-directory-label small {
+  margin-left: 4px;
+  color: #a49bb4;
+  font-size: 11px;
+}
+
+/* =========================================================
+   2. 게시판 목록 버튼
+   ========================================================= */
+
+.board-directory-list {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.board-directory .board-directory-item {
+  display: block;
+  width: 100%;
+  padding: 13px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #494158;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.board-directory .board-directory-item:active:not(:disabled) {
+  background: #ece8f8;
+  color: #35236f;
+  font-weight: 800;
+}
+
+.board-directory .board-directory-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* 게시판이 많아도 사이드바 높이가 무한히 늘어나지 않도록 제한한다. */
+.board-directory-list.expanded {
+  max-height: 330px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* =========================================================
+   3. 일반 게시판 접기·펼치기
+   ========================================================= */
+
+.board-directory-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.board-directory-collapse,
+.board-directory-more {
+  padding: 6px 3px;
+  border: 0;
+  background: transparent;
+  color: #6d5b99;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.board-directory-more {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: center;
+  border-radius: 9px;
+}
+
+.board-directory-collapse:hover,
+.board-directory-more:hover {
+  color: #433073;
+  background: #f0edf8;
+}
+
+/* =========================================================
+   4. 게시판 이름 검색
+   ========================================================= */
+
+.board-directory-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 39px;
+  padding: 0 10px;
+  border: 1px solid #e6e1f0;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.board-directory-search > span {
+  color: #8e80ae;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.board-directory-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #302745;
+  font-size: 12px;
+}
+
+.board-directory-search input::placeholder {
+  color: #a29aaf;
+}
+
+.board-directory-search:focus-within {
+  border-color: #9f90c5;
+  box-shadow: 0 0 0 3px #9f90c520;
+}
+
+.board-directory-empty {
+  margin: 0;
+  padding: 15px 5px;
+  color: #91899f;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* 일반 게시판을 접으면 생성 버튼이 목록 바로 아래로 따라 올라온다. */
+/* =========================================================
+   5. 기존 게시판 생성 버튼
+   ========================================================= */
+
+.board-sidebar.board-directory .create-board {
+  width: 100%;
+  margin-top: 5px;
+  padding: 12px 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #493278;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+}
+
+/* =========================================================
+   6. 모바일 화면
+   ========================================================= */
+
+@media (max-width: 768px) {
+  .board-sidebar.board-directory {
+    min-height: 0;
+    flex-direction: column;
+    overflow: visible;
+    gap: 14px;
+    padding-bottom: 8px;
+  }
+
+  /* 주요 게시판은 모바일에서 가로로 표시한다. */
+  .board-directory-pinned .board-directory-list {
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    padding-bottom: 3px;
+  }
+
+  .board-directory-pinned .board-directory-item {
+    flex: 0 0 auto;
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .board-directory-list.expanded {
+    max-height: 260px;
+  }
+}
+

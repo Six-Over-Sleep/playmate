@@ -1,0 +1,1179 @@
+"""신규 모임의 ORM 접근과 잠금. 서비스는 이 모듈을 통해서만 DB를 사용한다."""
+
+from dataclasses import asdict, fields
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
+from sqlalchemy.orm import aliased
+from sqlalchemy.exc import DBAPIError
+
+from sqlalchemy import (
+    String,
+    and_,
+    case,
+    cast,
+    exists,
+    func,
+    inspect,
+    literal,
+    or_,
+    select,
+    delete,
+)
+
+from backend.app.domain.recruit_program import Application, PolicyError, Program
+from backend.app.models.member import Member
+from backend.app.models.post import Post
+from backend.app.models.post_like import PostLike
+from backend.app.models.post_scrap import PostScrap
+from backend.app.models.recruit import Recruit, RecruitMember
+from backend.app.models.recruit_program import (
+    ActivityRecord,
+    ApplicationRecord,
+    CommandRecord,
+    EligibilityRecord,
+    OutboxRecord,
+    ProgramRecord,
+    RecognitionRecord,
+    WithdrawalRecord,
+)
+
+
+def utc(value):
+    """저장 시 UTC인 컬럼을 SQLite 테스트에서도 같은 기준으로 복원한다."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+class ProgramRepository:
+    def __init__(self, session):
+        self.session = session
+        self._schema_ready = None
+
+    def schema_available(self):
+        """요청 범위에서만 메타데이터 준비 여부를 캐시한다. 기존 DB에 테이블을 만들지 않는다."""
+        if self._schema_ready is None:
+            schema = (
+                self.session.get_bind()
+                .get_execution_options()
+                .get("schema_translate_map", {})
+                .get(None)
+            )
+            self._schema_ready = inspect(self.session.connection()).has_table(
+                "recruit_programs", schema=schema
+            )
+        return self._schema_ready
+
+    def is_program(self, recruit_id):
+        """마이그레이션 전 기존 DB도 읽을 수 있게 테이블 존재를 확인한 뒤 분기한다."""
+        if not self.schema_available():
+            return False
+        return (
+            self.session.scalar(
+                select(ProgramRecord.recruit_id).where(
+                    ProgramRecord.recruit_id == recruit_id
+                )
+            )
+            is not None
+        )
+
+    def program_ids(self):
+        """비활성화 상태에서도 신규 행이 기존 쓰기 경로로 우회되지 않게 식별한다."""
+        if not self.schema_available():
+            return set()
+        return set(self.session.scalars(select(ProgramRecord.recruit_id)).all())
+
+    @staticmethod
+    def visible_post():
+        """기존 게시글의 두 논리 삭제 표식을 모두 확인한다."""
+        return and_(
+            Post.deleted_at.is_(None),
+            or_(Post.post_status != "DELETED", Post.post_status.is_(None)),
+        )
+
+    def actor(self, member_id, lock=False):
+        """현재 DB에 존재하는 회원 ID·역할만 조회한다.
+
+        운영 DB에는 member_status 컬럼이 없으므로 ORM 엔터티 전체 조회나
+        회원 상태 컬럼 참조를 사용하지 않는다. 로그인 신원 검증은
+        get_current_member_id에서 담당하며, 여기서는 회원 존재·관리자 권한을 판정한다.
+        계정 정지·탈퇴 정책은 DB에 회원 상태 컬럼이 도입된 뒤 별도로 연결해야 한다.
+        """
+        if member_id is None or type(member_id) is not int or member_id <= 0:
+            raise PolicyError("실제 로그인 회원이 필요합니다.", 403)
+        # Member 전체를 SELECT하면 DB에 없는 예전 모델 컬럼까지 조회되어 42703 오류 발생.
+        # 현재 운영 스키마의 member_id/role_code만 안전하게 가져온다.
+        query = select(Member.member_id, Member.role_code).where(
+            Member.member_id == member_id
+        )
+        if lock:
+            query = query.with_for_update(of=Member)
+        member = self.session.execute(query).first()
+        if member is None:
+            raise PolicyError("회원 정보를 확인할 수 없습니다.", 403)
+        return member.role_code == "ADMIN"
+
+    def restricted(self, member_id):
+        """누적 이탈 3회 여부만 조회한다. 기존 유효 신청의 승격을 막는 데 사용하지 않는다."""
+        return self.eligibility_info(member_id)["is_restricted"]
+
+    def eligibility_info(self, member_id):
+        """본인에게만 공개할 누적 이탈·제한 발효 정보를 반환한다."""
+        state = (
+            self.session.get(EligibilityRecord, member_id)
+            if member_id is not None
+            else None
+        )
+        return self.eligibility_values(state)
+
+    @staticmethod
+    def eligibility_values(state):
+        """별도 조회와 통합 조회에서 본인 이탈 제한 표시를 동일하게 직렬화한다."""
+        count = state.withdrawal_count if state else 0
+        return {
+            "withdrawal_count": count,
+            "is_restricted": count >= 3,
+            "reason_code": "THREE_WITHDRAWALS" if count >= 3 else None,
+            "restricted_at": (
+                utc(state.restricted_at).isoformat()
+                if state and state.restricted_at
+                else None
+            ),
+        }
+
+    def load(self, recruit_id, lock=False):
+        """모임과 신청 행을 복원한다. 쓰기에서는 동일 모임 변경을 행 잠금으로 직렬화한다."""
+        query = (
+            select(ProgramRecord)
+            .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
+            .join(Post, Post.post_id == Recruit.post_id)
+            .where(ProgramRecord.recruit_id == recruit_id, self.visible_post())
+        )
+        if lock:
+            query = query.with_for_update(of=ProgramRecord).execution_options(
+                populate_existing=True
+            )
+        record = self.session.scalar(query)
+        if record is None:
+            raise PolicyError("신규 프로젝트·스터디를 찾을 수 없습니다.", 404)
+        rows = self.session.scalars(
+            select(ApplicationRecord)
+            .where(ApplicationRecord.recruit_id == recruit_id)
+            .order_by(ApplicationRecord.sequence)
+        ).all()
+        return self.hydrate(record, rows)
+
+    @staticmethod
+    def hydrate(record, rows):
+        """이미 조회한 행으로 복원한다. 목록에서도 모임별 추가 SELECT를 발생시키지 않는다."""
+        data = dict(record.payload)
+        data.update(
+            recruit_id=record.recruit_id,
+            starts_at=utc(record.starts_at),
+            ends_at=utc(record.ends_at),
+            schedule_version=record.schedule_version,
+            lifecycle_status=record.lifecycle_status,
+        )
+        program = Program(**data)
+        for row in rows:
+            values = dict(row.payload)
+            changed = values.get("changed_at")
+            values["changed_at"] = datetime.fromisoformat(changed) if changed else None
+            program.applications.append(
+                Application(
+                    member_id=row.member_id,
+                    sequence=row.sequence,
+                    submitted_at=utc(row.submitted_at),
+                    status=row.status,
+                    application_id=row.application_id,
+                    **values,
+                )
+            )
+        return program
+
+    def list_programs(self, base_rows, member_id):
+        """기존 호출자는 전달받은 ID 범위 안의 프로그램 투영만 재사용한다."""
+        ids = [row["recruit_id"] for row in base_rows
+               if row["category"] in {"project", "study"}]
+        if not ids:
+            return []
+        return [row for row in self.list_bundle(member_id, recruit_ids=ids) if row[0]]
+
+    def list_bundle(self, member_id, category=None, recruit_ids=None):
+        """기존 모임·프로그램·본인 상태를 단일 SQL로 조회한다.
+
+        요청 기준 행을 두어 빈 목록에서도 회원 존재를 같은 SQL 안에서 검사한다.
+        로그인·활성 상태 검증은 공통 인증이 계속 담당한다.
+        신청은 확정자와 본인 대기만 JOIN하고 나머지는 존재 여부·수만 집계한다.
+        좋아요·참여 인원은 상관 집계해 JOIN으로 중복 계산하지 않는다.
+        """
+        if member_id is not None and (type(member_id) is not int or member_id <= 0):
+            raise PolicyError("실제 로그인 회원이 필요합니다.", 403)
+        actor = aliased(Member)
+        anchor = select(literal(1).label("request")).subquery()
+        visible_ids = (
+            select(Recruit.recruit_id).join(Post, Post.post_id == Recruit.post_id)
+            .where(self.visible_post())
+        )
+        if category is not None:
+            visible_ids = visible_ids.where(Recruit.category == category)
+        if recruit_ids is not None:
+            visible_ids = visible_ids.where(Recruit.recruit_id.in_(recruit_ids))
+        waiting = (
+            select(func.count()).select_from(ApplicationRecord)
+            .where(ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                   ApplicationRecord.status == "WAITING")
+            .correlate(ProgramRecord).scalar_subquery()
+        )
+        joined = (
+            select(func.count()).select_from(RecruitMember)
+            .where(RecruitMember.recruit_id == Recruit.recruit_id,
+                   RecruitMember.status == "JOINED")
+            .correlate(Recruit).scalar_subquery()
+        )
+        likes = (
+            select(func.count()).select_from(PostLike)
+            .where(PostLike.post_id == Post.post_id)
+            .correlate(Post).scalar_subquery()
+        )
+        liked = exists().where(
+            PostLike.post_id == Post.post_id, PostLike.member_id == member_id,
+        ).correlate(Post)
+        scrapped = exists().where(
+            PostScrap.post_id == Post.post_id, PostScrap.member_id == member_id,
+        ).correlate(Post)
+        if member_id is None:
+            liked, scrapped = literal(False), literal(False)
+        visible_application = ApplicationRecord.status == "ACCEPTED"
+        if member_id is not None:
+            visible_application = or_(visible_application, and_(
+                ApplicationRecord.status == "WAITING",
+                ApplicationRecord.member_id == member_id,
+            ))
+        query = (
+            select(
+                ProgramRecord, Recruit, Post, EligibilityRecord,
+                actor.member_id.label("actor_id"),
+                ApplicationRecord.application_id,
+                ApplicationRecord.member_id.label("application_member_id"),
+                ApplicationRecord.sequence, ApplicationRecord.submitted_at,
+                ApplicationRecord.status,
+                ApplicationRecord.payload["skill_ids"].label("skill_ids"),
+                ApplicationRecord.payload["leader_volunteer"].label("volunteer"),
+                waiting.label("waiting_count"), joined.label("joined_count"),
+                likes.label("like_count"), liked.label("liked_by_me"),
+                scrapped.label("scrapped_by_me"),
+            ).select_from(anchor)
+            .outerjoin(actor, actor.member_id == member_id)
+            .outerjoin(Recruit, Recruit.recruit_id.in_(visible_ids))
+            .outerjoin(Post, Post.post_id == Recruit.post_id)
+            .outerjoin(ProgramRecord, ProgramRecord.recruit_id == Recruit.recruit_id)
+            .outerjoin(EligibilityRecord, EligibilityRecord.member_id == member_id)
+            .outerjoin(ApplicationRecord, and_(
+                ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                visible_application,
+            ))
+            .order_by(Recruit.recruit_id, ApplicationRecord.sequence)
+        )
+        try:
+            rows = self.session.execute(query).all()
+        except DBAPIError as error:
+            # 활성 환경은 마이그레이션 적용이 전제다. 매 요청의 사전 테이블 조회를 생략한다.
+            missing_table = getattr(error.orig, "sqlstate", None) == "42P01"
+            if self.session.get_bind().dialect.name == "sqlite":
+                missing_table = str(error.orig).startswith("no such table:")
+            if missing_table:
+                raise PolicyError("신규 모임 마이그레이션을 먼저 적용해주세요.", 503) from error
+            raise
+        if member_id is not None and (not rows or rows[0].actor_id is None):
+            raise PolicyError("회원 정보를 확인할 수 없습니다.", 403)
+        groups = {}
+        for row in rows:
+            record, recruit, post, eligibility = row[:4]
+            if recruit is None:
+                continue
+            if recruit.recruit_id not in groups:
+                basic = {
+                    "recruit_id": recruit.recruit_id, "title": post.title,
+                    "body": post.body, "category": recruit.category,
+                    "capacity": recruit.capacity, "state": recruit.state,
+                    "participant_count": row.joined_count,
+                    "view_count": post.view_count, "recruit_mode": recruit.recruit_mode,
+                    "deadline_at": recruit.deadline_at,
+                    "regular_days": recruit.regular_days,
+                    "regular_time": recruit.regular_time,
+                    "regular_start_date": recruit.regular_start_date,
+                    "meeting_start": recruit.meeting_start,
+                    "meeting_end": recruit.meeting_end, "like_count": row.like_count,
+                }
+                if record is not None:
+                    basic.update(
+                        post_id=post.post_id, place=recruit.place,
+                        is_online=recruit.is_online, contact_method=recruit.contact_method,
+                        liked_by_me=bool(row.liked_by_me),
+                        scrapped_by_me=bool(row.scrapped_by_me),
+                    )
+                groups[recruit.recruit_id] = (
+                    self.hydrate(record, []) if record else None,
+                    basic, record.details if record else {},
+                    {"waiting_count": row.waiting_count,
+                     "eligibility": self.eligibility_values(eligibility)},
+                )
+            program = groups[recruit.recruit_id][0]
+            if program is not None and row.application_id is not None:
+                program.applications.append(Application(
+                    member_id=row.application_member_id, sequence=row.sequence,
+                    submitted_at=utc(row.submitted_at), status=row.status,
+                    application_id=row.application_id, skill_ids=row.skill_ids or [],
+                    leader_volunteer=bool(row.volunteer),
+                ))
+        for program, _, _, counts in groups.values():
+            if program is not None:
+                counts["participant_count"] = len(program.accepted())
+        return list(groups.values())
+
+    def social_summaries(self, recruit_ids, member_id):
+        """기존 좋아요·스크랩 테이블을 재사용해 목록 전체의 집계를 한 번에 조회한다."""
+        if not recruit_ids:
+            return {}
+        scrapped = (
+            exists()
+            .where(PostScrap.post_id == Post.post_id, PostScrap.member_id == member_id)
+            .correlate(Post)
+        )
+        rows = self.session.execute(
+            select(
+                Recruit.recruit_id,
+                func.count(PostLike.member_id),
+                func.max(case((PostLike.member_id == member_id, 1), else_=0)),
+                scrapped,
+            )
+            .join(Post, Post.post_id == Recruit.post_id)
+            .outerjoin(PostLike, PostLike.post_id == Post.post_id)
+            .where(Recruit.recruit_id.in_(recruit_ids))
+            .group_by(Recruit.recruit_id, Post.post_id)
+        ).all()
+        return {
+            row[0]: {
+                "like_count": row[1],
+                "liked_by_me": member_id is not None and bool(row[2]),
+                "scrapped_by_me": bool(row[3]),
+            }
+            for row in rows
+        }
+
+    def member_names(self, member_ids):
+        """기존 회원 닉네임을 일괄 조회한다. 별도의 회원 복사본을 만들지 않는다."""
+        return (
+            dict(
+                self.session.execute(
+                    select(Member.member_id, Member.nickname).where(
+                        Member.member_id.in_(member_ids)
+                    )
+                ).all()
+            )
+            if member_ids
+            else {}
+        )
+
+    def create(self, program, data, now, existing_recruit_id=None):
+        """기존 게시글/모임에 신규 프로그램을 연결한다. 저장 확정은 서비스가 결정한다."""
+        post = Post(
+            author_member_id=program.creator_id,
+            title=data.title,
+            body=data.body,
+            post_type="RECRUIT",
+            post_status="ACTIVE",
+            created_at=now,
+            updated_at=now,
+        )
+        if existing_recruit_id is None:
+            self.session.add(post)
+            self.session.flush()
+        else:
+            current = self.session.get(Recruit, existing_recruit_id)
+            post = self.session.get(Post, current.post_id)
+            post.title, post.body, post.updated_at = data.title, data.body, now
+        values = dict(
+            post_id=post.post_id,
+            category=program.category,
+            recruit_mode=data.recruit_mode,
+            regular_days=data.regular_days,
+            regular_time=data.regular_time,
+            regular_start_date=data.regular_start_date,
+            capacity=program.capacity,
+            state="OPEN",
+            created_at=now,
+            updated_at=now,
+            place=data.place,
+            is_online=data.is_online,
+            contact_method=data.contact_method,
+        )
+        if existing_recruit_id is None:
+            recruit = Recruit(**values)
+            self.session.add(recruit)
+        else:
+            recruit = current
+            for key, value in values.items():
+                if key != "created_at":
+                    setattr(recruit, key, value)
+            recruit.close_reason = None
+        self.session.flush()
+        program.recruit_id = recruit.recruit_id
+        self.save(program)
+        return {"recruit_id": recruit.recruit_id, "post_id": post.post_id}
+
+    def save(self, program):
+        """일정·신청·외부 전달 요청을 호출자의 단일 트랜잭션에 저장한다."""
+        record = self.session.get(ProgramRecord, program.recruit_id)
+        if record is None:
+            record = ProgramRecord(recruit_id=program.recruit_id)
+            self.session.add(record)
+        excluded = {
+            "starts_at",
+            "ends_at",
+            "recruit_id",
+            "applications",
+            "application_changes",
+            "events",
+            "schedule_version",
+            "lifecycle_status",
+        }
+        record.payload = {
+            item.name: getattr(program, item.name)
+            for item in fields(program)
+            if item.name not in excluded
+        }
+        record.starts_at, record.ends_at = program.starts_at, program.ends_at
+        record.schedule_version = program.schedule_version
+        record.lifecycle_status = program.lifecycle_status
+        recruit = self.session.get(Recruit, program.recruit_id)
+        recruit.capacity = program.capacity
+        # 기존 모임/봇 컬럼은 KST naive, 신규 프로그램 컬럼은 시간대 포함 UTC다.
+        # UTC의 tzinfo만 지우면 기존 봇의 마감 판단이 9시간 어긋난다.
+        seoul = ZoneInfo("Asia/Seoul")
+        recruit.deadline_at = program.deadline_at.astimezone(seoul).replace(tzinfo=None)
+        if recruit.recruit_mode == "short":
+            recruit.meeting_start = program.starts_at.astimezone(seoul).replace(
+                tzinfo=None
+            )
+            recruit.meeting_end = program.ends_at.astimezone(seoul).replace(tzinfo=None)
+        recruit.state = (
+            "OPEN" if program.lifecycle_status in {"RECRUITING", "READY"} else "CLOSED"
+        )
+        recruit.close_reason = program.termination_reason
+        self.session.flush()
+        changes = dict(program.application_changes)
+        changes.update(
+            {
+                item.sequence: item
+                for item in program.applications
+                if item.application_id is None
+            }
+        )
+        changed = sorted(changes.values(), key=lambda item: item.sequence)
+        self.save_applications(program.recruit_id, changed)
+        if changed:
+            self.sync_legacy_members(program, changed)
+        program.application_changes.clear()
+        for event in program.events:
+            self.enqueue(
+                program.recruit_id,
+                event["kind"],
+                event["key"],
+                event["payload"],
+                event["schedule_version"],
+            )
+        program.events.clear()
+
+    def save_applications(self, recruit_id, changed):
+        """변경된 신청만 읽고 저장한다. 기존 취소 확정 후 새 행을 넣어 유일 인덱스를 지킨다."""
+        if not changed:
+            return
+        ids = [
+            item.application_id for item in changed if item.application_id is not None
+        ]
+        saved = (
+            {
+                row.application_id: row
+                for row in self.session.scalars(
+                    select(ApplicationRecord).where(
+                        ApplicationRecord.application_id.in_(ids)
+                    )
+                ).all()
+            }
+            if ids
+            else {}
+        )
+        # 기존 상태를 먼저 반영해야 취소 후 재신청이 부분 유일 인덱스와 충돌하지 않는다.
+        for item in changed:
+            if item.application_id:
+                saved[item.application_id].status = item.status
+        if ids:
+            self.session.flush()
+        written = []
+        for item in changed:
+            row = saved.get(item.application_id)
+            if row is None:
+                row = ApplicationRecord(recruit_id=recruit_id)
+                self.session.add(row)
+            values = asdict(item)
+            row.member_id, row.sequence = item.member_id, item.sequence
+            row.submitted_at, row.status = item.submitted_at, item.status
+            for key in (
+                "member_id",
+                "sequence",
+                "submitted_at",
+                "status",
+                "application_id",
+            ):
+                values.pop(key)
+            values["changed_at"] = (
+                item.changed_at.isoformat() if item.changed_at else None
+            )
+            row.payload = values
+            written.append((item, row))
+        self.session.flush()
+        for item, row in written:
+            item.application_id = row.application_id
+
+    def sync_legacy_members(self, program, changed):
+        """기존 마이페이지·봇 조회용 JOINED 기록을 확정 참여자에만 맞춘다.
+
+        새 신청/대기/팀장 상태는 신규 테이블이 원본이다. 기존 모임 데이터는 변경하지 않는다.
+        """
+        saved = {
+            row.member_id: row
+            for row in self.session.scalars(
+                select(RecruitMember).where(
+                    RecruitMember.recruit_id == program.recruit_id,
+                    RecruitMember.member_id.in_({item.member_id for item in changed}),
+                )
+            ).all()
+        }
+        latest = {item.member_id: item for item in changed}
+        for member_id, item in latest.items():
+            row = saved.get(member_id)
+            if row is None and item.status != "ACCEPTED":
+                continue
+            if row is None:
+                row = RecruitMember(recruit_id=program.recruit_id, member_id=member_id)
+                self.session.add(row)
+            changed_at = (
+                (item.changed_at or item.submitted_at)
+                .astimezone(ZoneInfo("Asia/Seoul"))
+                .replace(tzinfo=None)
+            )
+            row.role = (
+                "HOST"
+                if program.creator_type == "USER" and member_id == program.creator_id
+                else "MEMBER"
+            )
+            row.status = "JOINED" if item.status == "ACCEPTED" else "CANCELED"
+            if item.status == "ACCEPTED":
+                row.joined_at, row.canceled_at = changed_at, None
+            else:
+                row.canceled_at = changed_at
+            row.updated_at = changed_at
+
+    def enqueue(self, recruit_id, kind, key, payload, version=None):
+        """모임으로 범위를 제한한 유일 키로 외부 요청을 예약하고 실제 전송은 하지 않는다."""
+        event_key = f"recruit:{recruit_id}:{key}"
+        if self.session.get(OutboxRecord, event_key) is None:
+            self.session.add(
+                OutboxRecord(
+                    event_key=event_key,
+                    recruit_id=recruit_id,
+                    kind=kind,
+                    payload={
+                        "recruit_id": recruit_id,
+                        "schedule_version": version,
+                        **payload,
+                    },
+                    schedule_version=version,
+                )
+            )
+            self.session.flush()
+
+    def record_departure(self, program, member_id, application, now):
+        """회원 행 잠금을 선행한다. 서로 다른 모임의 동시 이탈도 같은 회원에서 직렬화한다."""
+        key = f"recruit:{program.recruit_id}:application:{application.sequence}:left"
+        if self.session.get(WithdrawalRecord, key):
+            return
+        state = self.session.get(EligibilityRecord, member_id)
+        if state is None:
+            state = EligibilityRecord(member_id=member_id, withdrawal_count=0)
+            self.session.add(state)
+        state.withdrawal_count += 1
+        if state.withdrawal_count >= 3 and state.restricted_at is None:
+            state.restricted_at = now
+        self.session.add(
+            WithdrawalRecord(
+                event_key=key,
+                recruit_id=program.recruit_id,
+                member_id=member_id,
+                occurred_at=now,
+            )
+        )
+
+    def command(self, recruit_id, key):
+        """연장 재시도의 원 요청과 응답을 조회한다. 비교 판단은 서비스에서 수행한다."""
+        return self.session.get(CommandRecord, (recruit_id, key))
+
+    def metadata(self, recruit_id):
+        """스터디 종류·난이도·정기 일정 등 프로그램 상세 저장값을 반환한다."""
+        return self.session.get(ProgramRecord, recruit_id).details
+
+    def detail_context(self, recruit_id):
+        """모임·게시글·상세 설정을 한 번에 읽어 동일 행의 재조회를 피한다."""
+        row = self.session.execute(
+            select(ProgramRecord, Recruit, Post)
+            .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
+            .join(Post, Post.post_id == Recruit.post_id)
+            .where(ProgramRecord.recruit_id == recruit_id, self.visible_post())
+        ).first()
+        if row is None:
+            raise PolicyError("신규 프로젝트·스터디를 찾을 수 없습니다.", 404)
+        record, recruit, post = row
+        return record, self.basic_values(recruit, post), record.details
+
+    def _detail_bundle_query(self, recruit_id, member_id):
+        """상세·확정자·인원·본인 상태를 읽는 단일 SELECT를 구성한다.
+
+        확정자와 본인 대기 신청의 표시 필드만 JOIN한다. 다른 대기자는 수만 집계하고
+        커리어 JSON/취소 이력은 읽지 않아 신청 수에 비례한 응답 행 증가를 피한다.
+        좋아요와 대기 수는 상관 집계로 계산해 JOIN 간 인원 중복을 막는다.
+        """
+        waiting_count = (
+            select(func.count())
+            .select_from(ApplicationRecord)
+            .where(
+                ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                ApplicationRecord.status == "WAITING",
+            )
+            .correlate(ProgramRecord)
+            .scalar_subquery()
+        )
+        like_count = (
+            select(func.count())
+            .select_from(PostLike)
+            .where(PostLike.post_id == Post.post_id)
+            .correlate(Post)
+            .scalar_subquery()
+        )
+        liked = (
+            exists()
+            .where(PostLike.post_id == Post.post_id, PostLike.member_id == member_id)
+            .correlate(Post)
+        )
+        scrapped = (
+            exists()
+            .where(PostScrap.post_id == Post.post_id, PostScrap.member_id == member_id)
+            .correlate(Post)
+        )
+        visible_application = ApplicationRecord.status == "ACCEPTED"
+        if member_id is not None:
+            visible_application = or_(
+                visible_application,
+                and_(
+                    ApplicationRecord.status == "WAITING",
+                    ApplicationRecord.member_id == member_id,
+                ),
+            )
+        return (
+            select(
+                ProgramRecord,
+                Recruit,
+                Post,
+                EligibilityRecord,
+                ApplicationRecord.application_id,
+                ApplicationRecord.member_id.label("application_member_id"),
+                ApplicationRecord.sequence,
+                ApplicationRecord.submitted_at,
+                ApplicationRecord.status,
+                ApplicationRecord.payload["skill_ids"].label("skill_ids"),
+                ApplicationRecord.payload["leader_volunteer"].label("volunteer"),
+                ApplicationRecord.payload["changed_at"].label("changed_at"),
+                Member.nickname,
+                Member.profile_image_url,
+                waiting_count.label("waiting_count"),
+                exists().where(
+                    ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                    ApplicationRecord.member_id != Post.author_member_id,
+                ).correlate(ProgramRecord, Post).label("other_application_history"),
+                like_count.label("like_count"),
+                liked.label("liked_by_me"),
+                scrapped.label("scrapped_by_me"),
+            )
+            .select_from(ProgramRecord)
+            .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
+            .join(Post, Post.post_id == Recruit.post_id)
+            .outerjoin(EligibilityRecord, EligibilityRecord.member_id == member_id)
+            .outerjoin(
+                ApplicationRecord,
+                and_(
+                    ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                    visible_application,
+                ),
+            )
+            .outerjoin(Member, Member.member_id == ApplicationRecord.member_id)
+            .where(ProgramRecord.recruit_id == recruit_id, self.visible_post())
+            .order_by(ApplicationRecord.sequence)
+        )
+
+    def detail_bundle(self, recruit_id, member_id):
+        """단일 SQL 결과를 업무 객체와 표시 데이터로 변환한다. 추가 조회는 하지 않는다."""
+        rows = self.session.execute(
+            self._detail_bundle_query(recruit_id, member_id)
+        ).all()
+        if not rows:
+            raise PolicyError("신규 프로젝트·스터디를 찾을 수 없습니다.", 404)
+        first = rows[0]
+        program = self.hydrate(first[0], [])
+        roster = []
+        for row in rows:
+            if row.application_member_id is None:
+                continue
+            application = Application(
+                member_id=row.application_member_id,
+                sequence=row.sequence,
+                submitted_at=utc(row.submitted_at),
+                skill_ids=row.skill_ids or [],
+                leader_volunteer=bool(row.volunteer),
+                status=row.status,
+                application_id=row.application_id,
+                changed_at=(
+                    datetime.fromisoformat(row.changed_at) if row.changed_at else None
+                ),
+            )
+            program.applications.append(application)
+            if application.status == "ACCEPTED":
+                roster.append(
+                    {
+                        "member_id": application.member_id,
+                        "joined_at": (
+                            application.changed_at or application.submitted_at
+                        ).isoformat(),
+                        "display_name": row.nickname,
+                    "profile_image_url": row.profile_image_url,
+                        "skill_ids": application.skill_ids,
+                    }
+                )
+        basic = {
+            **self.basic_values(first[1], first[2]),
+            "like_count": first.like_count,
+            "liked_by_me": bool(first.liked_by_me),
+            "scrapped_by_me": bool(first.scrapped_by_me),
+        }
+        return {
+            "program": program,
+            "basic": basic,
+            "details": first[0].details,
+            "eligibility": self.eligibility_values(first[3]),
+            "members": roster,
+            "other_application_history": first.other_application_history,
+            "counts": {
+                "capacity": program.capacity,
+                "accepted": len(roster),
+                "waiting": first.waiting_count,
+            },
+        }
+
+    def participation_counts(self, recruit_id):
+        """신청서 JSON을 읽지 않고 확정/대기 수를 DB에서 집계한다."""
+        row = self.session.execute(
+            select(
+                Recruit.capacity,
+                func.count(case((ApplicationRecord.status == "ACCEPTED", 1))),
+                func.count(case((ApplicationRecord.status == "WAITING", 1))),
+            )
+            .select_from(ProgramRecord)
+            .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
+            .join(Post, Post.post_id == Recruit.post_id)
+            .outerjoin(
+                ApplicationRecord,
+                and_(
+                    ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                    ApplicationRecord.status.in_(["ACCEPTED", "WAITING"]),
+                ),
+            )
+            .where(ProgramRecord.recruit_id == recruit_id, self.visible_post())
+            .group_by(Recruit.recruit_id, Recruit.capacity)
+        ).first()
+        if row is None:
+            raise PolicyError("신규 프로젝트·스터디를 찾을 수 없습니다.", 404)
+        return {"capacity": row[0], "accepted": row[1], "waiting": row[2]}
+
+    def participant_roster(self, recruit_id):
+        """확정자 표시 필드와 닉네임만 조회해 대기자·커리어 적재를 피한다."""
+        rows = self.session.execute(
+            select(
+                ProgramRecord.payload,
+                ApplicationRecord.member_id,
+                ApplicationRecord.submitted_at,
+                ApplicationRecord.payload["changed_at"].label("changed_at"),
+                ApplicationRecord.payload["skill_ids"].label("skill_ids"),
+                Member.nickname,
+                Member.profile_image_url,
+            )
+            .select_from(ProgramRecord)
+            .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
+            .join(Post, Post.post_id == Recruit.post_id)
+            .outerjoin(
+                ApplicationRecord,
+                and_(
+                    ApplicationRecord.recruit_id == ProgramRecord.recruit_id,
+                    ApplicationRecord.status == "ACCEPTED",
+                ),
+            )
+            .outerjoin(Member, Member.member_id == ApplicationRecord.member_id)
+            .where(ProgramRecord.recruit_id == recruit_id, self.visible_post())
+            .order_by(ApplicationRecord.sequence)
+        ).all()
+        if not rows:
+            raise PolicyError("신규 프로젝트·스터디를 찾을 수 없습니다.", 404)
+        members = []
+        for row in rows:
+            # LEFT JOIN의 빈 확정자 행도 모임 존재 확인에는 사용한다.
+            if row.member_id is None:
+                continue
+            changed = (
+                datetime.fromisoformat(row.changed_at)
+                if row.changed_at
+                else utc(row.submitted_at)
+            )
+            members.append(
+                {
+                    "member_id": row.member_id,
+                    "joined_at": changed.isoformat(),
+                    "display_name": row.nickname,
+                    "profile_image_url": row.profile_image_url,
+                    "skill_ids": row.skill_ids or [],
+                }
+            )
+        return rows[0].payload, members
+
+    def basic_detail(self, recruit_id):
+        """기존 게시글과 모임 필드를 읽어 응답 계약을 유지한다."""
+        recruit = self.session.get(Recruit, recruit_id)
+        if recruit is None:
+            raise PolicyError("모임이 없습니다.", 404)
+        post = self.session.get(Post, recruit.post_id)
+        return self.basic_values(recruit, post)
+
+    @staticmethod
+    def basic_values(recruit, post):
+        """목록/상세에서 공통으로 사용하는 기존 컬럼만 직렬화한다."""
+        return {
+            "title": post.title,
+            "body": post.body,
+            "post_id": post.post_id,
+            "view_count": post.view_count,
+            "state": recruit.state,
+            "recruit_mode": recruit.recruit_mode,
+            "category": recruit.category,
+            "place": recruit.place,
+            "is_online": recruit.is_online,
+            "contact_method": recruit.contact_method,
+        }
+
+    def set_metadata(self, recruit_id, details):
+        """프로그램 상세와 기존 정기 일정/스터디 상세를 같은 트랜잭션에서 맞춘다."""
+        self.session.get(ProgramRecord, recruit_id).details = details
+        recruit = self.session.get(Recruit, recruit_id)
+        if recruit.recruit_mode == "regular":
+            recruit.regular_days = details.get("regular_days")
+            recruit.regular_time = time.fromisoformat(details["regular_time"])
+            recruit.regular_start_date = date.fromisoformat(
+                details["regular_start_date"]
+            )
+        if recruit.category == "study":
+            # 042: 기존 스터디 화면에서 사용하던 상세값을 recruits.details에 유지.
+            recruit.details = {
+                "study_topic": details.get("study_topic"),
+                "study_period": details.get("study_period"),
+                "study_method": details.get("study_method"),
+            }
+
+    def configure_schedule(self, recruit_id, data):
+        """형태 전환 시 사용하지 않는 이전 일정을 지우고 메타데이터와 맞춘다."""
+        recruit = self.session.get(Recruit, recruit_id)
+        recruit.recruit_mode = data.recruit_mode
+        recruit.regular_days = data.regular_days
+        recruit.regular_time = data.regular_time
+        recruit.regular_start_date = data.regular_start_date
+        recruit.meeting_start = None
+        recruit.meeting_end = None
+        metadata = dict(self.metadata(recruit_id))
+        metadata.update(
+            regular_days=data.regular_days,
+            regular_time=data.regular_time.isoformat() if data.regular_time else None,
+            regular_start_date=(
+                data.regular_start_date.isoformat() if data.regular_start_date else None
+            ),
+        )
+        self.set_metadata(recruit_id, metadata)
+
+    def configuration_context(self, recruit_id, lock=False):
+        """종류 전환과 참여 신청이 같은 모임 잠금을 공유하도록 기본 행을 읽는다."""
+        query = select(Recruit).where(Recruit.recruit_id == recruit_id)
+        if lock:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        recruit = self.session.scalar(query)
+        post = self.session.get(Post, recruit.post_id) if recruit else None
+        if post is None or post.post_status == "DELETED":
+            raise PolicyError("모임이 없습니다.", 404)
+        history = exists().where(
+            RecruitMember.recruit_id == recruit_id,
+            RecruitMember.member_id != post.author_member_id,
+        )
+        if self.schema_available():
+            history = or_(history, exists().where(
+                ApplicationRecord.recruit_id == recruit_id,
+                ApplicationRecord.member_id != post.author_member_id,
+            ))
+        # 기존·신규 신청 이력의 존재 여부를 한 번의 DB 왕복으로 검사한다.
+        return recruit, post, bool(self.session.scalar(select(history)))
+
+    def lock_recruit(self, recruit_id):
+        """기존 참여 경로에서 종류 전환 완료를 기다리고 최신 행을 읽는다."""
+        return self.session.scalar(
+            select(Recruit).where(Recruit.recruit_id == recruit_id)
+            .with_for_update().execution_options(populate_existing=True)
+        )
+
+    def reset_configuration(self, recruit_id):
+        """미시작·타인 신청 이력 없는 모임의 종류별 자료만 전환 준비한다.
+
+        게시글과 모임 기본키는 유지해 댓글·좋아요·스크랩 연결을 보존한다.
+        호출 서비스가 소유권·마감·신청 이력을 잠금 안에서 먼저 검증해야 한다.
+        """
+        if self.is_program(recruit_id):
+            for model in (
+                RecognitionRecord, ActivityRecord, OutboxRecord, CommandRecord,
+                ApplicationRecord, ProgramRecord,
+            ):
+                self.session.execute(delete(model).where(model.recruit_id == recruit_id))
+        recruit = self.session.get(Recruit, recruit_id)
+        # 042: 상세 정보는 같은 모임 행의 JSONB로 저장하므로 카테고리 전환 시 초기화.
+        recruit.details = None
+        self.session.execute(
+            delete(RecruitMember).where(RecruitMember.recruit_id == recruit_id)
+        )
+
+    def configure_legacy(self, recruit_id, data, detail_values, now):
+        """검증된 기존 종류의 입력을 같은 모임·게시글 ID에 저장한다."""
+        recruit = self.session.get(Recruit, recruit_id)
+        post = self.session.get(Post, recruit.post_id)
+        post.title, post.body, post.updated_at = data.title, data.body, now
+        for key, value in data.model_dump().items():
+            if key in Recruit.__table__.columns.keys() and key not in {"title", "body"}:
+                setattr(recruit, key, value)
+        if data.recruit_mode == "regular":
+            recruit.meeting_start = recruit.meeting_end = None
+        else:
+            recruit.regular_days = recruit.regular_time = recruit.regular_start_date = None
+        recruit.state, recruit.close_reason = "OPEN", None
+        recruit.updated_at = now
+        # 기존 detail_model 인자는 서비스 호출 계약을 위해 유지하지만 쓰지는 않는다.
+        # 세부 테이블 4종은 042 이후 뷰이고 실제 쓰기는 recruits.details에서 수행한다.
+        recruit.details = dict(detail_values)
+        self.session.add(RecruitMember(
+            recruit_id=recruit_id, member_id=post.author_member_id,
+            role="HOST", status="JOINED", joined_at=now,
+        ))
+
+    def store_command(self, recruit_id, member_id, key, request, response):
+        """중복 방지 키를 회원·원 요청·원 결과와 함께 영속 저장한다."""
+        self.session.add(
+            CommandRecord(
+                recruit_id=recruit_id,
+                member_id=member_id,
+                request_key=key,
+                request=request,
+                response=response,
+            )
+        )
+
+    def edit(self, program, changes, now):
+        """서비스가 허용한 표시 필드만 적용하며 미전달 필드를 덮어쓰지 않는다."""
+        recruit = self.session.get(Recruit, program.recruit_id)
+        post = self.session.get(Post, recruit.post_id)
+        for key, value in changes.items():
+            if key in {"title", "body"}:
+                if value is None:
+                    raise PolicyError("제목·설명은 비울 수 없습니다.", 422)
+                setattr(post, key, value)
+            else:
+                recruit.contact_method = value
+        post.updated_at = now
+
+    def archive(self, recruit_id, now):
+        """참여 이력은 보존하고 연결 게시글만 기존 방식으로 논리 삭제한다."""
+        recruit = self.session.get(Recruit, recruit_id)
+        post = self.session.get(Post, recruit.post_id)
+        post.post_status = "DELETED"
+        post.deleted_at = now.astimezone(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
+
+    def curriculum(self, recruit_id):
+        """043: 커리큘럼을 recruit_programs에서 직접 읽고 기존 API 버전을 유지한다."""
+        program = self.session.get(ProgramRecord, recruit_id)
+        if program is None or program.meetup_curriculum_version is None:
+            return {"version": 1, "items": []}
+        return {
+            "version": program.meetup_curriculum_version,
+            "items": program.meetup_curriculum_items,
+        }
+
+    def save_curriculum(self, recruit_id, version, items):
+        """기존 서비스의 프로그램 잠금 내에서 비교하고 버전을 증가시킨다."""
+        program = self.session.get(ProgramRecord, recruit_id)
+        current_version = (
+            program.meetup_curriculum_version
+            if program.meetup_curriculum_version is not None else 1
+        )
+        if current_version != version:
+            raise PolicyError("다른 사용자가 수정했습니다. 최신 버전을 확인해주세요.")
+        program.meetup_curriculum_version = version + 1
+        program.meetup_curriculum_items = list(items)
+        return {"version": program.meetup_curriculum_version, "items": items}
+
+    def add_activity(self, recruit_id, member_id, data, now):
+        """활동 입력을 저장하고 ID/작성자/시각을 포함한 계약 객체를 반환한다."""
+        row = ActivityRecord(
+            recruit_id=recruit_id,
+            author_member_id=member_id,
+            created_at=now,
+            payload=data,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return {
+            "activity_id": row.activity_id,
+            "recruit_id": recruit_id,
+            "author_member_id": member_id,
+            "created_at": now.isoformat(),
+            **data,
+        }
+
+    def activities(self, recruit_id):
+        """해당 모임 활동만 ID 순서로 조회한다. 활동 인정/보상 정보를 임의 합산하지 않는다."""
+        return [
+            {
+                "activity_id": row.activity_id,
+                "recruit_id": recruit_id,
+                "author_member_id": row.author_member_id,
+                "created_at": utc(row.created_at).isoformat(),
+                **row.payload,
+            }
+            for row in self.session.scalars(
+                select(ActivityRecord)
+                .where(ActivityRecord.recruit_id == recruit_id)
+                .order_by(ActivityRecord.activity_id)
+            ).all()
+        ]
+
+    def pending_ids(self, now):
+        """마감·시작·종료가 도래한 모임만 조회한다. 처리한 마감은 같은 버전에서 재처리하지 않는다."""
+        prepare_key = (
+            literal("recruit:")
+            + cast(ProgramRecord.recruit_id, String)
+            + literal(":discord:")
+            + cast(ProgramRecord.schedule_version, String)
+        )
+        prepared = (
+            exists()
+            .where(OutboxRecord.event_key == prepare_key)
+            .correlate(ProgramRecord)
+        )
+        waiting = ProgramRecord.lifecycle_status.in_(["RECRUITING", "READY"])
+        due = or_(
+            and_(
+                ProgramRecord.lifecycle_status == "IN_PROGRESS",
+                ProgramRecord.ends_at <= now,
+            ),
+            and_(waiting, ProgramRecord.starts_at <= now),
+            and_(
+                waiting, ProgramRecord.starts_at <= now + timedelta(hours=24), ~prepared
+            ),
+        )
+        return list(
+            self.session.scalars(
+                select(ProgramRecord.recruit_id)
+                .join(Recruit, Recruit.recruit_id == ProgramRecord.recruit_id)
+                .join(Post, Post.post_id == Recruit.post_id)
+                .where(
+                    self.visible_post(),
+                    due,
+                )
+            ).all()
+        )
+
+    def activity(self, activity_id):
+        """개인 인정의 원본 활동을 조회한다. 다른 모임 자료인지 서비스에서 검사한다."""
+        return self.session.get(ActivityRecord, activity_id)
+
+    def recognition(self, key):
+        """동일 개인/활동/인정 종류의 기존 판정 근거를 조회한다."""
+        return self.session.get(RecognitionRecord, key)
+
+    def save_recognition(self, key, recruit_id, member_id, activity_id, payload):
+        """회원별 인정 근거를 기록한다. XP 총액과 레벨은 저장하지 않는다."""
+        self.session.add(
+            RecognitionRecord(
+                recognition_key=key,
+                recruit_id=recruit_id,
+                member_id=member_id,
+                activity_id=activity_id,
+                payload=payload,
+            )
+        )
+        self.session.flush()
+
+    def pending_events(self, kinds):
+        """미전달 사건 키만 조회하고 각 사건은 처리 직전에 다시 잠가 확인한다."""
+        return list(
+            self.session.execute(
+                select(OutboxRecord.event_key, OutboxRecord.recruit_id)
+                .join(Recruit, Recruit.recruit_id == OutboxRecord.recruit_id)
+                .join(Post, Post.post_id == Recruit.post_id)
+                .where(
+                    OutboxRecord.status == "PENDING",
+                    OutboxRecord.kind.in_(kinds),
+                    self.visible_post(),
+                )
+                .order_by(OutboxRecord.event_key)
+            ).all()
+        )
+
+    def reward_delivered(self, event, payload, reference):
+        """전달 참조를 개인 인정 기록에 연결한다. 회원 잔액/레벨은 변경하지 않는다."""
+        if event.kind == "XP_GRANT":
+            key = payload["recognition_key"]
+            record = self.recognition(key)
+            if record is not None:
+                record.payload = {
+                    **record.payload,
+                    "reward_status": "GRANTED",
+                    "grant_reference": reference,
+                }
+        elif event.kind == "XP_REVOKE":
+            original = self.event(payload["original_event_key"])
+            record = self.recognition(original.payload["recognition_key"])
+            if record is not None:
+                record.payload = {
+                    **record.payload,
+                    "reward_status": "REVOKED",
+                    "revoke_reference": reference,
+                }
+
+    def event(self, key):
+        """지정한 원 지급 사건을 조회해 정확한 회수 참조를 구성한다."""
+        return self.session.get(OutboxRecord, key)
+
+    def lock_event(self, key):
+        """다른 worker가 완료한 상태까지 새로 읽어 중복 전달을 줄인다."""
+        return self.session.scalar(
+            select(OutboxRecord)
+            .where(OutboxRecord.event_key == key)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )

@@ -6,15 +6,28 @@ React 기반 커뮤니티 웹 화면을 개발하는 폴더임.
 
 FastAPI 백엔드와의 API 통신도 해당 영역에서 처리함.
 
+## 게시판 프론트엔드 구성
+
+게시판은 `src/components/board/BoardSection.jsx`에서 화면을 연결하고,
+`src/hooks/board/useBoard.js`에서 조회·변경·화면 상태를 관리합니다.
+폼 로직은 `src/hooks/board/useBoardForms.js`, 검색·정렬은
+`src/hooks/board/useBoardSearch.js`, 날짜·정렬 함수는 `src/utils/board.js`에 있습니다.
+
+게시판 통신은 `src/config/api.js`와 `src/services/apiClient.js`의 공통 설정을 사용합니다.
+주소 설정은 상수 대신 `getApiUrl()`, `getAuthUrl()`, `resolveMediaUrl()` 함수로 제공합니다.
+로컬에서는 기존 `/api` 프록시와 개발용 인증 헤더를 유지하고, 인증·모임 코드는 아직 전환하지 않았습니다.
+환경 변수와 다른 담당자의 적용 예시는 [공통 API 가이드](API_COMMON_GUIDE.md)를 참고하세요.
+실행·검증과 미검증 항목은 [게시판 가이드](BOARD_SETUP_GUIDE.md)를 참고하세요.
+
 ## 폴더 구조
 
-| 세컨 폴더 | 써드 폴더 | 설명 |
-|---|---|---|
-| `public/` | - | 정적 파일 관리 영역임 |
-| `src/` | `components/` | 재사용 가능한 UI 컴포넌트 관리 영역임 |
-| `src/` | `pages/` | 실제 페이지 화면 관리 영역임 |
-| `src/` | `services/` | Backend API 통신 코드 관리 영역임 |
-| `src/` | `assets/` | 이미지, 아이콘 등 리소스 관리 영역임 |
+| 세컨 폴더   | 써드 폴더       | 설명                                  |
+| ----------- | --------------- | ------------------------------------- |
+| `public/` | -               | 정적 파일 관리 영역임                 |
+| `src/`    | `components/` | 재사용 가능한 UI 컴포넌트 관리 영역임 |
+| `src/`    | `pages/`      | 실제 페이지 화면 관리 영역임          |
+| `src/`    | `services/`   | Backend API 통신 코드 관리 영역임     |
+| `src/`    | `assets/`     | 이미지, 아이콘 등 리소스 관리 영역임  |
 
 ```text
 frontend/
@@ -104,3 +117,15 @@ API 요청 코드를 React Component 내부에 반복해서 작성하지 않고 
 여러 화면에서 반복해서 사용하는 UI는 `components/`로 분리함.
 
 특정 페이지에서만 사용하는 작은 컴포넌트는 필요 이상으로 분리하지 않음.
+
+
+## 게시판 설치 및 실행 안내
+
+PlayMate 게시판 개발 환경은 **React + Vite 프론트엔드**, **FastAPI 백엔드**, **Aiven PostgreSQL**로 구성됩니다.
+
+처음 프로젝트를 받는 팀원의 **Git Clone**부터 기존 팀원의 **Git Pull**, Python/Node.js 설치, `.env` 설정, DB 연결, 서버 실행 및 오류 해결 방법은 아래 문서를 참고하세요.
+
+- [게시판 설치 및 실행 가이드](docs/BOARD_SETUP_GUIDE.md)
+- [게시판 MVP 기능 검증 가이드](docs/BOARD_MVP_GUIDE.md)
+
+게시판 개발 브랜치: `feature/board`

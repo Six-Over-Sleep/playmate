@@ -1,0 +1,151 @@
+// PLAYMATE_BOARD_REPORTS_V1
+// PLAYMATE_COMMENT_ANON_EDIT_V2
+// PLAYMATE_BOARD_ANONYMOUS_V1
+import { apiRequest } from './apiClient'
+import { resolveMediaUrl } from '../config/api'
+
+/** 기존 게시판 개발용 헤더만 연결한다. 인증·모임에는 이 헤더를 강제하지 않는다. */
+function request(path, options = {}) {
+  return apiRequest(path, options)
+}
+/** endpoint와 payload만 정의한다. 조회 options는 취소 신호 전달에 사용한다. */
+export const boardApi = {
+  /** 게시판 목록을 조회한다. options로 AbortSignal 등 조회 옵션을 전달할 수 있다. */
+  boards(options = {}) {
+    return request('/boards', options)
+  },
+
+  /** 이름·소개·생성 사유를 JSON으로 보내고 생성된 게시판을 반환한다. */
+  createBoard(payload) {
+    return request('/boards', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  /** 옵션을 생략하면 기존 전체 목록. 새 화면은 서버 정렬·페이지·요약을 요청한다. */
+  posts(boardId, query = '', options = {}) {
+    const { limit, offset, sort = 'latest', summary, ...requestOptions } = options
+    const extra = new URLSearchParams()
+    if (limit != null) extra.set('limit', limit)
+    if (offset != null) extra.set('offset', offset)
+    if (summary) extra.set('summary', 'true')
+    return request(
+      `/boards/${boardId}/posts?sort=${sort}&q=${encodeURIComponent(query)}&${extra}`,
+      requestOptions,
+    )
+  },
+
+  /** 좋아요 기준으로 자동 선정된 읽기 전용 게시글 목록 */
+  featuredPosts(kind, query = '', options = {}) {
+    const { limit, ...requestOptions } = options
+    return request(
+      `/boards/featured/${kind}/posts?q=${encodeURIComponent(query)}${limit == null ? '' : `&limit=${limit}`}`,
+      requestOptions,
+    )
+  },
+
+  /** 지정한 게시판에 속한 글의 본문·소유자 여부·이미지 정보를 조회한다. */
+  post(boardId, postId, options = {}) {
+    return request(`/boards/${boardId}/posts/${postId}`, options)
+  },
+
+  /** 제목·본문과 파일을 FormData로 보낸다. 이미지 필드 이름 images는 서버 계약을 유지한다. */
+  createPost(boardId, payload) {
+    const form = new FormData()
+    form.append('title', payload.title)
+    form.append('body', payload.body)
+    form.append('is_anonymous', String(Boolean(payload.is_anonymous)))
+    payload.images.forEach((image) => form.append('images', image))
+    return request(`/boards/${boardId}/posts`, { method: 'POST', body: form })
+  },
+
+  /** 이미지 변경을 포함한 수정은 multipart로 전송한다. */
+  updatePost(boardId, postId, payload) {
+    if (payload.imageEdit) {
+      const form = new FormData()
+      form.append('title', payload.title)
+      form.append('body', payload.body)
+      form.append('is_anonymous', String(Boolean(payload.is_anonymous)))
+      payload.imageEdit.originalIds.forEach((id) => form.append('original_image_ids', id))
+      payload.imageEdit.keepIds.forEach((id) => form.append('keep_image_ids', id))
+      payload.images.forEach((image) => form.append('images', image))
+      return request(`/boards/${boardId}/posts/${postId}/images`, { method: 'PATCH', body: form })
+    }
+    return request(`/boards/${boardId}/posts/${postId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title: payload.title, body: payload.body, is_anonymous: payload.is_anonymous }),
+    })
+  },
+
+  /** 글 삭제를 요청한다. 서버가 204를 반환하면 공용 client의 결과는 null이다. */
+  deletePost(boardId, postId) {
+    return request(`/boards/${boardId}/posts/${postId}`, { method: 'DELETE' })
+  },
+
+  /** 로그인 회원으로 신고: 동일 게시글은 1회만 가능. */
+  reportPost(boardId, postId, reason, details = '') {
+    return request(`/boards/${boardId}/posts/${postId}/reports`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, details }),
+    })
+  },
+
+  /** 상세 글의 댓글 목록을 서버 순서대로 조회한다. options로 요청 취소를 지원한다. */
+  comments(boardId, postId, options = {}) {
+    return request(`/boards/${boardId}/posts/${postId}/comments`, options)
+  },
+
+  /**
+   * 댓글 본문을 저장하고 생성 응답을 반환해 화면에서 추가 GET 없이 반영하게 한다.
+   * replyToCommentId를 주면 그 댓글(대댓글 포함)에 답글로 저장한다. 원댓글은 서버가 계산한다.
+   * parentCommentId는 기존 호출 호환용(최상위 댓글에만 답글)이다.
+   */
+  createComment(boardId, postId, body, parentCommentId = null, isAnonymous = false, replyToCommentId = null) {
+    const payload = { body, parent_comment_id: parentCommentId, is_anonymous: isAnonymous }
+    if (replyToCommentId != null) payload.reply_to_comment_id = replyToCommentId
+    return request(`/boards/${boardId}/posts/${postId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  /** 게시글 좋아요를 등록하고 { post_id, like_count, liked_by_me }를 반환한다. 반복 요청해도 한 번만 반영된다. */
+  likePost(boardId, postId) {
+    return request(`/boards/${boardId}/posts/${postId}/like`, { method: 'PUT' })
+  },
+
+  /** 게시글 좋아요를 취소하고 같은 형태의 현재 상태를 반환한다. */
+  unlikePost(boardId, postId) {
+    return request(`/boards/${boardId}/posts/${postId}/like`, { method: 'DELETE' })
+  },
+
+  /** 게시글 스크랩을 등록하고 { post_id, scrapped_by_me }를 반환한다. 스크랩 수는 제공하지 않는다. */
+  scrapPost(boardId, postId) {
+    return request(`/boards/${boardId}/posts/${postId}/scrap`, { method: 'PUT' })
+  },
+
+  /** 게시글 스크랩을 취소하고 같은 형태의 현재 상태를 반환한다. */
+  unscrapPost(boardId, postId) {
+    return request(`/boards/${boardId}/posts/${postId}/scrap`, { method: 'DELETE' })
+  },
+
+  /** 댓글 id와 수정 본문을 보내며 수정된 댓글을 반환한다. */
+  updateComment(commentId, body, isAnonymous = undefined) {
+    return request(`/comments/${commentId}`, {
+      method: 'PATCH',
+      // 익명 값이 없는 구형 호출은 상태를 변경하지 않습니다.
+      body: JSON.stringify({ body, is_anonymous: isAnonymous }),
+    })
+  },
+
+  /** 댓글 삭제를 요청한다. 삭제 성공의 빈 응답 처리 방식은 글 삭제와 동일하다. */
+  deleteComment(commentId) {
+    return request(`/comments/${commentId}`, { method: 'DELETE' })
+  },
+}
+
+/** 기존 화면의 mediaUrl import를 유지하며 공통 이미지 주소 설정에 연결한다. */
+export function mediaUrl(path) {
+  return resolveMediaUrl(path)
+}

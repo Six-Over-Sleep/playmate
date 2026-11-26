@@ -1,0 +1,5 @@
+"""모임 요청의 저장 상한. DB 스키마를 변경하지 않고 잘못된 입력을 422로 거절한다."""
+TITLE_MAX_LENGTH = 100
+SPORT_MAX_LENGTH = 100
+PLACE_MAX_LENGTH = 255
+CAPACITY_MAX = 2_147_483_647

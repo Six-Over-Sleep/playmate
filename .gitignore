@@ -1,0 +1,41 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.testdeps*/
+.alltestdeps/
+.mysqltestdeps/
+.pgtestdeps/
+
+# IDE and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Frontend
+node_modules/
+dist/
+.vite/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime files
+uploads/
+*.log
+# career_news_crawler 단독 실행 시 생기는 SQLite DB·저널 (PlayMate는 PostgreSQL에 저장)
+crawler/career_news_crawler/data/
+
+*.bak
+# 채용 인사이트 원본·정제 CSV와 분석 보고서는 로컬에만 보관
+/data/insights_import/

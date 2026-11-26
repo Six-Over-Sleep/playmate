@@ -1,0 +1,1030 @@
+# PLAYMATE_COMMENT_AVATAR_V1
+# PLAYMATE_COURSE_BOARD_PERMISSIONS_V1
+# PLAYMATE_COMMENT_ANON_EDIT_V2
+# PLAYMATE_BOARD_ANONYMOUS_V1
+"""게시판 SQL과 결과 매핑. 연결·권한·트랜잭션은 Service에서 관리한다."""
+
+# Any : 게시글/댓글 조회 결과에 여러 데이터 타입이 들어올 수 있음을 나타냄
+from datetime import datetime, timezone
+from typing import Any
+from app.core.board_policy import HOT_DAYS, HOT_MIN_LIKES, HALL_MIN_LIKES, FEATURED_LIMIT, LIST_BODY_LENGTH
+from zoneinfo import ZoneInfo
+
+from psycopg2.errors import UndefinedColumn, UndefinedTable
+
+from app.core import uploads
+
+
+def _session_timezone(cursor):
+    """comments 시각(TIMESTAMP)은 DB 세션 시간대 값이다. 알 수 없으면 공용 DB 기본값 UTC."""
+    try:
+        name = cursor.connection.get_parameter_status("TimeZone")
+        return ZoneInfo(name) if name else timezone.utc
+    except Exception:
+        return timezone.utc
+
+
+def _with_timezone(cursor, row):
+    """시간대 없는 게시글·댓글 시각에 세션 시간대를 붙여 브라우저가 현지 시각으로 오해하지 않게 한다."""
+    if row is None:
+        return row
+    tz = None
+    for key in ("created_at", "updated_at"):
+        value = row.get(key)
+        if isinstance(value, datetime) and value.tzinfo is None:
+            tz = tz or _session_timezone(cursor)
+            row[key] = value.replace(tzinfo=tz)
+    return row
+
+
+# 게시글 여러 개에 첨부된 이미지를 한 번의 SQL 조회로 가져오는 함수
+def images_by_post(cursor, post_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    """게시글 ID들을 한 번에 조회하여 표시 순서대로 이미지를 묶는다.
+
+    이미지가 없는 게시글은 빈 목록이다. 빈 ID 목록은 SQL을 실행하지 않는다.
+    내부 매핑용 post_id는 이미지 응답에 포함하지 않는다.
+    """
+    # 게시글별 이미지 목록을 저장할 딕셔너리 생성
+    # 이미지가 없어도 해당 post_id의 값은 빈 리스트([])로 유지함
+    images = {post_id: [] for post_id in post_ids}
+    # 조회할 게시글이 없으면 DB에 쿼리하지 않고 바로 반환함
+    if not post_ids:
+        return images
+    # ANY(%s) : 전달한 게시글 ID 목록 중 하나라도 일치하는 이미지를 조회함
+    # ORDER BY : 게시글별로 이미지 표시 순서를 유지함
+    # AS : DB 컬럼 이름을 프론트엔드 응답용 키(id, url)로 변경함
+    cursor.execute(
+        """
+        SELECT
+            post_id,
+            attachment_id AS id,
+            stored_path AS stored_name,
+            original_filename AS original_name
+        FROM post_attachments
+        WHERE attachment_scope = 'BOARD' AND post_id = ANY(%s)
+        ORDER BY post_id, display_order, attachment_id
+        """,
+        (post_ids,),
+    )
+    # fetchall() : 쿼리 결과 전체 조회
+    # pop("post_id") : 내부 매핑에만 쓰는 ID를 이미지 응답에서 제거함
+    for image in cursor.fetchall():
+        post_id = image.pop("post_id")
+        image["url"] = uploads.post_image_storage.public_url(image.pop("stored_name"))
+        images[post_id].append(image)
+    return images
+
+
+# 일반 게시판 글을 구분하는 고정된 post_type 값
+BOARD_POST_TYPE = "BOARD"
+
+
+# 삭제된 게시글과 모임 모집에 연결된 게시글을 제외하기 위한 공통 조건
+def _board_post_guard(alias: str = "p") -> str:
+    """내부 SQL 별칭으로 삭제·모임 게시글 제외 조건을 구성한다."""
+    # deleted_at IS NULL : 삭제 처리되지 않은 글만 허용함
+    # NOT EXISTS : recruits 테이블에 연결된 모임 게시글을 제외함
+    # alias : 게시글 테이블의 SQL 별칭(p 등), 내부 코드에서만 전달함
+    return f"""
+        {alias}.deleted_at IS NULL
+        AND COALESCE({alias}.post_status, 'PUBLISHED') = 'PUBLISHED'
+        AND NOT EXISTS (
+            SELECT 1
+            FROM recruits AS r
+            WHERE r.post_id = {alias}.post_id
+        )
+    """
+
+
+# 전체 게시판 목록 조회
+def list_boards(cursor, member_id: int | None = None) -> list[dict[str, Any]]:
+    """기본 게시판 우선·생성 시간·ID 순으로 게시판 응답 목록을 조회한다."""
+    def query(personalized):
+        # 회원별 방문 횟수는 방문 기록(member_board_visit_events.board_id)을 집계한다(044).
+        join = (
+            "LEFT JOIN ("
+            "SELECT board_id, COUNT(*) AS visit_count FROM member_board_visit_events "
+            "WHERE member_id = %s AND board_id IS NOT NULL GROUP BY board_id"
+            ") AS v ON v.board_id = b.board_id"
+            if personalized else ""
+        )
+        order = "COALESCE(v.visit_count, 0) DESC," if personalized else ""
+        cursor.execute(f"""
+            SELECT b.board_id AS id, b.board_name AS name, b.description,
+                   b.course_code, b.cohort,
+                   b.scope_type, b.institution_id, b.program_id, b.cohort_id,
+                   b.read_policy, b.write_policy,
+                   b.created_at::timestamptz AS created_at
+            FROM boards AS b
+            {join}
+            ORDER BY CASE WHEN b.board_name = '공지사항' THEN 0 ELSE 1 END,
+                     {order} b.is_default DESC, b.created_at, b.board_id
+        """, (member_id,) if personalized else ())
+        return list(cursor.fetchall())
+
+    try:
+        return query(member_id is not None)
+    except (UndefinedTable, UndefinedColumn) as exc:
+        # The list uses an autocommit read cursor, so a failed SELECT can be retried.
+        # 024(테이블) 또는 044(board_id 컬럼) 미적용이면 기본 정렬로 응답한다.
+        message = exc.diag.message_primary
+        if 'relation "member_board_visit_events"' not in message and "board_id" not in message:
+            raise
+        return query(False)
+
+
+# 새 게시판을 등록하고 생성된 게시판 ID를 반환함
+def create_board(
+    cursor,
+    name: str,
+    description: str | None,
+    creation_reason: str | None,
+    member_id: int,
+) -> int:
+    """게시판 입력값을 저장하고 생성 ID를 반환한다. 커밋은 호출자가 수행한다."""
+    # INSERT : 게시판 이름, 설명, 생성 이유, 생성자 회원 ID 저장
+    # %s : SQL에 전달할 값을 안전하게 바인딩하는 자리표시자
+    # RETURNING : 새로 저장된 board_id를 바로 반환받음
+    cursor.execute(
+        """
+        INSERT INTO boards (
+            board_name, description, creation_reason, created_by
+        )
+        VALUES (%s, %s, %s, %s)
+        RETURNING board_id
+        """,
+        (name, description or None, creation_reason or None, member_id),
+    )
+    # fetchone() : RETURNING으로 반환된 게시판 ID 한 건을 조회함
+    board_id = cursor.fetchone()["board_id"]
+    return board_id
+
+
+# 게시판 번호로 특정 게시판의 기본 정보를 조회함
+def get_board(cursor, board_id: int) -> dict[str, Any] | None:
+    """게시판 ID로 응답 필드를 조회한다. 없으면 None을 반환한다."""
+    # WHERE board_id = %s : 요청한 게시판 번호와 일치하는 한 건만 조회함
+    cursor.execute(
+        """
+        SELECT
+            board_id AS id,
+            board_name AS name,
+            description,
+            course_code,
+            cohort,
+            scope_type,
+            institution_id,
+            program_id,
+            cohort_id,
+            read_policy,
+            write_policy,
+            created_at::timestamptz AS created_at
+        FROM boards
+        WHERE board_id = %s
+        """,
+        (board_id,),
+    )
+    # 해당 게시판이 없으면 fetchone() 결과는 None임
+    row = cursor.fetchone()
+    return row
+
+
+# 특정 게시판의 게시글 목록과 댓글 수, 첨부 이미지를 조회함
+def list_posts(
+    cursor, board_id: int, search: str, member_id: int,
+    *, limit: int | None = None, offset: int = 0, sort: str = "latest", summary: bool = False,
+) -> list[dict[str, Any]]:
+    """검색 조건으로 게시글을 조회하고 이미지를 일괄 매핑한다. 정렬·댓글 집계를 보존한다."""
+    # SQL에서 사용하는 %s 자리표시자 순서대로 조회 인자를 준비함
+    # member_id는 본인 작성 여부(is_owner)와 좋아요 여부(liked_by_me), board_id는 게시판 필터에 사용함
+    params: list[Any] = [member_id, member_id, board_id]
+    condition = ""
+    # 검색어가 있을 때만 제목·본문 검색 조건을 추가함
+    # ILIKE : PostgreSQL에서 대소문자 구분 없이 문자열 검색
+    # %검색어% : 검색어가 포함된 글을 찾는 패턴
+    if search:
+        condition = " AND (p.title ILIKE %s OR p.body ILIKE %s)"
+        params += [f"%{search}%", f"%{search}%"]
+    # JOIN members : 작성자의 닉네임 조회
+    # LEFT JOIN comments : 댓글이 없어도 게시글은 목록에 포함
+    # COUNT ... FILTER : 삭제되지 않은 댓글만 집계
+    # COALESCE/NULLIF : 닉네임이 없거나 빈 문자열이면 "익명" 사용
+    # GROUP BY : 게시글별 댓글 수를 계산하기 위한 그룹화
+    # 최신 게시글부터 조회하고 모임 모집글/삭제된 글은 제외함
+    # 서브쿼리 COUNT(*) : 삭제되지 않은 댓글 개수를 계산함
+    # (작성자 ID = 요청자 ID) : 글 수정/삭제 UI에 활용할 is_owner 값
+    # _board_post_guard() : 삭제된 글과 모임 모집글은 조회 대상에서 제외함
+    direction = "ASC" if sort == "oldest" else "DESC"
+    page_sql = ""
+    if limit is not None:
+        page_sql += " LIMIT %s"
+        params.append(limit)
+    if offset:
+        page_sql += " OFFSET %s"
+        params.append(offset)
+    source_sql = "posts"
+    where_sql = f"p.board_id = %s AND {_board_post_guard()}{condition}"
+    if limit is not None:
+        # Page before comment/reaction aggregation. Legacy callers keep full rows.
+        source_sql = f"(SELECT p.* FROM posts AS p WHERE {where_sql} ORDER BY p.created_at {direction}, p.post_id {direction}{page_sql})"
+        where_sql = "TRUE"
+        page_sql = ""
+    body_sql = f"LEFT(COALESCE(p.body, ''), {LIST_BODY_LENGTH})" if summary else "COALESCE(p.body, '')"
+    cursor.execute(
+        f"""
+        SELECT
+            p.post_id AS id,
+            p.board_id,
+            p.title,
+            {body_sql} AS body,
+            CASE WHEN p.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL ELSE p.author_member_id END AS author_id,
+            CASE WHEN p.is_anonymous THEN '익명'
+                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
+                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
+            p.is_anonymous,
+            p.created_at,
+            p.updated_at,
+            COUNT(c.comment_id) FILTER (WHERE c.deleted_at IS NULL)::int AS comment_count,
+            (p.author_member_id = %s) AS is_owner,
+            (
+                SELECT COUNT(*)
+                FROM post_reactions AS l
+                WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id
+            )::int AS like_count,
+            (
+                SELECT COUNT(*)
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = p.post_id
+            )::int AS scrap_count,
+            EXISTS (
+                SELECT 1
+                FROM post_reactions AS l
+                WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id
+                      AND l.member_id = %s
+            ) AS liked_by_me
+        FROM {source_sql} AS p
+        JOIN members AS m ON m.member_id = p.author_member_id
+        LEFT JOIN comments AS c ON c.post_id = p.post_id
+        WHERE {where_sql}
+        GROUP BY
+            p.post_id,
+            p.board_id,
+            p.title,
+            p.body,
+            p.author_member_id,
+            p.is_anonymous,
+            m.nickname,
+            m.member_status,
+            p.created_at,
+            p.updated_at
+        ORDER BY
+            p.created_at {direction},
+            p.post_id {direction}
+        {page_sql}
+        """,
+        params,
+    )
+    # 게시글 전체 조회 후, N번 조회하지 않도록 이미지 목록을 일괄 조회함
+    rows = [_with_timezone(cursor, row) for row in cursor.fetchall()]
+    images = images_by_post(cursor, [row["id"] for row in rows])
+    # 게시글 한 건마다 해당 이미지 목록(images)을 붙여 반환함
+    for row in rows:
+        row["images"] = images[row["id"]]
+    return rows
+
+
+# 게시글을 생성하고 필요하면 첨부 이미지 메타데이터도 저장함
+def create_post(
+    cursor,
+    board_id: int,
+    title: str,
+    body: str,
+    member_id: int,
+    images: list[dict[str, Any]] | None = None,
+    is_anonymous: bool = False,
+) -> int:
+    """게시글과 이미지 메타데이터를 주어진 커서로 저장하고 게시글 ID를 반환한다."""
+    # 게시글 작성자, 제목, 본문을 저장함
+    # post_type=BOARD / source_type=USER / post_status=PUBLISHED로 저장함
+    # CURRENT_TIMESTAMP : 게시글 공개 시간을 DB 현재 시간으로 기록함
+    cursor.execute(
+        """
+        INSERT INTO posts (
+            board_id, author_member_id, post_type, title, body,
+            source_type, post_status, published_at, is_anonymous
+        )
+        VALUES (%s, %s, %s, %s, %s, 'USER', 'PUBLISHED', CURRENT_TIMESTAMP, %s)
+        RETURNING post_id
+        """,
+        (board_id, member_id, BOARD_POST_TYPE, title, body, is_anonymous),
+    )
+    # INSERT 결과로 생성된 게시글 번호를 가져옴
+    post_id = cursor.fetchone()["post_id"]
+    insert_post_images(cursor, post_id, images or [])
+    return post_id
+
+
+# 게시판 이미지는 취업 톡톡 첨부와 같은 post_attachments에 attachment_scope = 'BOARD'로 저장한다(037·044).
+# board_created_at은 BOARD 행 필수 컬럼(게시글 시각과 같은 세션 시간대의 TIMESTAMP)이다.
+def insert_post_images(cursor, post_id, images, start_order=0):
+    """이미지 메타데이터를 표시 순서대로 저장한다(최대 3장, 장마다 1회 실행).
+
+    execute_values는 psycopg2 실제 커서의 connection.encoding에 의존해 저장소 계층
+    테스트 대역과 맞지 않아 일반 execute를 사용한다.
+    """
+    for order, image in enumerate(images or [], start_order):
+        cursor.execute(
+            """
+            INSERT INTO post_attachments (
+                attachment_scope, post_id, stored_path, original_filename,
+                attachment_type, content_type, file_size_bytes, display_order,
+                board_created_at
+            )
+            VALUES ('BOARD', %s, %s, %s, 'IMAGE', %s, %s, %s, LOCALTIMESTAMP)
+            """,
+            (
+                post_id, image["stored_name"], image["original_name"],
+                image["content_type"], image["file_size"], order,
+            ),
+        )
+
+
+def post_image_ids(cursor, post_id):
+    cursor.execute(
+        "SELECT attachment_id AS image_id FROM post_attachments "
+        "WHERE attachment_scope = 'BOARD' AND post_id = %s",
+        (post_id,),
+    )
+    return {row["image_id"] for row in cursor.fetchall()}
+
+
+def remove_post_images(cursor, post_id, keep_ids):
+    cursor.execute(
+        """
+        DELETE FROM post_attachments
+        WHERE attachment_scope = 'BOARD' AND post_id = %s AND NOT (attachment_id = ANY(%s))
+        RETURNING stored_path AS stored_name
+        """,
+        (post_id, keep_ids),
+    )
+    removed = cursor.fetchall()
+    cursor.execute(
+        """
+        WITH ordered AS (
+            SELECT attachment_id,
+                   row_number() OVER (ORDER BY display_order, attachment_id) - 1 AS position
+            FROM post_attachments
+            WHERE attachment_scope = 'BOARD' AND post_id = %s
+        )
+        UPDATE post_attachments AS image
+        SET display_order = ordered.position
+        FROM ordered
+        WHERE image.attachment_scope = 'BOARD'
+          AND image.attachment_id = ordered.attachment_id
+          AND image.display_order <> ordered.position
+        """,
+        (post_id,),
+    )
+    return removed
+
+
+# 단일 게시글의 내용, 작성자, 댓글 수, 첨부 이미지를 조회함
+def get_post(
+    cursor, board_id: int, post_id: int, member_id: int
+) -> dict[str, Any] | None:
+    """게시글과 댓글 수·이미지를 반환한다. 삭제·모임 게시글은 None이다."""
+    cursor.execute(
+        f"""
+        SELECT
+            p.post_id AS id,
+            p.board_id,
+            p.title,
+            COALESCE(p.body, '') AS body,
+            CASE WHEN p.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL ELSE p.author_member_id END AS author_id,
+            CASE WHEN p.is_anonymous THEN '익명'
+                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
+                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
+            p.is_anonymous,
+            p.created_at,
+            p.updated_at,
+            (
+                SELECT COUNT(*)
+                FROM comments AS c
+                WHERE c.post_id = p.post_id
+                      AND c.deleted_at IS NULL
+            ) AS comment_count,
+            (p.author_member_id = %s) AS is_owner,
+            (
+                SELECT COUNT(*)
+                FROM post_reactions AS l
+                WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id
+            )::int AS like_count,
+            (
+                SELECT COUNT(*)
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = p.post_id
+            )::int AS scrap_count,
+            EXISTS (
+                SELECT 1
+                FROM post_reactions AS l
+                WHERE l.reaction_type = 'LIKE' AND l.post_id = p.post_id
+                      AND l.member_id = %s
+            ) AS liked_by_me,
+            EXISTS (
+                SELECT 1
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = p.post_id
+                      AND s.member_id = %s
+            ) AS scrapped_by_me
+        FROM posts AS p
+        JOIN members AS m ON m.member_id = p.author_member_id
+        WHERE p.board_id = %s
+            AND p.post_id = %s
+            AND {_board_post_guard()}
+        """,
+        (member_id, member_id, member_id, board_id, post_id),
+    )
+    # 조회한 글이 있을 때만 이미지 정보를 함께 추가함
+    row = _with_timezone(cursor, cursor.fetchone())
+    if row is not None:
+        row["images"] = images_by_post(cursor, [post_id])[post_id]
+    return row
+
+
+# 게시글 작성자만 제목과 본문을 수정할 수 있도록 제한함
+def update_post(
+    cursor, board_id: int, post_id: int, title: str, body: str, member_id: int,
+    is_anonymous: bool | None = None,
+) -> bool:
+    """작성자·삭제·모임 조건으로 게시글을 수정하고 변경 여부를 반환한다."""
+    # UPDATE : 제목, 본문, 마지막 수정 시간을 변경함
+    # WHERE : 같은 게시판의 글 + 작성자 본인 + 미삭제 + 비모임 게시글
+    cursor.execute(
+        f"""
+        UPDATE posts AS p
+        SET title = %s,
+            body = %s,
+            is_anonymous = COALESCE(%s, p.is_anonymous),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE p.board_id = %s
+            AND p.post_id = %s
+            AND p.author_member_id = %s
+            AND {_board_post_guard()}
+        """,
+        (title, body, is_anonymous, board_id, post_id, member_id),
+    )
+    # rowcount : 실제 변경된 행 수, 한 건 이상이면 수정 성공(True)
+    return cursor.rowcount > 0
+
+
+# 게시글을 물리적으로 지우지 않고 삭제 일시를 기록함
+def delete_post(cursor, board_id: int, post_id: int, member_id: int) -> bool:
+    """작성자·삭제·모임 조건으로 게시글을 논리 삭제하고 변경 여부를 반환한다."""
+    # 논리 삭제(Soft Delete) : deleted_at에 시간만 기록하여 데이터 보존
+    # 작성자 본인 글이고 아직 삭제되지 않았으며 모임 글이 아닐 때만 처리함
+    cursor.execute(
+        f"""
+        UPDATE posts AS p
+        SET deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE p.board_id = %s
+            AND p.post_id = %s
+            AND p.author_member_id = %s
+            AND {_board_post_guard()}
+        """,
+        (board_id, post_id, member_id),
+    )
+    # 처리한 글이 있으면 True, 없으면 False 반환
+    return cursor.rowcount > 0
+
+
+# 게시글 존재 여부만 확인하여 불필요한 데이터 조회를 줄임
+def post_exists(cursor, board_id: int, post_id: int) -> bool:
+    """게시판과 게시글 ID로 유효한 글 존재 여부만 조회한다."""
+    # SELECT 1 : 데이터 내용은 가져오지 않고 존재 여부만 확인함
+    # 삭제·모임 제외 조건은 게시글 상세 조회와 동일하게 적용함
+    cursor.execute(
+        f"""
+        SELECT
+            1
+        FROM posts AS p
+        WHERE p.board_id = %s
+            AND p.post_id = %s
+            AND {_board_post_guard()}
+        """,
+        (board_id, post_id),
+    )
+    return cursor.fetchone() is not None
+
+
+
+# 좋아요 등록 (신규 등록 여부 반환)
+def like_post(cursor, post_id: int, member_id: int) -> bool:
+    cursor.execute(
+        """
+        INSERT INTO post_reactions (post_id, member_id, reaction_type)
+        VALUES (%s, %s, 'LIKE')
+        ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING
+        """,
+        (post_id, member_id),
+    )
+
+    return cursor.rowcount > 0
+
+
+
+
+# 좋아요 취소 (실제 삭제 여부 반환)
+def unlike_post(cursor, post_id: int, member_id: int) -> bool:
+    cursor.execute(
+        """
+        DELETE FROM post_reactions
+        WHERE reaction_type = 'LIKE'
+          AND post_id = %s
+          AND member_id = %s
+        """,
+        (post_id, member_id),
+    )
+
+    return cursor.rowcount > 0
+
+
+# 좋아요 등록·취소 후 응답할 좋아요 수와 내 좋아요 여부 조회
+def get_post_like(cursor, post_id: int, member_id: int) -> dict[str, Any]:
+    """게시글 좋아요 수와 회원의 좋아요 여부를 응답 필드로 조회한다."""
+    cursor.execute(
+        """
+        SELECT
+            %s AS post_id,
+            COUNT(*)::int AS like_count,
+            COALESCE(BOOL_OR(l.member_id = %s), FALSE) AS liked_by_me
+        FROM post_reactions AS l
+        WHERE l.reaction_type = 'LIKE' AND l.post_id = %s
+        """,
+        (post_id, member_id, post_id),
+    )
+    row = cursor.fetchone()
+    return row
+
+
+# 게시글 스크랩 저장 (중복 요청은 무시)
+def scrap_post(cursor, post_id: int, member_id: int) -> None:
+    """게시글 스크랩을 저장한다. 이미 스크랩한 글은 기본키 충돌을 무시한다."""
+    cursor.execute(
+        """
+        INSERT INTO post_reactions (post_id, member_id, reaction_type)
+        VALUES (%s, %s, 'SCRAP')
+        ON CONFLICT (post_id, reaction_type, member_id) DO NOTHING
+        """,
+        (post_id, member_id),
+    )
+
+
+# 게시글 스크랩 취소
+def unscrap_post(cursor, post_id: int, member_id: int) -> None:
+    """회원의 게시글 스크랩을 삭제한다. 스크랩이 없으면 아무것도 변경하지 않는다."""
+    cursor.execute(
+        """
+        DELETE FROM post_reactions
+        WHERE reaction_type = 'SCRAP'
+            AND post_id = %s
+            AND member_id = %s
+        """,
+        (post_id, member_id),
+    )
+
+
+# 스크랩 등록·취소 후 응답할 내 스크랩 여부 조회
+def get_post_scrap(cursor, post_id: int, member_id: int) -> dict[str, Any]:
+    """회원의 게시글 스크랩 여부를 응답 필드로 조회한다."""
+    cursor.execute(
+        """
+        SELECT
+            %s AS post_id,
+            EXISTS (
+                SELECT 1
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = %s
+                      AND s.member_id = %s
+            ) AS scrapped_by_me
+        """,
+        (post_id, post_id, member_id),
+    )
+    row = cursor.fetchone()
+    return row
+
+
+# 답글 대상 정보. 저장값이 NULL인 기존 대댓글은 parent_comment_id를 답글 대상으로 해석한다.
+# 대상 작성자 이름은 작성자 이름과 같은 규칙으로 가리고(익명·탈퇴), 대상이 삭제됐으면 이름을 내보내지 않는다.
+# 대상 작성자의 회원 ID는 어떤 경우에도 내보내지 않는다. 닉네임은 본문에 저장하지 않고 조회할 때 계산한다.
+_REPLY_TARGET_COLUMNS = """
+            COALESCE(c.reply_to_comment_id, c.parent_comment_id) AS reply_to_comment_id,
+
+            CASE
+                WHEN c.parent_comment_id IS NULL OR target.comment_id IS NULL
+                    OR target.deleted_at IS NOT NULL THEN NULL
+                WHEN target.is_anonymous THEN '익명'
+                WHEN target_member.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
+                ELSE COALESCE(NULLIF(target_member.nickname, ''), '익명')
+            END AS reply_to_author_name,
+
+            (c.parent_comment_id IS NOT NULL
+                AND (target.comment_id IS NULL OR target.deleted_at IS NOT NULL)) AS reply_to_is_deleted
+"""
+_REPLY_TARGET_JOINS = """
+        LEFT JOIN comments AS target
+            ON target.comment_id = COALESCE(c.reply_to_comment_id, c.parent_comment_id)
+        LEFT JOIN members AS target_member
+            ON target_member.member_id = target.author_member_id
+"""
+
+
+def list_comments(cursor, post_id: int, member_id: int) -> list[dict[str, Any]]:
+    """댓글과 대댓글을 조회한다. 익명 작성자의 정보를 공개하지 않는다."""
+    cursor.execute(
+        """
+        SELECT
+            c.comment_id AS id,
+            c.post_id,
+            c.parent_comment_id,
+
+            CASE
+                WHEN c.deleted_at IS NULL THEN c.body
+                ELSE ''
+            END AS body,
+
+            CASE
+                WHEN c.deleted_at IS NOT NULL OR c.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL
+                ELSE c.author_member_id
+            END AS author_id,
+
+            CASE
+                WHEN c.deleted_at IS NOT NULL THEN ''
+                WHEN c.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
+                ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
+            END AS author_name,
+
+            CASE
+                WHEN c.deleted_at IS NOT NULL OR c.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL
+                ELSE NULLIF(m.profile_image_url, '')
+            END AS author_avatar_url,
+
+            CASE
+                WHEN c.deleted_at IS NOT NULL THEN FALSE
+                ELSE c.is_anonymous
+            END AS is_anonymous,
+
+            c.created_at,
+            c.updated_at,
+
+            (c.deleted_at IS NULL AND c.author_member_id = %s) AS is_owner,
+            (c.deleted_at IS NOT NULL) AS is_deleted,
+""" + _REPLY_TARGET_COLUMNS + """
+        FROM comments AS c
+        JOIN members AS m ON m.member_id = c.author_member_id
+        LEFT JOIN comments AS parent
+            ON parent.comment_id = c.parent_comment_id
+""" + _REPLY_TARGET_JOINS + """
+        WHERE c.post_id = %s
+            AND (
+                c.deleted_at IS NULL
+                OR (
+                    c.parent_comment_id IS NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM comments AS r
+                        WHERE r.parent_comment_id = c.comment_id
+                          AND r.deleted_at IS NULL
+                    )
+                )
+            )
+
+        ORDER BY
+            COALESCE(parent.created_at, c.created_at),
+            COALESCE(parent.comment_id, c.comment_id),
+            c.parent_comment_id IS NOT NULL,
+            c.created_at,
+            c.comment_id
+        """,
+        (member_id, post_id),
+    )
+
+    return [_with_timezone(cursor, row) for row in cursor.fetchall()]
+
+
+# 댓글 및 대댓글 저장
+def create_comment(
+    cursor,
+    post_id: int,
+    body: str,
+    member_id: int,
+    parent_comment_id: int | None = None,
+    is_anonymous: bool = False,
+    reply_to_comment_id: int | None = None,
+) -> int:
+    """댓글을 저장하고 comment_id를 반환한다.
+
+    reply_to_comment_id가 없으면(원댓글·기존 방식 대댓글) 기존 INSERT를 그대로 쓰고 저장값은 NULL이다.
+    있으면 서비스가 계산한 최상위 원댓글(parent_comment_id)과 실제 대상을 함께 저장한다.
+    """
+    if reply_to_comment_id is not None:
+        cursor.execute(
+            """
+            INSERT INTO comments (
+                post_id,
+                author_member_id,
+                body,
+                parent_comment_id,
+                reply_to_comment_id,
+                is_anonymous
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING comment_id
+            """,
+            (
+                post_id,
+                member_id,
+                body,
+                parent_comment_id,
+                reply_to_comment_id,
+                is_anonymous,
+            ),
+        )
+        return cursor.fetchone()["comment_id"]
+
+    # 댓글 내용과 익명 여부 저장
+    cursor.execute(
+        """
+        INSERT INTO comments (
+            post_id,
+            author_member_id,
+            body,
+            parent_comment_id,
+            is_anonymous
+        )
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING comment_id
+        """,
+        (
+            post_id,
+            member_id,
+            body,
+            parent_comment_id,
+            is_anonymous,
+        ),
+    )
+
+    return cursor.fetchone()["comment_id"]
+
+# 대댓글 작성 전 부모 댓글의 게시글·상위 댓글 ID 조회
+def get_parent_comment(cursor, comment_id: int) -> dict[str, Any] | None:
+    """대댓글 검증에 필요한 부모 댓글의 게시글·상위 댓글 ID를 조회한다.
+
+    없거나 삭제된 댓글은 None이다.
+    """
+    cursor.execute(
+        """
+        SELECT
+            post_id,
+            parent_comment_id
+        FROM comments
+        WHERE comment_id = %s
+            AND deleted_at IS NULL
+        """,
+        (comment_id,),
+    )
+    row = cursor.fetchone()
+    return row
+
+
+def get_reply_target(cursor, comment_id: int) -> dict[str, Any] | None:
+    """답글 대상 댓글과 그 원댓글(있으면)의 게시글·상위 댓글 ID를 조회한다.
+
+    없거나 삭제된 대상은 None이다. 대상 행은 트랜잭션이 끝날 때까지 FOR SHARE로 잠가,
+    검증과 저장 사이에 대상의 논리 삭제(삭제 시각 기록)가 끼어들지 않게 한다.
+    원댓글은 삭제된 자리표시여도 스레드가 살아 있으므로 삭제 여부를 보지 않는다.
+    """
+    cursor.execute(
+        """
+        SELECT
+            target.comment_id,
+            target.post_id,
+            target.parent_comment_id,
+            root.post_id AS root_post_id,
+            root.parent_comment_id AS root_parent_comment_id
+        FROM comments AS target
+        LEFT JOIN comments AS root
+            ON root.comment_id = target.parent_comment_id
+        WHERE target.comment_id = %s
+            AND target.deleted_at IS NULL
+        FOR SHARE OF target
+        """,
+        (comment_id,),
+    )
+    return cursor.fetchone()
+
+
+# 댓글 ID에 해당하는 댓글 한 건을 조회함
+def get_comment(cursor, comment_id: int, member_id: int) -> dict[str, Any] | None:
+    """댓글 한 건을 조회한다. 익명 여부와 작성자 권한을 함께 반환한다."""
+    cursor.execute(
+        """
+        SELECT
+            c.comment_id AS id,
+            c.post_id,
+            c.parent_comment_id,
+            c.body,
+
+            CASE
+                WHEN c.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL
+                ELSE c.author_member_id
+            END AS author_id,
+
+            CASE
+                WHEN c.is_anonymous THEN '익명'
+                WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
+                ELSE COALESCE(NULLIF(m.nickname, ''), '익명')
+            END AS author_name,
+
+            CASE
+                WHEN c.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL
+                ELSE NULLIF(m.profile_image_url, '')
+            END AS author_avatar_url,
+
+            c.is_anonymous,
+            c.created_at,
+            c.updated_at,
+
+            (c.author_member_id = %s) AS is_owner,
+""" + _REPLY_TARGET_COLUMNS + """
+        FROM comments AS c
+        JOIN members AS m ON m.member_id = c.author_member_id
+""" + _REPLY_TARGET_JOINS + """
+        WHERE c.comment_id = %s
+          AND c.deleted_at IS NULL
+        """,
+        (member_id, comment_id),
+    )
+
+    return _with_timezone(cursor, cursor.fetchone())
+
+
+# 댓글 작성자만 본문을 수정할 수 있도록 처리함
+def update_comment(
+    cursor,
+    comment_id: int,
+    body: str,
+    member_id: int,
+    is_anonymous: bool | None = None,
+) -> bool:
+    """작성자 본인만 수정 가능합니다. 익명 인자 미전달 시 기존 값 유지."""
+    cursor.execute(
+        """
+        UPDATE comments
+        SET body = %s,
+            is_anonymous = COALESCE(%s, is_anonymous),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE comment_id = %s
+            AND author_member_id = %s
+            AND deleted_at IS NULL
+        """,
+        (body, is_anonymous, comment_id, member_id),
+    )
+    return cursor.rowcount > 0
+
+
+# 댓글 내용을 즉시 삭제하지 않고 삭제 시간을 기록함
+def delete_comment(cursor, comment_id: int, member_id: int) -> bool:
+    """댓글 ID·작성자 조건으로 논리 삭제하고 변경 여부를 반환한다."""
+    # 논리 삭제 : deleted_at을 기록하여 댓글을 목록/상세에서 제외함
+    # 다른 회원의 댓글이나 이미 삭제된 댓글은 변경하지 않음
+    cursor.execute(
+        """
+        UPDATE comments
+        SET deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE comment_id = %s
+            AND author_member_id = %s
+            AND deleted_at IS NULL
+        """,
+        (comment_id, member_id),
+    )
+    return cursor.rowcount > 0
+
+
+# 댓글이 존재하고 삭제되지 않았는지 빠르게 확인함
+def comment_exists(cursor, comment_id: int) -> bool:
+    """삭제되지 않은 댓글 존재 여부를 반환하여 서비스의 403/404 판단을 돕는다."""
+    # SELECT 1 : 행의 전체 데이터를 읽지 않고 존재 여부만 확인함
+    cursor.execute(
+        """
+        SELECT
+            1
+        FROM comments
+        WHERE comment_id = %s
+            AND deleted_at IS NULL
+        """,
+        (comment_id,),
+    )
+    return cursor.fetchone() is not None
+
+
+# 명예의 전당·HOT: 실제 게시글을 복사하지 않고 좋아요(post_reactions LIKE) 집계로 조회
+# 두 목록에 동시에 선정될 수 있으며 원래 board_id를 그대로 반환한다.
+def list_featured_posts(
+    cursor,
+    kind: str,
+    search: str,
+    member_id: int,
+    allowed_board_ids: list[int] | None = None,
+    *, limit: int = FEATURED_LIMIT,
+) -> list[dict[str, Any]]:
+    """누적 100개 이상(명예) / 최근 7일 10개 이상(HOT) 조회."""
+    filters = {
+        "hall-of-fame": f"likes.total_likes >= {HALL_MIN_LIKES}",
+        "hot": f"likes.recent_likes >= {HOT_MIN_LIKES}",
+    }
+    orders = {
+        "hall-of-fame": "likes.total_likes DESC",
+        "hot": "likes.recent_likes DESC, likes.total_likes DESC",
+    }
+    if kind not in filters:
+        raise ValueError("지원하지 않는 인기 게시판입니다.")
+
+    # 빈 허용 목록은 곧바로 반환하여 제한된 게시판을 실수로 공개하지 않습니다.
+    if allowed_board_ids is not None and not allowed_board_ids:
+        return []
+
+    params: list[Any] = [member_id, member_id]
+    access_sql = ""
+    if allowed_board_ids is not None:
+        access_sql = "AND p.board_id = ANY(%s)"
+        params.append(allowed_board_ids)
+    search_sql = ""
+    if search:
+        search_sql = "AND (p.title ILIKE %s OR p.body ILIKE %s)"
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    cursor.execute(
+        f"""
+        WITH likes AS (
+            SELECT
+                l.post_id,
+                COUNT(*)::int AS total_likes,
+                COUNT(*) FILTER (
+                    WHERE l.created_at >= CURRENT_TIMESTAMP - INTERVAL '{HOT_DAYS} days'
+                )::int AS recent_likes
+            FROM post_reactions AS l
+            WHERE l.reaction_type = 'LIKE'
+            GROUP BY l.post_id
+        )
+        SELECT
+            p.post_id AS id,
+            p.board_id,
+            p.title,
+            COALESCE(p.body, '') AS body,
+            CASE WHEN p.is_anonymous OR m.member_status = 'WITHDRAWN' THEN NULL ELSE p.author_member_id END AS author_id,
+            CASE WHEN p.is_anonymous THEN '익명'
+                 WHEN m.member_status = 'WITHDRAWN' THEN '탈퇴한 사용자'
+                 ELSE COALESCE(NULLIF(m.nickname, ''), '익명') END AS author_name,
+            p.is_anonymous,
+            p.created_at,
+            p.updated_at,
+            (
+                SELECT COUNT(*)::int FROM comments AS c
+                WHERE c.post_id = p.post_id AND c.deleted_at IS NULL
+            ) AS comment_count,
+            (p.author_member_id = %s) AS is_owner,
+            likes.total_likes AS like_count,
+            (
+                SELECT COUNT(*)
+                FROM post_reactions AS s
+                WHERE s.reaction_type = 'SCRAP' AND s.post_id = p.post_id
+            )::int AS scrap_count,
+            EXISTS (
+                SELECT 1 FROM post_reactions AS my_likes
+                WHERE my_likes.reaction_type = 'LIKE' AND my_likes.post_id = p.post_id
+                  AND my_likes.member_id = %s
+            ) AS liked_by_me
+        FROM posts AS p
+        JOIN members AS m ON m.member_id = p.author_member_id
+        JOIN boards AS b ON b.board_id = p.board_id
+        JOIN likes ON likes.post_id = p.post_id
+        WHERE p.post_type = 'BOARD'
+          AND p.post_status = 'PUBLISHED'
+          AND b.board_name <> '공지사항'
+          AND {_board_post_guard()}
+          AND {filters[kind]}
+          {access_sql}
+          {search_sql}
+        ORDER BY {orders[kind]}, p.created_at DESC, p.post_id DESC
+        LIMIT %s
+        """,
+        [*params, limit],
+    )
+    rows = [_with_timezone(cursor, row) for row in cursor.fetchall()]
+    images = images_by_post(cursor, [row["id"] for row in rows])
+    for row in rows:
+        row["images"] = images[row["id"]]
+    return rows

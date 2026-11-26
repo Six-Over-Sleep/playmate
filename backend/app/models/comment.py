@@ -1,0 +1,77 @@
+
+# 댓글 및 대댓글 정보를 관리하는 SQLAlchemy 모델
+from sqlalchemy import Column, BigInteger, Text, DateTime, ForeignKey, Boolean, text
+from backend.app.core.database import Base
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+
+    # 댓글 고유 번호 (PK)
+    comment_id = Column(
+        BigInteger,
+        primary_key=True
+    )
+
+    # 댓글이 속한 게시글
+    post_id = Column(
+        BigInteger,
+        ForeignKey("posts.post_id"),
+        nullable=False
+    )
+
+    # 댓글 작성자
+    author_member_id = Column(
+        BigInteger,
+        ForeignKey("members.member_id"),
+        nullable=False
+    )
+
+    # 댓글 내용
+    body = Column(
+        Text,
+        nullable=False
+    )
+
+    # 익명 작성 여부
+    # True: 익명 / False: 닉네임 공개
+    is_anonymous = Column(
+        Boolean,
+        nullable=False,
+        server_default=text("FALSE")
+    )
+
+    # 댓글 작성 시간
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    # 댓글 수정 시간
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    # 논리삭제 시간
+    deleted_at = Column(
+        DateTime,
+        nullable=True
+    )
+
+    # 부모 댓글 ID (일반 댓글이면 NULL). 답글은 항상 최상위 원댓글을 가리킴.
+    parent_comment_id = Column(
+        BigInteger,
+        ForeignKey("comments.comment_id"),
+        nullable=True
+    )
+
+    # 실제 답글 대상 댓글 ID (041_comment_reply_target.sql).
+    # NULL이면 기존 데이터·기존 방식 답글이며 parent_comment_id를 대상으로 해석함.
+    reply_to_comment_id = Column(
+        BigInteger,
+        ForeignKey("comments.comment_id"),
+        nullable=True
+    )

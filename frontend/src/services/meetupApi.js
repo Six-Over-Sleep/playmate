@@ -1,0 +1,109 @@
+import { apiRequest } from './apiClient'
+
+export const meetupApi = {
+  capabilities: () => apiRequest('/recruits/capabilities'),
+  skills: (options = {}) => apiRequest('/recruits/skills', options),
+  like: (id) => apiRequest(`/recruits/${id}/like`, { method: 'PUT' }),
+  unlike: (id) => apiRequest(`/recruits/${id}/like`, { method: 'DELETE' }),
+  scrap: (id) => apiRequest(`/recruits/${id}/scrap`, { method: 'PUT' }),
+  unscrap: (id) => apiRequest(`/recruits/${id}/scrap`, { method: 'DELETE' }),
+  comments: (id, options = {}) => apiRequest(`/recruits/${id}/comments`, options),
+  // reply_to_comment_id를 주면 그 댓글(대댓글 포함)에 답글로 저장함. 원댓글은 서버가 계산함.
+  addComment: (id, body, parent_comment_id = null, reply_to_comment_id = null) => apiRequest(`/recruits/${id}/comments`, {
+    method: 'POST',
+    body: JSON.stringify(reply_to_comment_id == null
+      ? { body, parent_comment_id }
+      : { body, parent_comment_id, reply_to_comment_id }),
+  }),
+  editComment: (id, commentId, body) => apiRequest(`/recruits/${id}/comments/${commentId}`, {
+    method: 'PATCH', body: JSON.stringify({ body }),
+  }),
+  deleteComment: (id, commentId) => apiRequest(`/recruits/${id}/comments/${commentId}`, { method: 'DELETE' }),
+  list: () =>
+    apiRequest('/recruits'),
+
+  detail: (id, options = {}) =>
+    apiRequest(`/recruits/${id}`, options),
+
+  create: (payload) =>
+    apiRequest('/recruits', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  update: (id, payload) =>
+    apiRequest(`/recruits/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  // 기존 DELETE /recruits/{id}는 게시글 논리 삭제용이다.
+  // 프로젝트 운영 취소는 cancelProject()를 사용한다.
+  remove: (id) =>
+    apiRequest(`/recruits/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // 프로젝트는 신청서 payload를 전달하고,
+  // 스터디는 본문 없이 신청할 수 있다.
+  join: (id, payload = null) =>
+    apiRequest(`/recruits/${id}/join`, {
+      method: 'POST',
+      ...(payload != null
+        ? {
+            body: JSON.stringify(payload),
+          }
+        : {}),
+    }),
+
+  // 시작 전 신청 취소와 시작 후 자발적 중도이탈은
+  // 동일한 DELETE /join을 사용하고 서버가 상태를 구분한다.
+  cancelJoin: (id) =>
+    apiRequest(`/recruits/${id}/join`, {
+      method: 'DELETE',
+    }),
+
+  members: (id, options = {}) =>
+    apiRequest(`/recruits/${id}/members`, options),
+
+  count: (id, options = {}) =>
+    apiRequest(`/recruits/${id}/count`, options),
+
+  activities: (id, options = {}) =>
+    apiRequest(`/recruits/${id}/activities`, options),
+
+  addActivity: (id, payload) =>
+    apiRequest(`/recruits/${id}/activities`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // 프로젝트 일정 연장
+  extendProject: (id, payload) =>
+    apiRequest(`/recruits/${id}/extension`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // 2회 연장 후 필수 기술만 부족한 경우
+  // 현재 확정 구성으로 예정 시각에 시작하도록 결정
+  chooseExceptionStart: (id, payload) =>
+    apiRequest(`/recruits/${id}/exception-start`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // 팀장의 시작 전 프로젝트 운영 취소
+  cancelProject: (id, payload) =>
+    apiRequest(`/recruits/${id}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // 진행 중 1인 프로젝트의 중도 종료
+  abortProject: (id, payload) =>
+    apiRequest(`/recruits/${id}/abort`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+}

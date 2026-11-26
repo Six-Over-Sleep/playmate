@@ -1,0 +1,307 @@
+# PLAYMATE_BOARD_REPORTS_V1
+
+"""
+PlayMate FastAPI 메인 서버
+
+주요 기능
+1. Python 모듈 경로 설정
+2. FastAPI 애플리케이션 생성
+3. 로그인 세션 관리
+4. CORS 설정
+5. 기능별 API Router 등록
+6. 이미지 업로드 경로 설정
+7. 공통 예외 처리
+8. 서버 및 DB 상태 확인
+"""
+
+import logging
+import os
+import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
+
+
+# =========================================================
+# 1. 프로젝트 경로 설정
+# =========================================================
+
+# backend/app/main.py 기준 경로
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+PROJECT_ROOT_PATH = BACKEND_DIR.parent
+
+# 프로젝트 루트와 backend 폴더를 Python 검색 경로에 추가
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+if str(PROJECT_ROOT_PATH) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT_PATH))
+
+
+# =========================================================
+# 2. 공통 모듈 Import
+# =========================================================
+
+# 서버 설정
+from backend.app.core.config import SESSION_SECRET_KEY  # noqa: E402
+
+# DB 연결
+from app.core.db_connect import close_pool, db_cursor  # noqa: E402
+from backend.app.core.schema_check import startup_check  # noqa: E402
+
+# 이미지 업로드 경로
+from backend.app.core.uploads import PROJECT_ROOT  # noqa: E402
+
+# SQLAlchemy 모델 등록
+from backend.app.models.member import Member  # noqa: E402, F401
+
+
+# =========================================================
+# 3. Router Import
+# =========================================================
+
+# 회원 인증
+from backend.app.routers.auth import router as auth_router  # noqa: E402
+
+# 일반 게시판
+from backend.app.routers.board import router as board_router  # noqa: E402
+from backend.app.routers.board_moderation import (  # noqa: E402
+    router as board_reports_router, admin_router as board_reports_admin_router,
+)
+from backend.app.routers.activity import router as activity_router  # noqa: E402
+from backend.app.routers.admin import router as admin_router  # noqa: E402
+
+# 모임
+from backend.app.routers.recruit import router as recruit_router  # noqa: E402
+from backend.app.routers.recruit_program import (  # noqa: E402
+    features_router as recruit_program_features_router,
+)
+
+# 마이페이지
+from backend.app.routers.mypage import router as mypage_router  # noqa: E402
+
+# 취업 카테고리
+from backend.app.routers.career import router as career_router  # noqa: E402
+
+# 커리어 브리핑 뉴스
+from backend.app.routers.career_news import router as career_news_router  # noqa: E402
+from backend.app.routers.career_insights import router as career_insights_router  # noqa: E402
+
+
+# =========================================================
+# 4. FastAPI 애플리케이션 생성
+# =========================================================
+
+logger = logging.getLogger(__name__)
+
+# core/auth.py와 같은 기준: development·test만 개발 환경, 미설정·그 외 값은 운영
+APP_ENV = os.getenv("APP_ENV", "production").lower()
+IS_DEV_ENV = APP_ENV in {"development", "test"}
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """트래픽을 받기 전 1회 필수 스키마·XP 정책을 검사한다(core/schema_check.py).
+
+    운영 기본(strict)은 누락 시 기동을 중단한다. 요청마다 다시 검사하지 않는다.
+    """
+    try:
+        application.state.schema_check = await run_in_threadpool(startup_check)
+        yield
+    finally:
+        await run_in_threadpool(close_pool)
+        from backend.app.core.database import engine
+        await run_in_threadpool(engine.dispose)
+
+
+# 운영에서는 /docs, /redoc, /openapi.json을 공개하지 않는다.
+app = FastAPI(
+    title="PlayMate API",
+    version="0.1.0",
+    docs_url="/docs" if IS_DEV_ENV else None,
+    redoc_url="/redoc" if IS_DEV_ENV else None,
+    openapi_url="/openapi.json" if IS_DEV_ENV else None,
+    lifespan=lifespan,
+)
+
+
+# =========================================================
+# 5. 로그인 세션 설정
+# =========================================================
+
+# 운영은 HTTPS에서만 세션 쿠키를 보내도록 Secure를 켠다. 로컬 HTTP 개발은 기존 동작 유지.
+# HttpOnly는 SessionMiddleware 기본값으로 항상 설정된다.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET_KEY,
+    session_cookie="playmate_session",
+    same_site="lax",
+    https_only=not IS_DEV_ENV,
+)
+
+
+# =========================================================
+# 6. CORS 설정
+# =========================================================
+
+# .env의 FRONTEND_ORIGINS 환경변수 활용
+# 예: http://localhost:5173,http://127.0.0.1:5173
+
+origins = [
+    value.strip()
+    for value in os.getenv("FRONTEND_ORIGINS", "").split(",")
+    if value.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# =========================================================
+# 7. Router 등록
+# =========================================================
+
+# 회원 인증 API
+app.include_router(auth_router)
+
+# 일반 게시판 API
+app.include_router(board_router)
+app.include_router(board_reports_router)
+app.include_router(board_reports_admin_router)
+app.include_router(activity_router)
+app.include_router(admin_router)
+
+# 모임 API
+app.include_router(recruit_router)
+app.include_router(recruit_program_features_router)
+
+# 취업 카테고리 API
+# 최종 주소: /api/career/...
+app.include_router(career_router)
+
+# 커리어 브리핑 뉴스 API
+# 최종 주소: /api/career/news...
+app.include_router(career_news_router)
+app.include_router(career_insights_router)
+
+# 마이페이지 API
+# 최종 주소: /api/mypage/...
+app.include_router(
+    mypage_router,
+    prefix="/api",
+)
+
+
+# =========================================================
+# 8. 이미지 업로드 경로 설정
+# =========================================================
+
+# 업로드 폴더 생성
+UPLOAD_DIR = PROJECT_ROOT / "uploads"
+
+UPLOAD_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
+class NoSniffStaticFiles(StaticFiles):
+    """업로드 파일 응답에 nosniff를 붙여 브라우저가 내용을 다른 형식으로 추측해 실행하지 않게 함."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
+# 이미지 정적 파일 제공
+# 예: /uploads/profiles/example.png
+app.mount(
+    "/uploads",
+    NoSniffStaticFiles(directory=UPLOAD_DIR),
+    name="uploads",
+)
+
+
+# =========================================================
+# 9. 공통 예외 처리
+# =========================================================
+
+# DB 연결 등 RuntimeError 발생 시 HTTP 503 반환
+# 내부 메시지는 서버 로그에만 남기고 클라이언트에는 고정 문구만 보낸다.
+# 로그에는 쿼리 문자열(OAuth code 등)을 남기지 않도록 경로만 기록한다.
+RUNTIME_ERROR_DETAIL = "일시적인 서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+
+
+@app.exception_handler(RuntimeError)
+def database_runtime_error(request: Request, exc: RuntimeError):
+    logger.error(
+        "RuntimeError on %s %s (%s): %s",
+        request.method,
+        request.url.path,
+        type(exc).__name__,
+        exc,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": RUNTIME_ERROR_DETAIL,
+        },
+    )
+
+
+# =========================================================
+# 10. 기본 서버 확인
+# =========================================================
+
+@app.get("/", tags=["health"])
+def home():
+    return {
+        "message": "PlayMate API 실행 성공",
+    }
+
+
+# =========================================================
+# 11. 서버 상태 확인
+# =========================================================
+
+@app.get("/health", tags=["health"])
+def health():
+    return {
+        "status": "ok",
+    }
+
+
+# =========================================================
+# 12. PostgreSQL 연결 확인
+# =========================================================
+
+# 연결 성공 여부만 반환한다. DB 이름 등 내부 정보는 응답에 포함하지 않는다.
+@app.get("/health/db", tags=["health"])
+def database_health():
+
+    with db_cursor() as cursor:
+        cursor.execute("SELECT 1 AS connected")
+        cursor.fetchone()
+
+    return {
+        "status": "ok",
+    }
+
+
+# 기동 시 1회 실행한 필수 스키마·XP 정책 검사 결과(요청마다 재검사하지 않음).
+# 누락 항목 이름은 응답하지 않고 서버 로그와 check_deploy_schema 스크립트로 확인한다.
+@app.get("/health/schema", tags=["health"])
+def schema_health():
+    result = getattr(app.state, "schema_check", {"status": "skipped"})
+    status_code = 503 if result.get("status") in {"error", "unavailable"} else 200
+    return JSONResponse(result, status_code=status_code)

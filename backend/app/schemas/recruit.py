@@ -1,0 +1,320 @@
+"""모임 생성·수정 요청과 응답에 사용하는 Pydantic 스키마."""
+
+# 날짜, 날짜와 시간, 시간만을 각각 표현하는 자료형
+from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
+# Literal : 지정된 값만 입력받도록 제한하는 타입
+from typing import Literal
+from urllib.parse import urlsplit
+
+# BaseModel : 요청/응답 데이터 구조 정의
+# Field : 필드별 입력 조건 설정
+# field_validator / model_validator : 필드 또는 모델 전체를 검증
+from pydantic import BaseModel, Field, field_validator, model_validator
+from backend.app.schemas.recruit_limits import (
+    TITLE_MAX_LENGTH, SPORT_MAX_LENGTH, PLACE_MAX_LENGTH, CAPACITY_MAX,
+)
+
+
+# WEEKDAYS : 정기 모임에서 선택할 수 있는 요일 목록
+# datetime.weekday()의 반환값(월요일=0 ~ 일요일=6)과 순서를 맞춤
+WEEKDAYS = ("월", "화", "수", "목", "금", "토", "일")
+
+
+def validate_regular_days(days: list[str] | None) -> list[str] | None:
+    """요일 목록을 검사하고 그대로 반환함. 비어 있거나 중복·잘못된 요일이면 오류 발생."""
+    # 입력값이 None이면 검증 없이 반환함
+    if days is None:
+        return days
+
+    # 빈 목록을 허용하지 않으며 set()으로 중복된 요일이 있는지 확인함
+    if not days or len(days) != len(set(days)):
+        raise ValueError("요일은 중복 없이 1개 이상 선택해야 합니다.")
+
+    # 입력된 모든 요일이 WEEKDAYS에 포함되어야 함
+    if any(day not in WEEKDAYS for day in days):
+        raise ValueError("요일은 월~일 중에서 선택해야 합니다.")
+
+    return days
+
+
+# 모임 생성 요청 데이터를 검증하는 모델
+EXTERNAL_URL_MAX_LENGTH = 2048
+
+
+def validate_external_url(value: str | None) -> str | None:
+    """사용자가 저장하는 외부 링크는 http·https 주소만 허용함.
+
+    javascript:, data:, file: 등 다른 스킴과 호스트가 없는 주소는 거부하고,
+    빈 문자열은 링크 없음(None)으로 저장함.
+    """
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if len(value) > EXTERNAL_URL_MAX_LENGTH:
+        raise ValueError("링크 주소가 너무 깁니다.")
+    parts = urlsplit(value)
+    if (
+        parts.scheme.lower() not in {"http", "https"}
+        or not parts.netloc
+        or any(char.isspace() or ord(char) < 32 for char in value)
+    ):
+        raise ValueError("링크는 http:// 또는 https://로 시작하는 주소만 입력할 수 있습니다.")
+    return value
+
+
+class RecruitCreate(BaseModel):
+    """모임 생성 요청 데이터와 일정 검증 규칙."""
+
+    # title : 모임 게시글 제목
+    # body : 모임 게시글 본문
+    # recruit_mode : 모임 방식 (regular : 정기 / short : 단기)
+    # category : 모임 카테고리 (운동, 게임, 스터디, 공동구매 등)
+    # capacity : 최대 모집 인원 (0보다 커야 함)
+    # deadline_at : 모집 마감 일시
+    title: str = Field(max_length=TITLE_MAX_LENGTH)
+    body: str
+    recruit_mode: Literal["regular", "short"]
+    category: str
+    capacity: int = Field(gt=0, le=CAPACITY_MAX)
+    deadline_at: datetime
+
+    # regular_days : 정기 모임 요일 목록 (예: ["월", "수"])
+    # regular_time : 정기 모임 진행 시간
+    # meeting_start : 단기 모임 시작 일시
+    # meeting_end : 단기 모임 종료 일시
+    # str | None, time | None 등은 값이 없을 때 None을 허용함
+    regular_days: list[str] | None = None
+    regular_time: time | None = None
+    meeting_start: datetime | None = None
+    meeting_end: datetime | None = None
+
+    # place : 모임 장소
+    # is_online : 온라인 여부 (True : 온라인 / False : 오프라인)
+    # contact_method : 참여자 간 연락 방법
+    place: str | None = Field(default=None, max_length=PLACE_MAX_LENGTH)
+    is_online: bool = False
+    contact_method: str | None = None
+
+    # 카테고리별 상세 정보 : 해당 카테고리에서 사용하는 값만 입력받음
+    # sport_name : 운동 종목
+    # game_name : 게임 이름
+    # study_topic : 스터디 주제
+    # study_period : 스터디 기간
+    # study_method : 스터디 진행 방식
+    # product_name : 공동구매 상품 이름
+    # purchase_url : 상품 구매 주소
+    # estimated_price_per_person : 1인당 예상 금액
+    # pickup_method : 공동구매 상품 수령 방식
+    # regular_start_date : 정기 모임 시작 날짜
+    sport_name: str | None = Field(default=None, max_length=SPORT_MAX_LENGTH)
+    game_name: str | None = None
+    study_topic: str | None = None
+    study_period: str | None = None
+    study_method: str | None = None
+    product_name: str | None = None
+    purchase_url: str | None = None
+    estimated_price_per_person: float | None = None
+    pickup_method: str | None = None
+    regular_start_date: date | None = None
+
+    @field_validator("deadline_at", "meeting_start", "meeting_end", mode="after")
+    @classmethod
+    def seoul_wall_time(cls, value):
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
+        return value
+
+    @field_validator("title", "body")
+    @classmethod
+    def nonempty_text(cls, value):
+        if not value.strip():
+            raise ValueError("제목과 소개를 입력해주세요.")
+        return value.strip()
+
+    @field_validator("purchase_url")
+    @classmethod
+    def safe_purchase_url(cls, value):
+        return validate_external_url(value)
+
+    # @model_validator(mode="after") : 개별 필드 검증이 끝난 뒤 전체 요청 데이터의 관계를 검사함
+    @model_validator(mode="after")
+    def check_schedule(self):
+        """모임 방식에 맞는 필수 일정과 모집 마감일을 검사함.
+
+        조건이 맞지 않으면 ValueError를 발생시키고,
+        정상이라면 검증된 객체(self)를 반환함.
+        """
+        # 공동구매는 수령 안내를 사용하며 모임 시작/종료 일정을 받지 않는다.
+        if self.category == "group_buy":
+            return self
+
+        # 정기 모임은 요일, 시간, 시작 날짜가 모두 필요함
+        if self.recruit_mode == "regular":
+            if not self.regular_days or self.regular_time is None:
+                raise ValueError("정기 모임은 요일과 시간이 필요합니다.")
+
+            if self.regular_start_date is None:
+                raise ValueError("정기 모임 시작 날짜가 필요합니다.")
+
+            # 시작 날짜의 요일이 선택한 정기 모임 요일에 포함되는지 확인함
+            start_day = WEEKDAYS[self.regular_start_date.weekday()]
+            if start_day not in self.regular_days:
+                raise ValueError("시작 날짜의 요일이 모임 요일에 포함되어야 합니다.")
+
+            # date와 time을 하나의 datetime으로 합쳐 첫 모임 시작 일시를 만듦
+            first_meeting = datetime.combine(
+                self.regular_start_date,
+                self.regular_time,
+            )
+            # 모집 마감일이 첫 모임 시작일보다 늦으면 오류 발생
+            if self.deadline_at > first_meeting:
+                raise ValueError("모집 마감은 첫 모임 시작 이전이어야 합니다.")
+
+        # 단기 모임은 시작·종료 일시를 모두 입력해야 함
+        if self.recruit_mode == "short":
+            if self.meeting_start is None or self.meeting_end is None:
+                raise ValueError("단기 모임은 시작과 종료 시간이 필요합니다.")
+
+            # 종료 일시가 시작 일시보다 늦어야 함
+            if self.meeting_end <= self.meeting_start:
+                raise ValueError("종료 시간은 시작 시간보다 늦어야 합니다.")
+
+            # 모집 마감일이 모임 시작일보다 늦으면 오류 발생
+            if self.deadline_at > self.meeting_start:
+                raise ValueError("모집 마감은 모임 시작 이전이어야 합니다.")
+
+        # 모든 검증을 통과한 요청 객체 반환
+        return self
+
+    # @field_validator("regular_days") : 요일 목록에만 별도 검증 적용
+    @field_validator("regular_days")
+    @classmethod
+    def check_days(cls, days: list[str] | None) -> list[str] | None:
+        """입력된 요일의 중복 여부와 허용 값을 검사함."""
+        return validate_regular_days(days)
+
+
+# 모임 수정 요청 데이터를 검증하는 모델
+class RecruitUpdate(BaseModel):
+    """모임 수정 요청 데이터. 전달된 필드만 변경할 수 있도록 모두 선택 값으로 둠."""
+
+    # 수정할 필드만 전달할 수 있도록 기본값을 None으로 설정함
+    # title / body : 게시글 제목과 본문
+    # recruit_mode : 모임 방식 (정기 / 단기)
+    # capacity : 최대 모집 인원 (전달한 경우 0보다 커야 함)
+    title: str | None = Field(default=None, max_length=TITLE_MAX_LENGTH)
+    body: str | None = None
+    recruit_mode: Literal["regular", "short"] | None = None
+    capacity: int | None = Field(default=None, gt=0, le=CAPACITY_MAX)
+
+    # regular_days / regular_time : 정기 모임 요일과 시간
+    # meeting_start / meeting_end : 단기 모임 시작·종료 일시
+    # deadline_at : 모집 마감 일시
+    # place : 모임 장소
+    # regular_start_date : 정기 모임 시작 날짜
+    regular_days: list[str] | None = None
+    regular_time: time | None = None
+    meeting_start: datetime | None = None
+    meeting_end: datetime | None = None
+    deadline_at: datetime | None = None
+    place: str | None = Field(default=None, max_length=PLACE_MAX_LENGTH)
+    regular_start_date: date | None = None
+
+    is_online: bool | None = None
+    sport_name: str | None = Field(default=None, max_length=SPORT_MAX_LENGTH)
+    game_name: str | None = None
+    study_topic: str | None = None
+    study_period: str | None = None
+    study_method: str | None = None
+    product_name: str | None = None
+    purchase_url: str | None = None
+    estimated_price_per_person: float | None = Field(default=None, ge=0)
+    pickup_method: str | None = None
+
+    @field_validator("deadline_at", "meeting_start", "meeting_end")
+    @classmethod
+    def seoul_wall_time(cls, value):
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
+        return value
+
+    @field_validator("title", "body")
+    @classmethod
+    def nonempty_text(cls, value):
+        if value is None or not value.strip():
+            raise ValueError("제목과 소개를 입력해주세요.")
+        return value.strip()
+
+    @field_validator("purchase_url")
+    @classmethod
+    def safe_purchase_url(cls, value):
+        return validate_external_url(value)
+
+    # 수정 요청에서 regular_days가 전달되면 생성 요청과 동일한 검증을 적용함
+    @field_validator("regular_days")
+    @classmethod
+    def check_days(cls, days: list[str] | None) -> list[str] | None:
+        """생성 요청과 동일한 요일 규칙을 적용함."""
+        return validate_regular_days(days)
+
+
+def validate_comment_body(body: str) -> str:
+    """댓글 본문의 앞뒤 공백을 제거하고, 공백만 있으면 오류를 발생시킴."""
+    body = body.strip()
+    if not body:
+        raise ValueError("댓글 내용은 공백일 수 없습니다.")
+    return body
+
+
+class RecruitCommentCreate(BaseModel):
+    """모임 댓글 작성 요청.
+
+    - parent_comment_id만: 기존 방식. 최상위 댓글에만 답글 가능
+    - reply_to_comment_id: 그 댓글(대댓글 포함)에 직접 답글. 원댓글은 서버가 계산함
+    """
+
+    body: str = Field(min_length=1, max_length=2000)
+    parent_comment_id: int | None = None
+    reply_to_comment_id: int | None = Field(default=None, gt=0)
+
+    @field_validator("body")
+    @classmethod
+    def check_body(cls, body: str) -> str:
+        return validate_comment_body(body)
+
+
+class RecruitCommentUpdate(BaseModel):
+    """모임 댓글 수정 요청. 본문만 바꿀 수 있고 원댓글·답글 대상은 바꿀 수 없음."""
+
+    body: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_relation_change(cls, data):
+        # 게시판 수정 API와 같이 위치 변경 요청은 무시하지 않고 422로 거부함.
+        if isinstance(data, dict) and any(
+            data.get(key) is not None for key in ("parent_comment_id", "reply_to_comment_id")
+        ):
+            raise ValueError("댓글 위치는 수정할 수 없습니다.")
+        return data
+
+    @field_validator("body")
+    @classmethod
+    def check_body(cls, body: str) -> str:
+        return validate_comment_body(body)
+
+
+# 모임 생성 결과를 반환할 때 사용하는 응답 모델
+class RecruitResponse(RecruitCreate):
+    """모임 생성 응답 등에 사용할 수 있는 형태. 생성 필드와 검증 규칙을 상속함."""
+
+    # RecruitCreate의 필드와 검증 규칙을 상속함
+    # recruit_id : 생성된 모임 고유 번호
+    # post_id : 연결된 게시글 고유 번호
+    # state : 모임 모집 상태
+    recruit_id: int
+    post_id: int
+    state: str

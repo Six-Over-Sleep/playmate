@@ -8,7 +8,7 @@ export default function PostSearch({ value, sort, onSort, onSearch, busy, hideSo
   return (
     <form className="search-row" onSubmit={submitSearch}>
       <div className="search-box">
-        <span aria-hidden="true">⌕</span>
+        <svg className="pm-board-search-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="10.7" cy="10.7" r="6.7" /><path d="m16 16 5 5" /></svg>
         {/* 백엔드 검색어(q)의 최대 100자 계약에 맞춰 입력을 제한한다. */}
         <input
           aria-label="게시글 검색"

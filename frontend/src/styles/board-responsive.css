@@ -549,3 +549,55 @@
     transition: none;
   }
 }
+
+/* 2026-11-26 · 게시판 긴 문자열, 페이지 이동, 취업 검색 버튼과 일관성 (요청 1·2·11) */
+.board-shell :is(.pm-board-feed, .pm-board-content, .post-card, .pm-board-detail-card) { min-width: 0; max-width: 100%; }
+.board-shell .pm-board-feed .post-card :is(h3, p),
+.board-shell .pm-board-detail-card :is(.post-body, .detail-head h1),
+.board-shell .board-intro-description,
+.board-shell .pm-board-title p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+/* 글 목록의 본문 미리보기도 단어 구분 없는 영문이 카드 밖으로 나가지 않도록 자연스럽게 줄바꿈 */
+.board-shell.pm-board-dashboard .pm-board-feed .post-card > p { white-space: normal; text-overflow: clip; overflow: visible; }
+.board-shell .pm-board-detail-card :is(pre, table) { max-width: 100%; overflow-x: auto; }
+.board-shell.pm-board-dashboard .pm-board-feed .board-pagination {
+  display: flex; justify-content: center; align-items: center; flex-wrap: wrap;
+  gap: 10px; margin: 22px 0 2px; padding: 13px 0 0;
+  border-top: 1px solid #e7effa;
+}
+.board-shell.pm-board-dashboard .pm-board-feed .board-pagination button {
+  min-width: 66px; min-height: 38px; padding: 8px 15px;
+  border: 1px solid #d9e6f6; border-radius: 10px;
+  background: #f5f9ff; color: #4978b3; font-size: 13px; font-weight: 750;
+  cursor: pointer; transition: background .15s ease, border-color .15s ease;
+}
+.board-shell.pm-board-dashboard .pm-board-feed .board-pagination button:hover:not(:disabled) {
+  border-color: #abcbee; background: #e6f2ff;
+}
+.board-shell.pm-board-dashboard .pm-board-feed .board-pagination button:disabled {
+  opacity: .42; cursor: not-allowed;
+}
+.board-shell.pm-board-dashboard .pm-board-feed .board-pagination > span {
+  min-width: 72px; padding: 0 5px; text-align: center;
+  color: #627f9e; font-size: 13px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* 취업 게시판과 동일한 돋보기 + 텍스트형 검색 버튼 */
+.board-shell.pm-board-dashboard .pm-board-feed .search-box { min-width: 0; gap: 12px; }
+.board-shell.pm-board-dashboard .pm-board-feed .search-box > svg.pm-board-search-icon {
+  flex: 0 0 19px; color: #96a9c4;
+}
+.board-shell.pm-board-dashboard .pm-board-feed .search-box button[type="submit"] {
+  flex: 0 0 auto; padding: 9px 3px 9px 14px;
+  border: 0; border-radius: 0; background: transparent;
+  color: #4a80bc; font-family: inherit; font-size: 14px; font-weight: 700;
+  white-space: nowrap; cursor: pointer;
+}
+.board-shell.pm-board-dashboard .pm-board-feed .search-box button[type="submit"]:hover:not(:disabled) { color: #2765a9; }
+.board-shell.pm-board-dashboard .pm-board-feed .search-box button[type="submit"]:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 580px) {
+  .board-shell.pm-board-dashboard .pm-board-feed .board-pagination { gap: 7px; }
+  .board-shell.pm-board-dashboard .pm-board-feed .board-pagination button { min-width: 60px; }
+}

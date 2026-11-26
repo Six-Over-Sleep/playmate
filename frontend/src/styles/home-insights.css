@@ -1,9 +1,4 @@
-/* =============================================================
-   2026-11-17 채용 인사이트 수집 분기 카드 + 홈 기술 랭킹 UI 정리
-   - 분기 요약: 160px 고정 카드 내부 콘텐츠를 세로 중앙에 배치
-   - 홈: 직무 막대 차트는 유지하고, 기술은 서로 다른 카드형 랭킹
-   - 다른 페이지/반응형 구성/외계인 위치는 변경하지 않음
-   ============================================================= */
+/* 채용 인사이트 보조 카드(기존 구성 유지) */
 .career-page .career-ci-side-stack .career-ci-quarter-summary {
   justify-content: center;
   gap: 12px;
@@ -13,173 +8,183 @@
   flex: 0 1 auto;
 }
 
-.playmate-home .home-top-five--skills {
-  display: flex;
-  flex-direction: column;
+/* 메인 인사이트: 양쪽 카드 높이 일치 + 컴팩트한 배치 */
+.playmate-home .home-insights-shell {
+  padding-top: 21px;
+  padding-bottom: 13px;
 }
-.playmate-home .home-top-five--skills .home-stack-ranking {
-  flex: 1 1 auto;
-  min-height: 200px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: minmax(66px, auto);
-  align-content: center;
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.playmate-home .home-top-five--skills .home-stack-ranking li {
-  box-sizing: border-box;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 13px 15px;
-  border: 1px solid #3b4c64;
-  border-radius: 14px;
-  background: #273348;
-}
-.playmate-home .home-top-five--skills .home-stack-number {
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 11px;
-  background: #344a6c;
-  color: #c4dbff;
-  font-size: 12px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-.playmate-home .home-top-five--skills .home-stack-copy {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 3px;
-}
-.playmate-home .home-top-five--skills .home-stack-copy strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #ecf4ff;
-  font-size: 16px;
-  text-align: left;
-  font-weight: 750;
-}
-.playmate-home .home-top-five--skills .home-stack-copy > span {
-  color: #b0d0fb;
-  font-size: 13px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.playmate-home .home-top-five--skills .home-stack-note {
-  margin: 13px 0 0;
-  color: #93a8c4;
-  font-size: 11px;
-  line-height: 1.5;
-}
-@media (max-width: 580px) {
-  .playmate-home .home-top-five--skills .home-stack-ranking {
-    min-height: 185px;
-    gap: 8px;
-  }
-  .playmate-home .home-top-five--skills .home-stack-ranking li {
-    padding: 10px 8px;
-    gap: 8px;
-    border-radius: 11px;
-  }
-  .playmate-home .home-top-five--skills .home-stack-number {
-    width: 26px;
-    height: 26px;
-    flex-basis: 26px;
-    border-radius: 8px;
-    font-size: 10px;
-  }
-  .playmate-home .home-top-five--skills .home-stack-copy strong { font-size: 13px; }
-  .playmate-home .home-top-five--skills .home-stack-copy > span { font-size: 11px; }
-}
-
-/* ================================================================
-   2026-11-17 홈 채용 인사이트: 희소한 기술 데이터에서도 여백 최소화
-   - 직무 5개/기술 2개 모두 실제 항목 높이에 맞춰 카드 높이를 결정
-   - 두 카드가 같은 행에 있을 때 상하 여백이 과도하게 늘어나지 않게 함
-   - 두 번째 차트는 랭킹 카드 표현을 유지해 직무 막대 차트와 구분
-   ================================================================ */
+.playmate-home .home-section-heading { padding-bottom: 16px; }
 .playmate-home .home-insights-grid {
   align-items: stretch;
+  gap: 14px;
 }
 .playmate-home .home-insights-grid > .home-top-five {
-  min-height: 0;
+  box-sizing: border-box;
   height: auto;
-  padding: 20px 22px 22px;
+  min-height: 0;
+  padding: 16px 18px 14px;
 }
 .playmate-home .home-insights-grid > .home-top-five h3 {
-  margin-bottom: 17px;
+  margin-bottom: 11px;
+  line-height: 1.3;
 }
-.playmate-home .home-insights-grid > .home-top-five:not(.home-top-five--skills) ol {
-  gap: 12px;
-}
-.playmate-home .home-top-five--skills .home-stack-ranking {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-auto-rows: auto;
-  gap: 10px;
-  flex: none;
-  min-height: 0;
-  align-content: start;
-}
-.playmate-home .home-top-five--skills .home-stack-ranking li {
-  min-height: 58px;
-  padding: 10px 13px;
-}
-.playmate-home .home-top-five--skills .home-stack-note {
-  margin-top: 12px;
-}
-@media (max-width: 880px) {
-  .playmate-home .home-insights-grid > .home-top-five {
-    padding: 18px 18px 20px;
-  }
-  .playmate-home .home-top-five--skills .home-stack-ranking {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 580px) {
-  .playmate-home .home-insights-grid > .home-top-five {
-    padding: 15px 12px;
-  }
-  .playmate-home .home-top-five--skills .home-stack-ranking {
-    min-height: 0;
-    gap: 8px;
-  }
-  .playmate-home .home-top-five--skills .home-stack-ranking li {
-    min-height: 54px;
-    padding: 8px 9px;
-  }
-}
+.playmate-home .home-insights-footnote { margin-top: 9px; }
 
-
-/* 2026-11-17 | 홈 채용 인사이트: 직무별 공고 그래프 세로 균형
-   같은 높이의 기술 스택 카드와 함께 표시될 때 남는 세로 공간을
-   직무 TOP 5 행에 나누어 배분합니다. 기술 스택과 작은 화면은 그대로 유지. */
+/* 직무별 공고: 원래의 5행 막대그래프 유지 */
+.playmate-home .home-insights-grid > .home-top-five:not(.home-top-five--skills) ol > li { min-height: 27px; }
 @media (min-width: 881px) {
   .playmate-home .home-insights-grid > .home-top-five:not(.home-top-five--skills) {
     display: flex;
     flex-direction: column;
   }
-
   .playmate-home .home-insights-grid > .home-top-five:not(.home-top-five--skills) ol {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    justify-content: space-around;
-    gap: 0;
-    padding: 5px 0;
+    justify-content: space-evenly;
+    gap: 4px;
+    padding: 0;
   }
+}
 
-  .playmate-home .home-insights-grid > .home-top-five:not(.home-top-five--skills) ol > li {
-    min-height: 25px;
+/* 기술 스택 TOP 5: 박스와 막대 없이, 1위 강조 + 2열 순위 목록 */
+.playmate-home .home-top-five--skills {
+  display: flex;
+  flex-direction: column;
+}
+.playmate-home .home-top-five--skills ol.home-stack-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 20px;
+  row-gap: 0;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.playmate-home .home-top-five--skills .home-stack-list > li {
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 9px 4px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #e4eaf5;
+}
+.playmate-home .home-top-five--skills .home-stack-list > li.home-stack-first {
+  grid-column: 1 / -1;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  min-height: 77px;
+  margin-bottom: 4px;
+  padding: 11px 4px 14px;
+  border-bottom: 1px solid rgba(155, 177, 211, .20);
+}
+.playmate-home .home-top-five--skills .home-stack-index {
+  color: #94b5e9;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: .015em;
+  font-variant-numeric: tabular-nums;
+}
+.playmate-home .home-top-five--skills .home-stack-first .home-stack-index {
+  color: #bfd6fa;
+  font-size: 15px;
+  font-weight: 650;
+}
+.playmate-home .home-top-five--skills .home-stack-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.playmate-home .home-top-five--skills .home-stack-name {
+  display: block;
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e9f0fb;
+  font-size: 14px;
+  font-weight: 530;
+  line-height: 1.3;
+}
+.playmate-home .home-top-five--skills .home-stack-first .home-stack-name {
+  color: #f2f7ff;
+  font-size: 18px;
+  font-weight: 600;
+}
+.playmate-home .home-top-five--skills .home-stack-info small {
+  color: #91a7c5;
+  font-weight: 400;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.playmate-home .home-top-five--skills .home-stack-count {
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  flex: 0 0 auto;
+  gap: 2px;
+  white-space: nowrap;
+  color: #a9c8f4;
+  font-variant-numeric: tabular-nums;
+}
+.playmate-home .home-top-five--skills .home-stack-count strong {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.3;
+}
+.playmate-home .home-top-five--skills .home-stack-count small {
+  color: #90a9ce;
+  font-size: 10px;
+  font-weight: 450;
+}
+.playmate-home .home-top-five--skills .home-stack-first .home-stack-count strong {
+  color: #c7dcff;
+  font-size: 18px;
+  font-weight: 600;
+}
+.playmate-home .home-top-five--skills .home-stack-first .home-stack-count small {
+  font-size: 11px;
+}
+.playmate-home .home-top-five--skills .home-stack-note {
+  margin: auto 0 0;
+  padding-top: 10px;
+  color: #92a7c4;
+  font-size: 11px;
+  line-height: 1.4;
+}
+@media (max-width: 880px) {
+  .playmate-home .home-insights-grid > .home-top-five { padding: 16px; }
+}
+@media (max-width: 580px) {
+  .playmate-home .home-insights-shell { padding-top: 16px; }
+  .playmate-home .home-insights-grid > .home-top-five { padding: 14px 12px; }
+  .playmate-home .home-insights-grid > .home-top-five:not(.home-top-five--skills) ol { gap: 11px; }
+  .playmate-home .home-top-five--skills ol.home-stack-list { column-gap: 9px; }
+  .playmate-home .home-top-five--skills .home-stack-list > li {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    gap: 5px;
+    min-height: 47px;
+    padding-inline: 0;
   }
+  .playmate-home .home-top-five--skills .home-stack-list > li.home-stack-first {
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    min-height: 68px;
+  }
+  .playmate-home .home-top-five--skills .home-stack-name { font-size: 12px; }
+  .playmate-home .home-top-five--skills .home-stack-count strong { font-size: 11px; }
+}
+@media (max-width: 340px) {
+  .playmate-home .home-top-five--skills ol.home-stack-list { grid-template-columns: minmax(0, 1fr); }
+  .playmate-home .home-top-five--skills .home-stack-list > li { min-height: 39px; }
 }

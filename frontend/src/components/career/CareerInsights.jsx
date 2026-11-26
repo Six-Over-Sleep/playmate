@@ -179,20 +179,18 @@ export default function CareerInsights() {
         <RoleRanking items={data.roles || []} />
         <div className="career-ci-a-secondary">
           <FieldRanking items={data.fields || []} />
-          <div className="career-ci-side-stack">
-            <SkillTags items={data.skills || []} />
-            <section className="career-ci-quarter-summary" aria-label="수집 분기 현황">
-              <div className="career-ci-quarter-head">
-                <div><strong>수집 분기별 현황</strong><span>수집된 데이터 기준</span></div>
-                <div className="career-ci-quarter-values">
-                  {(data.trend || []).length ? data.trend.map(point => <span className="career-ci-quarter-item" key={point.id}>
-                    {quarterLabel(point.id)} <strong>{format(point.count)}건</strong>
-                  </span>) : <span>수집 분기 정보 없음</span>}
-                </div>
+          <SkillTags items={data.skills || []} />
+          <section className="career-ci-quarter-summary career-ci-quarter-summary--wide" aria-label="수집 분기 현황">
+            <div className="career-ci-quarter-head">
+              <div><strong>수집 분기별 현황</strong><span>수집된 데이터 기준</span></div>
+              <div className="career-ci-quarter-values">
+                {(data.trend || []).length ? data.trend.map(point => <span className="career-ci-quarter-item" key={point.id}>
+                  {quarterLabel(point.id)} <strong>{format(point.count)}건</strong>
+                </span>) : <span>수집 분기 정보 없음</span>}
               </div>
-              {(data.trend || []).length < 2 && <p>한 분기의 수집 데이터만 있어 추이는 표시하지 않습니다. 과거 미수집 기간은 0건으로 해석하지 않습니다.</p>}
-            </section>
-          </div>
+            </div>
+            {(data.trend || []).length < 2 && <p>한 분기의 수집 데이터만 있어 추이는 표시하지 않습니다. 과거 미수집 기간은 0건으로 해석하지 않습니다.</p>}
+          </section>
         </div>
       </div>
 

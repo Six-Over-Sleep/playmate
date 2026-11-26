@@ -54,19 +54,33 @@ function FieldRanking({ items = [] }) {
 
 function SkillTags({ items = [] }) {
   const top = items.slice(0, 5)
+  const maximum = Math.max(1, ...top.map(item => Number(item.count) || 0))
+
   return <section className="career-ci-panel career-ci-skill-panel" aria-label="기술 스택 상위 순위">
     <div className="career-ci-section-title">
-      <div><span className="career-ci-panel-eyebrow">TECH STACK</span><h3>기술 스택 TOP 5</h3>
-        {top.length > 0 && <small className="career-ci-top-caption">최다 기술 · {top[0].name} ({format(top[0].count)}건)</small>}
+      <div>
+        <span className="career-ci-panel-eyebrow">TECH STACK</span>
+        <h3>기술 스택 TOP 5</h3>
+        <small className="career-ci-top-caption">채용공고에서 많이 등장한 기술 순위</small>
       </div>
       <span>TOP 5</span>
     </div>
-    {top.length ? <div className="career-ci-skill-tags">
-      {top.map((item, index) => <span className="career-ci-skill-tag" key={`${item.name}-${index}`}>
-        <span>{item.name}</span>
-        <strong>{format(item.count)}건</strong>
-      </span>)}
-    </div> : <p className="career-ci-empty">현재 수집된 공고에서 확인된 기술 스택 정보가 부족합니다. 데이터가 추가되면 분석 결과를 확인할 수 있습니다.</p>}
+    {top.length ? <ol className="career-ci-skill-ranking">
+      {top.map((item, index) => {
+        const count = Math.max(0, Number(item.count) || 0)
+        const ratio = count / maximum * 100
+        return <li className={`career-ci-skill-item${index === 0 ? ' career-ci-skill-item--top' : ''}`} key={`${item.name}-${index}`}>
+          <div className="career-ci-skill-item-head">
+            <span className="career-ci-skill-rank-no">{String(index + 1).padStart(2, '0')}</span>
+            <strong className="career-ci-skill-name">{item.name}</strong>
+            <span className="career-ci-skill-count">{format(count)}<small>건</small></span>
+          </div>
+          <div className="career-ci-skill-track" aria-hidden="true">
+            <span style={{ width: `${ratio}%` }} />
+          </div>
+        </li>
+      })}
+    </ol> : <p className="career-ci-empty">현재 수집된 공고에서 확인된 기술 스택 정보가 부족합니다. 데이터가 추가되면 분석 결과를 확인할 수 있습니다.</p>}
     <p className="career-ci-skill-hint">선택한 조건에서 확인된 기술 스택만 표시합니다.</p>
   </section>
 }

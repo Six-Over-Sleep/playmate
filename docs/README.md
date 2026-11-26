@@ -108,3 +108,19 @@ design/
 ```
 
 현재 단계에서는 `design`, `qa`, `deliverables` 세 폴더를 기준으로 관리함.
+
+## AWS 운영 환경 문서
+
+> 운영 환경 구축 기준일: 2026-11-26
+
+| 문서 | 주요 내용 |
+|---|---|
+| [운영 아키텍처](operations/01_ARCHITECTURE.md) | AWS 구성도 및 기술 스택 |
+| [배포 가이드](operations/02_DEPLOYMENT_GUIDE.md) | GitHub Actions 및 CI/CD |
+| [보안 가이드](operations/03_SECURITY_GUIDE.md) | IAM, OIDC, 인증 및 보안 |
+| [모니터링 가이드](operations/04_MONITORING_GUIDE.md) | CloudWatch 및 Discord 알림 |
+| [백업 및 장애 복구](operations/05_BACKUP_RECOVERY.md) | S3, EBS, 자동 롤백 |
+| [AWS 비용 분석](operations/06_COST_ANALYSIS.md) | 실제 비용 및 월간 예상 운영비 |
+| [부하 테스트 보고서](operations/07_LOAD_TEST_REPORT.md) | 640건 요청 성능 검증 |
+| [운영자 매뉴얼](operations/08_OPERATION_MANUAL.md) | 운영 및 장애 대응 절차 |
+| [최종 체크리스트](operations/09_PRODUCTION_CHECKLIST.md) | 구축 결과 및 잔여 과제 |

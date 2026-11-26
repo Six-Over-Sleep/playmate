@@ -192,9 +192,8 @@
   height: 198px;
   overflow: hidden;
 }
-/* 항목이 다섯 개이거나 텍스트가 길면 카드가 늘어나는 대신 내부 스크롤 */
-.career-page .career-ci-a-secondary .career-ci-field-list,
-.career-page .career-ci-a-secondary .career-ci-skill-tags {
+/* 분야 목록만 내부 스크롤을 사용합니다. 기술 TOP 5는 항상 전부 표시합니다. */
+.career-page .career-ci-a-secondary .career-ci-field-list {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -202,7 +201,6 @@
   scrollbar-color: #c5d7ef transparent;
 }
 .career-page .career-ci-a-secondary .career-ci-field-list { flex: 1; align-content: start; }
-.career-page .career-ci-a-secondary .career-ci-skill-tags { flex: 1; }
 .career-page .career-ci-a-secondary .career-ci-skill-hint {
   flex: 0 0 auto;
   margin-top: 8px;
@@ -274,41 +272,117 @@
   font-weight: 800;
 }
 
-/* 기술 스택은 태그 칩형. 항목이 2개여도 불필요한 막대가 생기지 않도록 */
-.career-page .career-ci-skill-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 9px;
+/* 기술 스택 TOP 5: 1위 강조 + 2~5위 2열 랭킹, 실제 수치에 비례한 막대 */
+.career-page .career-ci-a-secondary .career-ci-skill-ranking {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: visible;
 }
-.career-page .career-ci-skill-tag {
+.career-page .career-ci-skill-item {
+  min-width: 0;
+  padding: 13px 15px 12px;
+  border: 1px solid #e2eaf7;
+  border-radius: 14px;
+  background: #f7faff;
+}
+.career-page .career-ci-skill-item--top {
+  grid-column: 1 / -1;
+  padding: 16px 18px 15px;
+  border-color: #cbdcf5;
+  background: linear-gradient(105deg, #eaf3ff 0%, #f7faff 100%);
+}
+.career-page .career-ci-skill-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 12px;
+}
+.career-page .career-ci-skill-rank-no {
+  flex: 0 0 30px;
   display: inline-flex;
   align-items: center;
-  max-width: 100%;
-  flex-wrap: wrap;
-  gap: 7px;
-  min-height: 37px;
-  padding: 8px 13px;
-  border: 1px solid #d5e5f8;
-  border-radius: 999px;
-  background: #edf5ff;
-  color: #436d9e;
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1.35;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: #e9f0fb;
+  color: #7294c8;
+  font-size: 11px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+.career-page .career-ci-skill-item--top .career-ci-skill-rank-no {
+  background: #6c94d0;
+  color: #fff;
+}
+.career-page .career-ci-skill-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #334b68;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
-.career-page .career-ci-skill-tag strong {
-  color: #4c7cbe;
-  font-size: 12px;
+.career-page .career-ci-skill-item--top .career-ci-skill-name {
+  color: #2c5183;
+  font-size: 16px;
+}
+.career-page .career-ci-skill-count {
+  flex: 0 0 auto;
+  color: #5d84bf;
+  font-size: 15px;
   font-weight: 850;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.career-page .career-ci-skill-item--top .career-ci-skill-count {
+  color: #4d78b8;
+  font-size: 18px;
+}
+.career-page .career-ci-skill-count small {
+  margin-left: 2px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.career-page .career-ci-skill-track {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e6edf8;
+}
+.career-page .career-ci-skill-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #97b4e0;
+}
+.career-page .career-ci-skill-item--top .career-ci-skill-track {
+  height: 7px;
+  background: #d7e5f7;
+}
+.career-page .career-ci-skill-item--top .career-ci-skill-track > span {
+  background: linear-gradient(90deg, #638dd0, #8bb5ed);
+}
 .career-page .career-ci-skill-hint {
-  margin: 19px 0 0;
-  color: #91a2b5;
+  margin: 12px 0 0;
+  color: #8a9cb1;
   font-size: 11px;
   line-height: 1.5;
+}
+@media (max-width: 440px) {
+  .career-page .career-ci-a-secondary .career-ci-skill-ranking { grid-template-columns: minmax(0, 1fr); }
+  .career-page .career-ci-skill-item--top { grid-column: auto; }
+  .career-page .career-ci-skill-item { padding: 12px 13px; }
+  .career-page .career-ci-skill-item-head { margin-bottom: 9px; }
 }
 
 /* 수집 분기가 하나뿐이면 시계열 차트 대신 작은 데이터 요약 행 */
@@ -407,3 +481,25 @@
   .career-page .career-ci-role-ranking .career-ci-rank { gap: 9px; }
 }
 
+/* 2026-11-26 · 기술 스택 Top 5가 카드 내부 스크롤 없이 모두 보이도록 (요청 5) */
+.career-page .career-ci-a-secondary { align-items: stretch; }
+.career-page .career-ci-a-secondary .career-ci-field-panel {
+  height: auto; min-height: 0; overflow: visible;
+}
+.career-page .career-ci-side-stack {
+  height: auto; min-height: 0; grid-template-rows: auto auto; align-content: start;
+}
+.career-page .career-ci-a-secondary .career-ci-skill-panel {
+  height: auto; min-height: 0; overflow: visible;
+}
+.career-page .career-ci-side-stack .career-ci-quarter-summary {
+  height: auto; min-height: 0; overflow: visible;
+}
+.career-page .career-ci-side-stack .career-ci-quarter-summary > p,
+.career-page .career-ci-side-stack .career-ci-quarter-values {
+  max-height: none; overflow: visible;
+}
+@media (max-width: 700px) {
+  .career-page .career-ci-a-secondary .career-ci-field-panel,
+  .career-page .career-ci-a-secondary .career-ci-skill-panel { height: auto; }
+}

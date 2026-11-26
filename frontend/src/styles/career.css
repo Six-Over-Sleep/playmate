@@ -1287,3 +1287,30 @@
   }
 }
 
+/* 2026-11-26 · 채용 인사이트 소개 박스 제거, 긴 영문 본문 줄바꿈 (요청 1·4) */
+.career-page .career-insights-v2 .career-ci-intro {
+  min-height: 0; padding: 2px 0 13px; margin: 0;
+  border: 0; border-radius: 0; background: transparent; box-shadow: none;
+  align-items: baseline; gap: 10px 18px;
+}
+.career-page .career-insights-v2 .career-ci-intro p {
+  margin: 0; color: #8294ab; font-size: 13px; line-height: 1.6;
+}
+.career-page .career-insights-v2 .career-ci-demo-label {
+  min-height: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: #658ac0; font-size: 12px;
+  white-space: nowrap;
+}
+.career-page :is(.career-post, .career-board, .career-post-list, .career-section-head) { min-width: 0; max-width: 100%; }
+.career-page .career-post :is(h3, p),
+.career-page :is(.career-review-detail, .career-talk-detail, .career-lounge-detail, .career-lab-detail, .career-news-detail) :is(h1,h2,h3,p,div),
+.career-page :is(.career-post-list, .career-section-head) :is(h2,p) {
+  overflow-wrap: anywhere; word-break: break-word;
+}
+.career-page .career-post p { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.career-page :is(.career-review-detail,.career-talk-detail,.career-lounge-detail,.career-lab-detail,.career-news-detail) :is(pre,table) {
+  max-width: 100%; overflow-x: auto;
+}
+@media (max-width: 580px) {
+  .career-page .career-insights-v2 .career-ci-intro { align-items: flex-start; flex-direction: column; }
+}

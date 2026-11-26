@@ -29,32 +29,38 @@ const number = (value) => Number(value || 0).toLocaleString('ko-KR')
 function TopFive({ title, items, withMascot = false }) {
   const top = asList(items).slice(0, 5)
   const max = Math.max(1, ...top.map((item) => Number(item.count) || 0))
+  // 실제 건수는 그대로 보여 주되, 막대 길이는 순위 차이를 읽기 쉽도록 비선형으로 강조합니다.
+  const barWidth = (count) => {
+    const value = Math.max(0, Number(count) || 0)
+    return value === 0 ? '0%' : `${Math.max(8, Math.pow(value / max, 3) * 100)}%`
+  }
   return <section className={`home-top-five${withMascot ? ' home-top-five--mascot' : ''}`}>
     {withMascot && <img className="home-insight-alien" src={insightAlien} alt="" aria-hidden="true" />}
     <h3>{title} <span className="home-top-five-label">TOP 5</span></h3>
     {top.length ? <ol>{top.map((item, index) => <li key={`${item.name}-${index}`}>
       <span className="home-rank-number">{String(index + 1).padStart(2, '0')}</span>
       <span className="home-rank-name" title={item.name}>{item.name}</span>
-      <span className="home-rank-bar"><i style={{ width: `${Math.max(4, Number(item.count || 0) / max * 100)}%` }} /></span>
+      <span className="home-rank-bar" title={`${number(item.count)}건 · 길이는 차이를 강조한 비선형 표시`}><i style={{ width: barWidth(item.count) }} /></span>
       <strong>{number(item.count)}건</strong>
     </li>)}</ol> : <p className="home-no-data">표시할 데이터가 없습니다.</p>}
   </section>
 }
 
-// 기술 스택은 직무의 막대그래프와 구분되는 카드형 랭킹으로 표시합니다.
-// 개별 직무의 필수 기술을 의미하지 않으며, 수집 공고의 기술 출현 건수입니다.
+// 왼쪽 직무별 막대그래프와 다르게 기술 스택은 박스 없이 1위 강조 + 2열 순위 목록으로 표시합니다.
+// 데이터의 실제 순위와 건수는 그대로 유지합니다.
 function StackRanking({ items }) {
   const top = asList(items).slice(0, 5)
   return <section className="home-top-five home-top-five--mascot home-top-five--skills" aria-label="기술 스택 상위 순위">
     <img className="home-insight-alien" src={insightAlien} alt="" aria-hidden="true" />
     <h3>기술 스택 <span className="home-top-five-label">TOP 5</span></h3>
-    {top.length ? <ol className="home-stack-ranking">
-      {top.map((item, index) => <li key={`${item.name}-${index}`}>
-        <span className="home-stack-number">{String(index + 1).padStart(2, '0')}</span>
-        <span className="home-stack-copy">
-          <strong title={item.name}>{item.name}</strong>
-          <span>{number(item.count)}건</span>
+    {top.length ? <ol className="home-stack-list">
+      {top.map((item, index) => <li key={`${item.name}-${index}`} className={index === 0 ? 'home-stack-first' : ''}>
+        <span className="home-stack-index">{String(index + 1).padStart(2, '0')}</span>
+        <span className="home-stack-info">
+          <span className="home-stack-name" title={item.name}>{item.name}</span>
+          {index === 0 && <small>가장 많이 등장한 기술</small>}
         </span>
+        <span className="home-stack-count"><strong>{number(item.count)}</strong><small>건</small></span>
       </li>)}
     </ol> : <p className="home-no-data">표시할 기술 스택 데이터가 없습니다.</p>}
     <p className="home-stack-note">수집 공고에서 확인된 기술 스택 기준</p>
@@ -140,7 +146,7 @@ export default function HomePage({ onNavigate }) {
           <TopFive title="직무별 공고" items={insights?.roles} />
           <StackRanking items={insights?.skills} />
         </div>
-        <p className="home-insights-footnote">* 수집된 채용공고 표본 기준 · 실제 공고 건수이며 시장 전체 통계가 아닙니다.</p>
+        <p className="home-insights-footnote">* 수집된 공고 표본의 실제 건수이며 시장 전체 통계가 아닙니다. 막대 길이는 차이를 강조한 비선형 표시입니다.</p>
       </section>
     </div>
 

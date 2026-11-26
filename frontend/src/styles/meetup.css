@@ -827,3 +827,73 @@
   .pm-meetup-page .pm-meetup-layout { grid-template-columns: minmax(0, 1fr); }
   .pm-meetup-page .pm-meetup-sidebar .meetup-tabs { max-width: 100%; min-width: 0; }
 }
+
+/* 2026-11-26 · 모임 마감 시각·모바일 탭·정기 일정 정리 (요청 1·3·9·10) */
+/* 첫 번째 모임도 이제 흰 카드이므로, 이전 그라데이션 카드의 흰색 글자 강제 규칙을 무력화 */
+.pm-meetup-page .pm-meetup-main .meetup-card .meetup-card-schedule,
+.pm-meetup-page .pm-meetup-main .meetup-card:first-child .meetup-card-schedule,
+.pm-meetup-page .pm-meetup-main .meetup-card-featured .meetup-card-schedule {
+  display: block !important; color: #6985a5 !important;
+  opacity: 1; font-weight: 720; overflow-wrap: anywhere;
+}
+.pm-meetup-page .pm-meetup-main .meetup-card :is(h3, .meetup-card-content p, .meetup-study-topic),
+.meetup-detail-page .meetup-detail-body { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.pm-meetup-page .pm-meetup-main .meetup-card-content { min-width: 0; }
+/* 사이드바가 상단으로 이동하는 모바일·태블릿에서는 3열 2행으로 전체 카테고리를 한번에 표시 */
+@media (max-width: 880px) {
+  .pm-meetup-page .pm-meetup-sidebar .meetup-tabs {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px; width: 100%; max-width: 100%; overflow: visible; margin: 0;
+    align-items: stretch;
+  }
+  .pm-meetup-page .pm-meetup-sidebar .meetup-tabs button,
+  .pm-meetup-page .pm-meetup-sidebar .meetup-tabs button.meetup-tab-all {
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    box-sizing: border-box; min-width: 0; width: 100%; min-height: 42px;
+    padding: 9px 5px; margin: 0; font-size: 12px; line-height: 1.3;
+    text-align: center; white-space: normal; word-break: keep-all;
+    border-radius: 11px;
+  }
+  .pm-meetup-page .pm-meetup-sidebar .meetup-tabs button.meetup-tab-all::after { display: none; }
+  .pm-meetup-page .pm-meetup-sidebar .meetup-tabs .meetup-tab-icon { flex: 0 0 auto; }
+}
+@media (max-width: 360px) {
+  .pm-meetup-page .pm-meetup-sidebar .meetup-tabs { gap: 6px; }
+  .pm-meetup-page .pm-meetup-sidebar .meetup-tabs button { padding: 8px 3px; font-size: 11px; }
+}
+/* 정기 일정 내 그리드 자식이 최소 콘텐츠 폭으로 부모를 밀어내지 않도록 */
+.meetup-editor-page .meetup-form-card,
+.meetup-editor-page .meetup-form-fields,
+.meetup-editor-page .regular-schedule-section,
+.meetup-editor-page .meetup-regular-inline,
+.meetup-editor-page .meetup-schedule-field,
+.meetup-editor-page .meetup-field { min-width: 0; max-width: 100%; }
+.meetup-editor-page .meetup-regular-inline > *,
+.meetup-editor-page .meetup-field > input { min-width: 0; max-width: 100%; }
+.meetup-editor-page .meetup-weekday-buttons { width: 100%; max-width: 100%; grid-template-columns: repeat(7, minmax(0,1fr)); }
+.meetup-editor-page .meetup-weekday-buttons button { min-width: 0; padding: 0; }
+@media (max-width: 1000px) {
+  .meetup-editor-page .meetup-regular-inline {
+    width: 100%; grid-template-columns: minmax(0,1fr); gap: 10px;
+  }
+}
+@media (max-width: 700px) {
+  .meetup-editor-page .regular-schedule-section { padding: 16px 12px; }
+  .meetup-editor-page .meetup-regular-inline { grid-template-columns: minmax(0,1fr); }
+  .meetup-editor-page .meetup-form-card :is(input[type="date"], input[type="time"], input[type="datetime-local"]) {
+    box-sizing: border-box; display: block; width: 100%; min-width: 0; max-width: 100%;
+    height: 46px; min-height: 46px; max-height: 46px;
+    padding: 0 10px; font-size: 14px; line-height: normal;
+  }
+  .meetup-editor-page .meetup-form-card :is(input[type="date"], input[type="time"], input[type="datetime-local"])::-webkit-date-and-time-value {
+    min-height: 1em; text-align: left;
+  }
+  .meetup-editor-page .meetup-form-card :is(input[type="date"], input[type="time"], input[type="datetime-local"])::-webkit-datetime-edit { padding: 0; }
+  .meetup-editor-page .meetup-weekday-buttons { gap: 5px; }
+  .meetup-editor-page .meetup-weekday-buttons button { height: 40px; min-height: 40px; font-size: 12px; }
+}
+@media (max-width: 380px) {
+  .meetup-editor-page .regular-schedule-section { padding: 14px 9px; }
+  .meetup-editor-page .meetup-weekday-buttons { gap: 4px; }
+  .meetup-editor-page .meetup-weekday-buttons button { font-size: 11px; }
+}

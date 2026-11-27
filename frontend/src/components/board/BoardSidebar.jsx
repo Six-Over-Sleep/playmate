@@ -122,16 +122,16 @@ export default function BoardSidebar({
     const isMine = isMyCourseBoard(board)
     const boardName = getOriginalName(board)
     const boardClass = ({
-      FREE_BOARD_NAME: 'free',
-      NOTICE_BOARD_NAME: 'notice',
+      [FREE_BOARD_NAME]: 'free',
+      [NOTICE_BOARD_NAME]: 'notice',
       'HOT 게시판': 'hot',
       '명예의 전당': 'hall',
     })[boardName]
     const icon = isMine ? '🎓' : ({
-      NOTICE_BOARD_NAME: '📢',
+      [NOTICE_BOARD_NAME]: '📢',
       '명예의 전당': '🏆',
       'HOT 게시판': '🔥',
-      FREE_BOARD_NAME: '💬',
+      [FREE_BOARD_NAME]: '💬',
     })[boardName]
 
     return (
